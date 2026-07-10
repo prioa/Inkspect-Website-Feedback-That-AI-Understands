@@ -69,7 +69,7 @@ export function Toolbar({
   return (
     <header className="toolbar">
       <span className="toolbar__brand">
-        Dev<em>Viewer</em>
+        Ink<em>spect</em>
       </span>
 
       <form

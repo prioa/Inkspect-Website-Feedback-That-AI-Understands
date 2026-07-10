@@ -248,7 +248,7 @@ export function AnnotationOverlay({
 
     e.currentTarget.setPointerCapture(e.pointerId);
     if (tool === 'pen') {
-      setDraft({ id: shapeId(), tool: 'pen', color, points: [p] });
+      setDraft({ id: shapeId(), tool: 'pen', color, strokes: [[p]] });
     } else {
       setDraft({ id: shapeId(), tool, color, x1: p.x, y1: p.y, x2: p.x, y2: p.y });
     }
@@ -263,29 +263,26 @@ export function AnnotationOverlay({
     if (!draft) return;
     const p = toDoc(e);
     if (draft.tool === 'pen') {
-      const last = draft.points[draft.points.length - 1];
+      const stroke = draft.strokes[draft.strokes.length - 1] ?? [];
+      const last = stroke[stroke.length - 1];
       if (last && Math.hypot(p.x - last.x, p.y - last.y) < 2 / zoom) return;
-      setDraft({ ...draft, points: [...draft.points, p] });
+      setDraft({ ...draft, strokes: [...draft.strokes.slice(0, -1), [...stroke, p]] });
     } else if (draft.tool === 'rect' || draft.tool === 'ellipse' || draft.tool === 'arrow') {
       setDraft({ ...draft, x2: p.x, y2: p.y });
     }
   };
 
+  // Zeichenformen speichern ohne Notiz-Editor — Freitext gibt es nur bei
+  // Pin und Element-Picker.
   const handleUp = () => {
     if (!draft) return;
     setDraft(null);
 
-    // Nach dem Zeichnen speichern und den Notiz-Editor am Endpunkt oeffnen.
     if (draft.tool === 'pen') {
-      if (draft.points.length > 1) {
-        const last = draft.points[draft.points.length - 1]!;
-        onAdd(draft);
-        setNoteDraft({ shapeId: draft.id, x: last.x, y: last.y, value: '' });
-      }
+      if ((draft.strokes[0]?.length ?? 0) > 1) onAdd(draft);
     } else if (draft.tool === 'rect' || draft.tool === 'ellipse' || draft.tool === 'arrow') {
       if (Math.hypot(draft.x2 - draft.x1, draft.y2 - draft.y1) >= MIN_DRAG / zoom) {
         onAdd(draft);
-        setNoteDraft({ shapeId: draft.id, x: draft.x2, y: draft.y2, value: '' });
       }
     }
   };
@@ -468,13 +465,11 @@ function renderShape(
     }
     case 'pen':
       return (
-        <polyline
-          key={shape.id}
-          points={shape.points.map((p) => `${p.x},${p.y}`).join(' ')}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          {...stroke}
-        />
+        <g key={shape.id} strokeLinecap="round" strokeLinejoin="round" {...stroke}>
+          {shape.strokes.map((points, i) => (
+            <polyline key={i} points={points.map((p) => `${p.x},${p.y}`).join(' ')} />
+          ))}
+        </g>
       );
     case 'rect':
       return (

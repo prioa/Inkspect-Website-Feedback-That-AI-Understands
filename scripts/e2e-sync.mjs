@@ -227,6 +227,36 @@ try {
     `hoverRects: ${hoverRects}, labels: ${elLabels.join(' | ')}`,
   );
 
+  // --- 8b. Freihand: kreuzende Striche verschmelzen, keine Notiz ---
+  await pickTool(3); // Stift
+  const drawStroke = async (x1, y1, x2, y2) => {
+    const a = inFrame0(x1, y1);
+    const b = inFrame0(x2, y2);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move((a.x + b.x) / 2, (a.y + b.y) / 2, { steps: 5 });
+    await page.mouse.move(b.x, b.y, { steps: 5 });
+    await page.mouse.up();
+    await new Promise((r) => setTimeout(r, 150));
+  };
+  await drawStroke(60, 480, 170, 560); // Strich 1
+  await drawStroke(60, 560, 170, 480); // Strich 2 — kreuzt Strich 1
+  await drawStroke(60, 640, 170, 640); // separater Strich, weit genug weg
+  const penInfo = await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    return {
+      freihand: [...sr.querySelectorAll('.fb-item__label')].filter(
+        (n) => n.textContent === 'Freihand',
+      ).length,
+      noteOpen: !!sr.querySelector('.anno__note'),
+    };
+  });
+  check(
+    'Freihand-Merge (kreuzende Striche, keine Notiz)',
+    penInfo.freihand === 2 && !penInfo.noteOpen,
+    `Freihand-Eintraege: ${penInfo.freihand}, Notiz offen: ${penInfo.noteOpen}`,
+  );
+
   // --- 9. Scrollen im Korrekturmodus: Wheel ueber dem aktiven Overlay ---
   // Der Stift von Device 1 ist noch aktiv; das Overlay muss Wheel-Events
   // an den Frame weiterreichen statt sie zu schlucken.
@@ -261,7 +291,7 @@ try {
   });
   check(
     'Share-Link im Feedback-Panel',
-    share.items?.length === 2 &&
+    share.items?.length === 4 &&
       share.items.some((i) => i.shape.text === 'Logo zu klein') &&
       share.items.some((i) => i.shape.tool === 'element'),
     `items: ${share.items?.length ?? 'keine'}, url: ${share.url.slice(0, 60)}…`,

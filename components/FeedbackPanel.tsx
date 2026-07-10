@@ -35,7 +35,7 @@ interface Props {
 function shapeLabel(shape: Shape): string {
   if (shape.tool === 'pin' || shape.tool === 'text') return shape.text || TOOL_LABELS[shape.tool];
   if (shape.tool === 'element') return shape.note ? `${shape.label} — ${shape.note}` : shape.label;
-  return shape.note || TOOL_LABELS[shape.tool];
+  return TOOL_LABELS[shape.tool];
 }
 
 function pathOf(url: string): string {

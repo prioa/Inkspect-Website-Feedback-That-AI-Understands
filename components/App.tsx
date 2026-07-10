@@ -11,6 +11,7 @@ import { ScrollSync } from '@/lib/scrollSync';
 import { InteractionSync } from '@/lib/interactionSync';
 import {
   ANNOTATION_COLORS,
+  penOverlaps,
   pinNumbers,
   TOOL_LABELS,
   type PaletteTool,
@@ -378,6 +379,43 @@ export function App({
     (uid: string, shape: Shape) => {
       const device = devices.find((d) => d.uid === uid);
       if (!device) return;
+
+      // Freihand: kreuzt oder ueberlappt der neue Zug bestehende Striche
+      // gleicher Farbe auf diesem Device, gehoeren sie zu einer Korrektur.
+      if (shape.tool === 'pen') {
+        const touching = feedback.filter(
+          (item) =>
+            item.url === activeUrl &&
+            item.deviceId === device.id &&
+            item.shape.tool === 'pen' &&
+            item.shape.color === shape.color &&
+            penOverlaps(item.shape.strokes, shape.strokes),
+        );
+        const [first, ...rest] = touching;
+        if (first && first.shape.tool === 'pen') {
+          const merged: FeedbackItem = {
+            ...first,
+            shape: {
+              ...first.shape,
+              strokes: [
+                ...first.shape.strokes,
+                ...rest.flatMap((item) => (item.shape.tool === 'pen' ? item.shape.strokes : [])),
+                ...shape.strokes,
+              ],
+            },
+          };
+          const obsolete = new Set(rest.map((item) => item.id));
+          setFeedback((current) =>
+            current
+              .filter((item) => !obsolete.has(item.id))
+              .map((item) => (item.id === merged.id ? merged : item)),
+          );
+          persist(replaceItem(merged), 'Feedback speichern');
+          if (obsolete.size > 0) persist(removeItems([...obsolete]), 'Feedback speichern');
+          return;
+        }
+      }
+
       const item: FeedbackItem = {
         id: shape.id,
         url: activeUrl,
@@ -388,7 +426,7 @@ export function App({
       setFeedback((current) => [...current, item]);
       persist(addItems([item]), 'Feedback speichern');
     },
-    [devices, activeUrl],
+    [devices, activeUrl, feedback],
   );
 
   /** Entfernt den zuletzt gesetzten Marker der aktuellen Seite (egal welches Device). */
@@ -410,11 +448,11 @@ export function App({
       const existing = feedback.find((item) => item.shape.id === shapeId);
       if (!existing) return;
       const shape = existing.shape;
-      // Pins/Texte tragen ihren Inhalt in `text`, Zeichnungen in `note`.
+      // Pins/Texte tragen ihren Inhalt in `text`, markierte Elemente in `note`;
+      // Zeichenformen haben keinen Freitext.
+      if (shape.tool !== 'pin' && shape.tool !== 'text' && shape.tool !== 'element') return;
       const updatedShape: Shape =
-        shape.tool === 'pin' || shape.tool === 'text'
-          ? { ...shape, text: note }
-          : { ...shape, note };
+        shape.tool === 'element' ? { ...shape, note } : { ...shape, text: note };
       const updated: FeedbackItem = { ...existing, shape: updatedShape };
       setFeedback((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       persist(replaceItem(updated), 'Notiz speichern');
@@ -460,7 +498,7 @@ export function App({
         } else if (shape.tool === 'text') {
           lines.push(`- Text: "${shape.text}"`);
         } else {
-          lines.push(`- ${TOOL_LABELS[shape.tool]}${shape.note ? `: "${shape.note}"` : ''}`);
+          lines.push(`- ${TOOL_LABELS[shape.tool]}`);
         }
       }
     }
