@@ -29,7 +29,8 @@ import {
   type FeedbackItem,
 } from '@/lib/feedbackStore';
 import { buildShareUrl } from '@/lib/share';
-import { buildClaudePrompt } from '@/lib/claudePrompt';
+import { buildClaudePrompt, type DeviceScreenshot } from '@/lib/claudePrompt';
+import { captureElementShot, downloadBlob } from '@/lib/screenshot';
 import { applyOverride, clearOverride, collectSheets, type SheetSource } from '@/lib/stylesheets';
 import type { FrameBypassResponse } from '@/lib/messages';
 import { createLogger } from '@/lib/log';
@@ -394,15 +395,18 @@ export function App({
         );
         const [first, ...rest] = touching;
         if (first && first.shape.tool === 'pen') {
+          const pens = [first.shape, ...rest.map((i) => i.shape), shape].filter(
+            (s): s is Extract<Shape, { tool: 'pen' }> => s.tool === 'pen',
+          );
+          const anchors = [...new Set(pens.flatMap((s) => s.anchors ?? []))].slice(0, 6);
           const merged: FeedbackItem = {
             ...first,
             shape: {
               ...first.shape,
-              strokes: [
-                ...first.shape.strokes,
-                ...rest.flatMap((item) => (item.shape.tool === 'pen' ? item.shape.strokes : [])),
-                ...shape.strokes,
-              ],
+              strokes: pens.flatMap((s) => s.strokes),
+              anchor: first.shape.anchor ?? shape.anchor,
+              anchorLabel: first.shape.anchorLabel ?? shape.anchorLabel,
+              anchors: anchors.length > 0 ? anchors : undefined,
             },
           };
           const obsolete = new Set(rest.map((item) => item.id));
@@ -517,15 +521,85 @@ export function App({
     [feedback, activeUrl],
   );
 
+  /**
+   * Laedt fuer jedes Device mit Feedback einen annotierten Screenshot
+   * herunter (sichtbarer Tab, zugeschnitten auf den Frame) — die Bilder
+   * machen Freihand-Markierungen fuer Claude Code erst verstaendlich.
+   */
+  const exportScreenshots = useCallback(async (): Promise<DeviceScreenshot[]> => {
+    /** Oberster Dokument-Y einer Markierung — dahin wird vor dem Capture gescrollt. */
+    const topOf = (shape: Shape): number => {
+      if (shape.tool === 'pen') {
+        const ys = (shape.strokes ?? []).flat().map((p) => p.y);
+        return ys.length > 0 ? Math.min(...ys) : Number.POSITIVE_INFINITY;
+      }
+      if ('y1' in shape) return Math.min(shape.y1, shape.y2);
+      return shape.y;
+    };
+
+    const shots: DeviceScreenshot[] = [];
+    const captured = new Set<string>();
+
+    for (const device of devices) {
+      if (captured.has(device.id)) continue;
+      const shapes = feedback
+        .filter((item) => item.url === activeUrl && item.deviceId === device.id)
+        .map((item) => item.shape);
+      const iframe = frames.current.get(device.uid);
+      const viewport = iframe?.parentElement;
+      if (shapes.length === 0 || !viewport) continue;
+      captured.add(device.id);
+
+      // captureVisibleTab ist auf 2 Aufrufe/s begrenzt.
+      if (shots.length > 0) await new Promise((r) => setTimeout(r, 600));
+
+      viewport.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+
+      // Frame zur obersten Markierung scrollen — der Screenshot zeigt nur den
+      // sichtbaren Ausschnitt, und die Marker sollen darauf zu sehen sein.
+      const win = iframe?.contentWindow;
+      const minY = Math.min(...shapes.map(topOf));
+      let previousScroll: { x: number; y: number } | null = null;
+      try {
+        if (win && Number.isFinite(minY)) {
+          previousScroll = { x: win.scrollX, y: win.scrollY };
+          win.scrollTo(0, Math.max(0, minY - 40));
+        }
+      } catch {
+        /* Frame nicht lesbar */
+      }
+      await new Promise((r) => setTimeout(r, 200));
+
+      try {
+        const blob = await captureElementShot(viewport.getBoundingClientRect());
+        if (blob) {
+          const file = `inkspect-feedback-${device.id}.png`;
+          downloadBlob(blob, file);
+          shots.push({ presetId: device.id, file });
+        }
+      } catch (e) {
+        log.warn('Screenshot fehlgeschlagen', device.name, e);
+      }
+
+      try {
+        if (win && previousScroll) win.scrollTo(previousScroll.x, previousScroll.y);
+      } catch {
+        /* Frame nicht lesbar */
+      }
+    }
+
+    return shots;
+  }, [devices, feedback, activeUrl]);
+
   // Einfuegefertiger Umsetzungs-Prompt fuer Claude Code.
-  const buildClaudeCodePrompt = useCallback(
-    () =>
-      buildClaudePrompt(
-        activeUrl,
-        feedback.filter((item) => item.url === activeUrl),
-      ),
-    [feedback, activeUrl],
-  );
+  const buildClaudeCodePrompt = useCallback(async () => {
+    const shots = await exportScreenshots();
+    return buildClaudePrompt(
+      activeUrl,
+      feedback.filter((item) => item.url === activeUrl),
+      shots,
+    );
+  }, [feedback, activeUrl, exportScreenshots]);
 
   // Shortcuts: Esc zurueck zum Interagieren, Cmd/Ctrl+Z Undo (nur im
   // Zeichenmodus), 1-7 waehlt ein Werkzeug.

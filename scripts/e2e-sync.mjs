@@ -5,6 +5,9 @@
  * muss sein Notiz-Popup oeffnen. CDP-Input erzeugt isTrusted=true.
  */
 import http from 'node:http';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -297,24 +300,68 @@ try {
     `items: ${share.items?.length ?? 'keine'}, url: ${share.url.slice(0, 60)}…`,
   );
 
-  // --- 10b. Claude-Code-Prompt: Selektoren, Notizen und Viewport enthalten ---
+  // --- 10b. Claude-Code-Prompt: Screenshots + Selektoren + Notizen ---
+  const downloadDir = mkdtempSync(join(tmpdir(), 'inkspect-e2e-'));
+  const cdp = await page.createCDPSession();
+  await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir });
+
   await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     sr.querySelector('.share-btn--alt').click();
   });
-  await new Promise((r) => setTimeout(r, 300));
+  await page
+    .waitForFunction(() => {
+      const sr = document.getElementById('inkspect-root').shadowRoot;
+      return !!sr.querySelector('.share-box__prompt');
+    }, { timeout: 10000 })
+    .catch(() => {});
+  await new Promise((r) => setTimeout(r, 600)); // Download zu Ende schreiben lassen
+
   const promptText = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     return sr.querySelector('.share-box__prompt')?.value ?? '';
   });
+  const shotFiles = readdirSync(downloadDir).filter(
+    (f) => f.startsWith('inkspect-feedback-') && f.endsWith('.png'),
+  );
   check(
-    'Claude-Code-Prompt',
+    'Claude-Code-Prompt (Screenshots + Selektoren)',
     promptText.includes('#name') &&
       promptText.includes('Logo zu klein') &&
       promptText.includes('iPhone SE (375×667)') &&
-      promptText.includes('Freehand markup'),
-    `laenge: ${promptText.length}`,
+      promptText.includes('Hand-drawn markup') &&
+      promptText.includes('inkspect-feedback-iphone-se.png') &&
+      shotFiles.includes('inkspect-feedback-iphone-se.png'),
+    `laenge: ${promptText.length}, dateien: ${shotFiles.join(', ') || 'keine'}`,
   );
+
+  // --- 10c. Screenshot zeigt die Marker (rote Pixel von Pin/Strichen) ---
+  let redPixels = 0;
+  if (shotFiles.includes('inkspect-feedback-iphone-se.png')) {
+    const b64 = readFileSync(join(downloadDir, 'inkspect-feedback-iphone-se.png')).toString(
+      'base64',
+    );
+    redPixels = await page.evaluate(async (encoded) => {
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = `data:image/png;base64,${encoded}`;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] > 190 && data[i + 1] < 130 && data[i + 2] < 130) count += 1;
+      }
+      return count;
+    }, b64);
+  }
+  check('Screenshot zeigt Markierungen', redPixels > 50, `rote Pixel: ${redPixels}`);
 
   // --- 11. Link-Sync: Klick auf <a href> navigiert alle Frames ---
   await pickTool(0); // Interagieren — Overlays inaktiv, Klicks gehen zur Seite

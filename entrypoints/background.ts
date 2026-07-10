@@ -116,6 +116,18 @@ export default defineBackground(() => {
       return true; // Antwort kommt asynchron.
     }
 
+    if (request?.type === 'ink:capture') {
+      const windowId = sender.tab?.windowId;
+      browser.tabs
+        .captureVisibleTab(windowId as number, { format: 'png' })
+        .then((dataUrl) => sendResponse({ ok: true, dataUrl }))
+        .catch((e: unknown) => {
+          log.warn('captureVisibleTab fehlgeschlagen', e);
+          sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+        });
+      return true;
+    }
+
     if (request?.type === 'ink:frame-bypass') {
       const tabId = sender.tab?.id;
       if (tabId == null) {

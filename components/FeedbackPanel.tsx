@@ -29,8 +29,8 @@ interface Props {
   onCopy: () => Promise<void>;
   /** Baut die Share-URL (Feedback deflate+base64url im Hash). */
   onBuildShareLink: () => Promise<string>;
-  /** Baut den Umsetzungs-Prompt fuer Claude Code. */
-  onBuildClaudePrompt: () => string;
+  /** Baut den Umsetzungs-Prompt fuer Claude Code (laedt Screenshots herunter). */
+  onBuildClaudePrompt: () => Promise<string>;
   onClose: () => void;
 }
 
@@ -72,6 +72,7 @@ export function FeedbackPanel({
 
   const [prompt, setPrompt] = useState<string | null>(null);
   const [promptCopied, setPromptCopied] = useState(false);
+  const [promptPending, setPromptPending] = useState(false);
 
   useEffect(() => {
     if (!copied) return;
@@ -112,15 +113,20 @@ export function FeedbackPanel({
   };
 
   const createPrompt = () => {
-    const text = onBuildClaudePrompt();
+    if (promptPending) return;
     setShareUrl(null);
     setShareError(false);
-    setPrompt(text);
-    // Direkt mitkopieren; die Vorschau bleibt auch ohne Clipboard-Rechte nutzbar.
-    void navigator.clipboard
-      .writeText(text)
-      .then(() => setPromptCopied(true))
-      .catch(() => {});
+    setPromptPending(true);
+    onBuildClaudePrompt()
+      .then((text) => {
+        setPrompt(text);
+        // Direkt mitkopieren; die Vorschau bleibt auch ohne Clipboard-Rechte nutzbar.
+        void navigator.clipboard
+          .writeText(text)
+          .then(() => setPromptCopied(true))
+          .catch(() => {});
+      })
+      .finally(() => setPromptPending(false));
   };
 
   const copyPrompt = () => {
@@ -307,9 +313,14 @@ export function FeedbackPanel({
               <IconLink size={14} />
               Als Link teilen
             </button>
-            <button className="share-btn share-btn--alt" onClick={createPrompt}>
+            <button
+              className="share-btn share-btn--alt"
+              onClick={createPrompt}
+              disabled={promptPending}
+              title="Prompt + annotierte Screenshots fuer Claude Code erzeugen"
+            >
               <IconTerminal size={14} />
-              Claude-Prompt
+              {promptPending ? 'Erzeuge…' : 'Claude-Prompt'}
             </button>
           </div>
 
@@ -357,8 +368,9 @@ export function FeedbackPanel({
                 </button>
               </div>
               <div className="share-hint">
-                {promptCopied ? 'In der Zwischenablage — ' : ''}in Claude Code einfuegen:
-                enthaelt Selektoren, Notizen und Viewports aller Markierungen dieser Seite.
+                {promptCopied ? 'In der Zwischenablage — ' : ''}in Claude Code einfuegen.
+                Die annotierten Screenshots liegen im Download-Ordner; der Prompt
+                verweist darauf.
               </div>
             </>
           )}

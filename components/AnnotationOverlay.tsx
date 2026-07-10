@@ -299,9 +299,35 @@ export function AnnotationOverlay({
     }
   };
 
+  /**
+   * DOM-Bezug eines Freihand-Strichs: entlang des Zugs sampeln und die
+   * tatsaechlich gekreuzten Elemente zaehlen — body/html sind nur der
+   * Notnagel, wenn nichts Konkreteres getroffen wurde.
+   */
+  const penAnchors = (points: Point[]): ElementRef => {
+    const step = Math.max(1, Math.floor(points.length / 12));
+    const tally = new Map<string, { count: number; label: string }>();
+    for (let i = 0; i < points.length; i += step) {
+      const ref = anchorAt(points[i]!.x, points[i]!.y);
+      if (!ref.anchor) continue;
+      const entry = tally.get(ref.anchor) ?? { count: 0, label: ref.anchorLabel ?? '' };
+      entry.count += 1;
+      tally.set(ref.anchor, entry);
+    }
+    const ranked = [...tally.entries()].sort((a, b) => b[1].count - a[1].count);
+    const concrete = ranked.filter(([selector]) => selector !== 'body');
+    const best = concrete[0] ?? ranked[0];
+    if (!best) return {};
+    return {
+      anchor: best[0],
+      anchorLabel: best[1].label || undefined,
+      anchors: concrete.length > 0 ? concrete.slice(0, 4).map(([selector]) => selector) : undefined,
+    };
+  };
+
   // Zeichenformen speichern ohne Notiz-Editor — Freitext gibt es nur bei
-  // Pin und Element-Picker. Als DOM-Bezug dient das Element unter der Mitte
-  // der Zeichnung, beim Pfeil das unter der Spitze.
+  // Pin und Element-Picker. Als DOM-Bezug dienen die gekreuzten Elemente,
+  // beim Pfeil das Element unter der Spitze.
   const handleUp = () => {
     if (!draft) return;
     setDraft(null);
@@ -309,11 +335,7 @@ export function AnnotationOverlay({
     if (draft.tool === 'pen') {
       const points = draft.strokes[0] ?? [];
       if (points.length > 1) {
-        const xs = points.map((p) => p.x);
-        const ys = points.map((p) => p.y);
-        const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-        const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-        onAdd({ ...draft, ...anchorAt(cx, cy) });
+        onAdd({ ...draft, ...penAnchors(points) });
       }
     } else if (draft.tool === 'rect' || draft.tool === 'ellipse' || draft.tool === 'arrow') {
       if (Math.hypot(draft.x2 - draft.x1, draft.y2 - draft.y1) >= MIN_DRAG / zoom) {

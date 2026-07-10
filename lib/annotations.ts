@@ -22,6 +22,8 @@ export interface Point {
 export interface ElementRef {
   anchor?: string;
   anchorLabel?: string;
+  /** Alle gekreuzten Elemente (Freihand), Selektoren in Relevanz-Reihenfolge. */
+  anchors?: string[];
 }
 
 /**

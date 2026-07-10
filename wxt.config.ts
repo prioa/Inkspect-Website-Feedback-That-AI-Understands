@@ -73,9 +73,10 @@ export default defineConfig({
       128: 'icon/128.png',
     },
 
-    // Noetig fuer DNR modifyHeaders und fuer das Nachladen von Cross-Origin-
-    // Stylesheets (CDN) im Background, wo kein CORS greift.
-    host_permissions: ['*://*/*'],
+    // Noetig fuer DNR modifyHeaders, das Nachladen von Cross-Origin-
+    // Stylesheets (CDN) im Background und tabs.captureVisibleTab — letzteres
+    // akzeptiert wörtlich nur '<all_urls>' oder 'activeTab', kein *://*/*.
+    host_permissions: ['<all_urls>'],
 
     action: {
       default_title: 'Inkspect oeffnen',
