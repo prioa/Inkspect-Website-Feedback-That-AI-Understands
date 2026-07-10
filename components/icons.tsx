@@ -131,6 +131,13 @@ export const IconInspect = ({ size }: IconProps) => (
   </Icon>
 );
 
+export const IconTerminal = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="m4 17 6-6-6-6" />
+    <path d="M12 19h8" />
+  </Icon>
+);
+
 /** Geraet drehen: Querformat-Rahmen mit Drehpfeil von oben. */
 export const IconRotateDevice = ({ size }: IconProps) => (
   <Icon size={size}>

@@ -29,6 +29,7 @@ import {
   type FeedbackItem,
 } from '@/lib/feedbackStore';
 import { buildShareUrl } from '@/lib/share';
+import { buildClaudePrompt } from '@/lib/claudePrompt';
 import { applyOverride, clearOverride, collectSheets, type SheetSource } from '@/lib/stylesheets';
 import type { FrameBypassResponse } from '@/lib/messages';
 import { createLogger } from '@/lib/log';
@@ -516,6 +517,16 @@ export function App({
     [feedback, activeUrl],
   );
 
+  // Einfuegefertiger Umsetzungs-Prompt fuer Claude Code.
+  const buildClaudeCodePrompt = useCallback(
+    () =>
+      buildClaudePrompt(
+        activeUrl,
+        feedback.filter((item) => item.url === activeUrl),
+      ),
+    [feedback, activeUrl],
+  );
+
   // Shortcuts: Esc zurueck zum Interagieren, Cmd/Ctrl+Z Undo (nur im
   // Zeichenmodus), 1-7 waehlt ein Werkzeug.
   useEffect(() => {
@@ -637,6 +648,7 @@ export function App({
             onClearAll={clearAllShapes}
             onCopy={copyFeedback}
             onBuildShareLink={buildShareLink}
+            onBuildClaudePrompt={buildClaudeCodePrompt}
             onClose={() => setFeedbackOpen(false)}
           />
         )}

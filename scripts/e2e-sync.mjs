@@ -297,6 +297,25 @@ try {
     `items: ${share.items?.length ?? 'keine'}, url: ${share.url.slice(0, 60)}…`,
   );
 
+  // --- 10b. Claude-Code-Prompt: Selektoren, Notizen und Viewport enthalten ---
+  await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    sr.querySelector('.share-btn--alt').click();
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  const promptText = await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    return sr.querySelector('.share-box__prompt')?.value ?? '';
+  });
+  check(
+    'Claude-Code-Prompt',
+    promptText.includes('#name') &&
+      promptText.includes('Logo zu klein') &&
+      promptText.includes('iPhone SE (375×667)') &&
+      promptText.includes('Freehand markup'),
+    `laenge: ${promptText.length}`,
+  );
+
   // --- 11. Link-Sync: Klick auf <a href> navigiert alle Frames ---
   await pickTool(0); // Interagieren — Overlays inaktiv, Klicks gehen zur Seite
   await page.evaluate(() => {
@@ -396,6 +415,49 @@ try {
       backHome.path === '/' &&
       backHome.markers === 1,
     `fremde Seite: markers ${onOtherPage.markers}, labels ${onOtherPage.labels.length}; zurueck: ${backHome.path}, markers ${backHome.markers}`,
+  );
+
+  // --- 14. Legacy-Import: alte Pen-Shapes (points statt strokes) crashen nicht ---
+  const legacyUrl = await page.evaluate(async () => {
+    const payload = {
+      v: 1,
+      items: [
+        {
+          id: 'legacy-1',
+          url: 'http://localhost:8973/legacy',
+          deviceId: 'iphone-se',
+          createdAt: 1,
+          shape: {
+            id: 'legacy-1',
+            tool: 'pen',
+            color: '#ff5d5d',
+            points: [{ x: 10, y: 10 }, { x: 60, y: 60 }, { x: 110, y: 20 }],
+          },
+        },
+      ],
+    };
+    const raw = new TextEncoder().encode(JSON.stringify(payload));
+    const stream = new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+    const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    let bin = '';
+    for (const b of bytes) bin += String.fromCharCode(b);
+    const b64 = btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+    return `http://localhost:8973/legacy#ink-feedback=${b64}`;
+  });
+  await page.goto(legacyUrl, { waitUntil: 'networkidle0' });
+  await new Promise((r) => setTimeout(r, 1500)); // document_idle + Import + Auto-Open
+  const legacy = await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root')?.shadowRoot;
+    return {
+      open: !!sr,
+      crashed: sr ? sr.textContent.includes('abgestuerzt') : false,
+      polylines: sr ? sr.querySelectorAll('.anno__svg polyline').length : 0,
+    };
+  });
+  check(
+    'Legacy-Pen-Import ohne Crash',
+    legacy.open && !legacy.crashed && legacy.polylines >= 1,
+    `open: ${legacy.open}, crashed: ${legacy.crashed}, polylines: ${legacy.polylines}`,
   );
 } catch (e) {
   results.push(`ERROR ${e.message}`);

@@ -11,6 +11,7 @@ import {
   IconLink,
   IconMessage,
   IconPlus,
+  IconTerminal,
   IconTrash,
 } from './icons';
 
@@ -28,6 +29,8 @@ interface Props {
   onCopy: () => Promise<void>;
   /** Baut die Share-URL (Feedback deflate+base64url im Hash). */
   onBuildShareLink: () => Promise<string>;
+  /** Baut den Umsetzungs-Prompt fuer Claude Code. */
+  onBuildClaudePrompt: () => string;
   onClose: () => void;
 }
 
@@ -57,6 +60,7 @@ export function FeedbackPanel({
   onClearAll,
   onCopy,
   onBuildShareLink,
+  onBuildClaudePrompt,
   onClose,
 }: Props) {
   const [copied, setCopied] = useState(false);
@@ -65,6 +69,9 @@ export function FeedbackPanel({
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareError, setShareError] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+
+  const [prompt, setPrompt] = useState<string | null>(null);
+  const [promptCopied, setPromptCopied] = useState(false);
 
   useEffect(() => {
     if (!copied) return;
@@ -78,14 +85,22 @@ export function FeedbackPanel({
     return () => clearTimeout(timer);
   }, [shareCopied]);
 
-  // Der Link codiert den Feedback-Stand — bei jeder Aenderung veraltet er.
+  useEffect(() => {
+    if (!promptCopied) return;
+    const timer = window.setTimeout(() => setPromptCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [promptCopied]);
+
+  // Link und Prompt codieren den Feedback-Stand — bei Aenderungen veralten sie.
   useEffect(() => {
     setShareUrl(null);
     setShareError(false);
+    setPrompt(null);
   }, [items]);
 
   const createShareLink = () => {
     setShareError(false);
+    setPrompt(null);
     onBuildShareLink()
       .then(setShareUrl)
       .catch(() => setShareError(true));
@@ -94,6 +109,23 @@ export function FeedbackPanel({
   const copyShareLink = () => {
     if (!shareUrl) return;
     void navigator.clipboard.writeText(shareUrl).then(() => setShareCopied(true));
+  };
+
+  const createPrompt = () => {
+    const text = onBuildClaudePrompt();
+    setShareUrl(null);
+    setShareError(false);
+    setPrompt(text);
+    // Direkt mitkopieren; die Vorschau bleibt auch ohne Clipboard-Rechte nutzbar.
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => setPromptCopied(true))
+      .catch(() => {});
+  };
+
+  const copyPrompt = () => {
+    if (!prompt) return;
+    void navigator.clipboard.writeText(prompt).then(() => setPromptCopied(true));
   };
 
   // Nach Seite gruppiert (aktuelle zuerst), innerhalb nach Device-Preset.
@@ -270,12 +302,18 @@ export function FeedbackPanel({
 
       {pageCount > 0 && (
         <div className="panel__share">
-          {shareUrl === null ? (
+          <div className="share-row">
             <button className="share-btn" onClick={createShareLink}>
               <IconLink size={14} />
-              Feedback als Link versenden
+              Als Link teilen
             </button>
-          ) : (
+            <button className="share-btn share-btn--alt" onClick={createPrompt}>
+              <IconTerminal size={14} />
+              Claude-Prompt
+            </button>
+          </div>
+
+          {shareUrl !== null && (
             <>
               <div className="share-box">
                 <input
@@ -299,6 +337,32 @@ export function FeedbackPanel({
               </div>
             </>
           )}
+
+          {prompt !== null && (
+            <>
+              <div className="share-box share-box--multiline">
+                <textarea
+                  className="share-box__prompt"
+                  readOnly
+                  value={prompt}
+                  spellCheck={false}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <button
+                  className="icon-btn icon-btn--small"
+                  title={promptCopied ? 'Kopiert!' : 'Prompt kopieren'}
+                  onClick={copyPrompt}
+                >
+                  {promptCopied ? <IconCheck size={14} /> : <IconCopy size={14} />}
+                </button>
+              </div>
+              <div className="share-hint">
+                {promptCopied ? 'In der Zwischenablage — ' : ''}in Claude Code einfuegen:
+                enthaelt Selektoren, Notizen und Viewports aller Markierungen dieser Seite.
+              </div>
+            </>
+          )}
+
           {shareError && (
             <div className="share-hint share-hint--error">
               Link konnte nicht erstellt werden.

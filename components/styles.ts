@@ -463,24 +463,49 @@ input::placeholder { color: var(--text-2); }
   flex-direction: column;
   gap: 6px;
 }
+.share-row { display: flex; gap: 6px; }
 .share-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 10px;
+  gap: 7px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 6px;
   background: var(--accent);
   border: none;
   border-radius: var(--radius-s);
   color: #fff;
   font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
 }
 .share-btn:hover:not(:disabled) { background: #6f9aff; }
+.share-btn--alt {
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-0);
+}
+.share-btn--alt:hover:not(:disabled) { background: var(--bg-3); }
 .share-box {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+.share-box--multiline { align-items: flex-start; }
+.share-box__prompt {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 140px;
+  resize: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-1);
+  background: var(--bg-0);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  padding: 6px 8px;
 }
 .share-box__url {
   flex: 1 1 auto;

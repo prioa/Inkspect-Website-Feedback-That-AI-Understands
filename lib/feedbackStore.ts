@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import type { Shape } from './annotations';
+import type { Point, Shape } from './annotations';
 import { createLogger } from './log';
 
 const log = createLogger('feedback-store');
@@ -35,10 +35,32 @@ export function normalizeUrl(href: string): string {
   }
 }
 
+/**
+ * Migriert Alt-Daten: fruehe Pen-Shapes trugen einen einzelnen Zug in
+ * `points`, heute sind es mehrere in `strokes`. Ohne Migration crasht das
+ * Rendering an `strokes.map`.
+ */
+function migrateShape(shape: Shape): Shape | null {
+  if (shape.tool !== 'pen') return shape;
+  if (Array.isArray(shape.strokes)) return shape;
+  const legacy = (shape as { points?: unknown }).points;
+  if (Array.isArray(legacy) && legacy.length > 0) {
+    return { ...shape, strokes: [legacy as Point[]] };
+  }
+  return null;
+}
+
+function migrateItems(items: FeedbackItem[]): FeedbackItem[] {
+  return items.flatMap((item) => {
+    const shape = migrateShape(item.shape);
+    return shape ? [{ ...item, shape }] : [];
+  });
+}
+
 async function readAll(): Promise<FeedbackItem[]> {
   const result = await browser.storage.local.get(KEY);
   const list = (result as Record<string, unknown>)[KEY];
-  return Array.isArray(list) ? (list as FeedbackItem[]) : [];
+  return Array.isArray(list) ? migrateItems(list as FeedbackItem[]) : [];
 }
 
 async function writeAll(items: FeedbackItem[]): Promise<void> {
@@ -75,7 +97,7 @@ export async function clearUrl(url: string): Promise<void> {
 /** Minimale Struktur-Validierung geteilter/importierter Eintraege. */
 export function sanitizeItems(data: unknown): FeedbackItem[] {
   if (!Array.isArray(data)) throw new Error('Kein Inkspect-Feedback.');
-  return data.filter((item): item is FeedbackItem => {
+  const valid = data.filter((item): item is FeedbackItem => {
     const i = item as Partial<FeedbackItem> | null;
     return (
       typeof i?.id === 'string' &&
@@ -85,6 +107,7 @@ export function sanitizeItems(data: unknown): FeedbackItem[] {
       typeof (i.shape as Shape).tool === 'string'
     );
   });
+  return migrateItems(valid);
 }
 
 /** Fire-and-forget-Wrapper: UI-State ist fuehrend, Persistenz folgt. */

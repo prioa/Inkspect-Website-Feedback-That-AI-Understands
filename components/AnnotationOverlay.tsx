@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import type { Point, Shape, Tool } from '@/lib/annotations';
+import type { ElementRef, Point, Shape, Tool } from '@/lib/annotations';
 import { elementLabel, pinNumbers, shapeId } from '@/lib/annotations';
+import { shadowPath } from '@/lib/selector';
 
 interface Props {
   /** Logische Viewport-Groesse des Frames (unskaliert). */
@@ -35,13 +36,14 @@ interface NoteDraft {
   value: string;
 }
 
-/** Bounding-Box + Label des Elements unter dem Cursor (Dokumentraum). */
+/** Bounding-Box, Label und CSS-Pfad des Elements unter dem Cursor (Dokumentraum). */
 interface ElementTarget {
   x: number;
   y: number;
   w: number;
   h: number;
   label: string;
+  selector: string;
 }
 
 const MIN_DRAG = 3;
@@ -184,9 +186,26 @@ export function AnnotationOverlay({
         w: r.width,
         h: r.height,
         label: elementLabel(el),
+        selector: shadowPath(el).join(' >>> '),
       };
     } catch {
       return null; // Frame nicht lesbar
+    }
+  };
+
+  /**
+   * DOM-Bezug fuer eine Markierung an Dokument-Koordinaten — macht Exporte
+   * (Claude-Code-Prompt) im Quellcode verortbar.
+   */
+  const anchorAt = (x: number, y: number): ElementRef => {
+    const win = frameEl?.contentWindow;
+    if (!win) return {};
+    try {
+      const el = deepElementFromPoint(win.document, x - win.scrollX, y - win.scrollY);
+      if (!el || el.tagName === 'HTML') return {};
+      return { anchor: shadowPath(el).join(' >>> '), anchorLabel: elementLabel(el) };
+    } catch {
+      return {}; // Frame nicht lesbar
     }
   };
 
@@ -196,7 +215,15 @@ export function AnnotationOverlay({
     setTextDraft(null);
     const value = current.value.trim();
     if (value) {
-      onAdd({ id: shapeId(), tool: 'text', color, x: current.x, y: current.y, text: value });
+      onAdd({
+        id: shapeId(),
+        tool: 'text',
+        color,
+        x: current.x,
+        y: current.y,
+        text: value,
+        ...anchorAt(current.x, current.y),
+      });
     }
   };
 
@@ -241,7 +268,7 @@ export function AnnotationOverlay({
     if (tool === 'pin') {
       // Pin sofort speichern, dann Freitext (optional) dazu erfassen.
       const id = shapeId();
-      onAdd({ id, tool: 'pin', color, x: p.x, y: p.y, text: '' });
+      onAdd({ id, tool: 'pin', color, x: p.x, y: p.y, text: '', ...anchorAt(p.x, p.y) });
       setNoteDraft({ shapeId: id, x: p.x, y: p.y, value: '' });
       return;
     }
@@ -273,16 +300,28 @@ export function AnnotationOverlay({
   };
 
   // Zeichenformen speichern ohne Notiz-Editor — Freitext gibt es nur bei
-  // Pin und Element-Picker.
+  // Pin und Element-Picker. Als DOM-Bezug dient das Element unter der Mitte
+  // der Zeichnung, beim Pfeil das unter der Spitze.
   const handleUp = () => {
     if (!draft) return;
     setDraft(null);
 
     if (draft.tool === 'pen') {
-      if ((draft.strokes[0]?.length ?? 0) > 1) onAdd(draft);
+      const points = draft.strokes[0] ?? [];
+      if (points.length > 1) {
+        const xs = points.map((p) => p.x);
+        const ys = points.map((p) => p.y);
+        const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+        onAdd({ ...draft, ...anchorAt(cx, cy) });
+      }
     } else if (draft.tool === 'rect' || draft.tool === 'ellipse' || draft.tool === 'arrow') {
       if (Math.hypot(draft.x2 - draft.x1, draft.y2 - draft.y1) >= MIN_DRAG / zoom) {
-        onAdd(draft);
+        const ref =
+          draft.tool === 'arrow'
+            ? anchorAt(draft.x2, draft.y2)
+            : anchorAt((draft.x1 + draft.x2) / 2, (draft.y1 + draft.y2) / 2);
+        onAdd({ ...draft, ...ref });
       }
     }
   };
@@ -466,7 +505,7 @@ function renderShape(
     case 'pen':
       return (
         <g key={shape.id} strokeLinecap="round" strokeLinejoin="round" {...stroke}>
-          {shape.strokes.map((points, i) => (
+          {(shape.strokes ?? []).map((points, i) => (
             <polyline key={i} points={points.map((p) => `${p.x},${p.y}`).join(' ')} />
           ))}
         </g>

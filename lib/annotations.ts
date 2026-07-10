@@ -15,6 +15,16 @@ export interface Point {
 }
 
 /**
+ * DOM-Bezug einer Markierung: CSS-Pfad (Shadow-Segmente mit ' >>> ' verbunden)
+ * und Kurz-Label des Elements unter bzw. hinter der Markierung. Macht Exporte
+ * (Claude-Code-Prompt, Text) im Quellcode verortbar.
+ */
+export interface ElementRef {
+  anchor?: string;
+  anchorLabel?: string;
+}
+
+/**
  * Per Element-Picker markiertes DOM-Element: Bounding-Box zum Zeitpunkt des
  * Klicks plus lesbares Label (`button#menuBtn`) fuers Panel.
  */
@@ -27,11 +37,13 @@ export interface ElementShape {
   w: number;
   h: number;
   label: string;
+  /** CSS-Pfad des markierten Elements (fehlt bei Alt-Daten). */
+  selector?: string;
   /** Optionaler Freitext zum Marker. */
   note?: string;
 }
 
-export interface PinShape {
+export interface PinShape extends ElementRef {
   id: string;
   tool: 'pin';
   color: string;
@@ -45,14 +57,14 @@ export interface PinShape {
  * verschmelzen zu einer Shape — ein Durchstreichen aus drei Strichen ist
  * *eine* Korrektur, nicht drei.
  */
-export interface PenShape {
+export interface PenShape extends ElementRef {
   id: string;
   tool: 'pen';
   color: string;
   strokes: Point[][];
 }
 
-export interface BoxShape {
+export interface BoxShape extends ElementRef {
   id: string;
   tool: 'rect' | 'ellipse' | 'arrow';
   color: string;
@@ -62,7 +74,7 @@ export interface BoxShape {
   y2: number;
 }
 
-export interface TextShape {
+export interface TextShape extends ElementRef {
   id: string;
   tool: 'text';
   color: string;
