@@ -2,7 +2,7 @@
   "name": "inkspect",
   "version": "0.1.0",
   "private": true,
-  "description": "Responsive-Preview mit synchronen Device-Frames, Live-CSS-Editor und Feedback-Werkzeugen (Chrome/Firefox)",
+  "description": "Responsive preview with synced device frames, live CSS editor and feedback tools (Chrome/Firefox)",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -13,6 +13,7 @@
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
     "icons": "node scripts/make-icons.mjs",
+    "store-assets": "node scripts/make-store-assets.mjs",
     "test:e2e": "pnpm build && node scripts/e2e-sync.mjs",
     "postinstall": "wxt prepare"
   },

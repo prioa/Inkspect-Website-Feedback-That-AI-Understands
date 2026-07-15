@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 280" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0e1014"/><stop offset="1" stop-color="#161b28"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#5b8cff" stop-opacity="0.20"/><stop offset="1" stop-color="#5b8cff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ds" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <rect width="440" height="280" fill="url(#bg)"/>
+  <rect width="440" height="280" fill="url(#glow)"/>
+
+  <g transform="translate(184, 44) scale(0.56)" filter="url(#ds)">
+    <rect width="128" height="128" rx="24" fill="#12151d" stroke="#262c38" stroke-width="2"/>
+    <path d="M64 10C46 38 30 55 30 76a34 34 0 0 0 68 0C98 55 82 38 64 10Z" fill="#5b8cff"/>
+    <path d="m62 58 48 18-20.5 8L81.5 106 62 58Z" fill="#fff" stroke="#12151d" stroke-width="7" stroke-linejoin="round"/>
+  </g>
+
+  <text x="220" y="172" font-size="38" font-weight="800" fill="#e8eaf0" text-anchor="middle">Ink<tspan fill="#5b8cff" font-style="italic">spect</tspan></text>
+  <text x="220" y="208" font-size="14.5" fill="#a9b0bf" text-anchor="middle">Preview · Annotate · Share</text>
+  <text x="220" y="240" font-size="12.5" fill="#6f7686" text-anchor="middle">Responsive previews with feedback, right on your page</text>
+</svg>
