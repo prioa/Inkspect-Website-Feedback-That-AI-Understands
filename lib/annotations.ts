@@ -17,7 +17,7 @@ export interface Point {
 /**
  * DOM-Bezug einer Markierung: CSS-Pfad (Shadow-Segmente mit ' >>> ' verbunden)
  * und Kurz-Label des Elements unter bzw. hinter der Markierung. Macht Exporte
- * (Claude-Code-Prompt, Text) im Quellcode verortbar.
+ * (Text-Export) im Quellcode verortbar.
  */
 export interface ElementRef {
   anchor?: string;
@@ -74,6 +74,8 @@ export interface BoxShape extends ElementRef {
   y1: number;
   x2: number;
   y2: number;
+  /** Optionaler Freitext zum Marker. */
+  note?: string;
 }
 
 export interface TextShape extends ElementRef {
@@ -90,12 +92,12 @@ export type Shape = ElementShape | PinShape | PenShape | BoxShape | TextShape;
 export const ANNOTATION_COLORS = ['#ff5d5d', '#ffb340', '#3ecf6e', '#5b8cff'] as const;
 
 export const TOOL_LABELS: Record<Tool, string> = {
-  element: 'Element markieren',
-  pin: 'Kommentar-Pin',
-  pen: 'Freihand',
-  rect: 'Rechteck',
+  element: 'Mark element',
+  pin: 'Comment pin',
+  pen: 'Freehand',
+  rect: 'Rectangle',
   ellipse: 'Ellipse',
-  arrow: 'Pfeil',
+  arrow: 'Arrow',
   text: 'Text',
 };
 

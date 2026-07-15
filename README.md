@@ -1,25 +1,25 @@
 # Inkspect
 
-Browser-Extension (Chrome & Firefox, Manifest V3): Responsive-Preview mit synchronen Device-Frames, Live-CSS-Editor und Feedback-Werkzeugen — direkt auf der laufenden Seite, ohne externe Tools.
+Browser extension (Chrome & Firefox, Manifest V3): responsive preview with synced device frames, a live CSS editor and feedback tools — right on the running page, no external tools.
 
 ## Features
 
-- **Synchrone Device-Previews** — die aktuelle Seite in mehreren Viewports nebeneinander; Scrollen, Klicks, Eingaben, Hover (JS und CSS `:hover`, auch in Shadow DOM) und Link-Navigation laufen auf allen Frames gleichzeitig. Ein URL-Watchdog gleicht Frames an, deren Navigation ausschert (auch SPA-Routing per `pushState`).
-- **Feedback-Werkzeuge** — Element-Picker (highlightet DOM-Elemente beim Hovern, Klick übernimmt sie samt Label), Kommentar-Pins, Freihand, Formen, Pfeile und Text; jede Markierung mit optionaler Notiz. Markierungen kleben am Inhalt (Dokumentkoordinaten) und sind an Seite + Device gebunden.
-- **Feedback teilen** — alle Markierungen einer Seite deflate-komprimiert und base64url-codiert im URL-Hash (`#ink-feedback=…`); kein Server. Empfänger mit installierter Extension bekommen das Feedback automatisch importiert und angezeigt. Alternativ Export als Text.
-- **Live-CSS-Editor** — Stylesheets der Seite (inkl. Cross-Origin via Background-Fetch) im CodeMirror-Editor bearbeiten, Änderungen greifen debounced auf allen Frames und überleben Frame-Reloads.
-- **Frame-Blockade-Umgehung** — Seiten mit `X-Frame-Options`/`frame-ancestors` lassen sich per Opt-in trotzdem einbetten (DNR-Session-Rule, nur für den eigenen Tab und nur für Sub-Frames).
+- **Synced device previews** — the current page in multiple viewports side by side; scrolling, clicks, inputs, hover (JS and CSS `:hover`, including Shadow DOM) and link navigation run on all frames simultaneously. A URL watchdog realigns frames whose navigation drifts apart (including SPA routing via `pushState`). Custom viewport sizes can be added; the device grid, rotation and zoom persist across sessions.
+- **Feedback tools** — element picker (highlights DOM elements on hover, a click captures them along with a label), comment pins, freehand, shapes, arrows and text; every marking with an optional note. Markings stick to the content (document coordinates) and are bound to page + device. Entries can be checked off (done markers render dimmed; badges count open items).
+- **Share feedback** — all markings of a page deflate-compressed and base64url-encoded in the URL hash (`#ink-feedback=…`); no server. Recipients with the extension installed get the feedback imported and displayed automatically. Alternatively export as text or download annotated full-page screenshots of every page with open feedback (scroll-stitched, drawings and notes rendered right at their markers).
+- **Live CSS editor** — edit the page's stylesheets (including cross-origin via background fetch) in a CodeMirror editor; changes apply debounced across all frames and survive frame reloads.
+- **Frame-blocking bypass** — pages with `X-Frame-Options`/`frame-ancestors` can still be embedded via opt-in (DNR session rule, only for the current tab and only for sub-frames).
 
-## Entwicklung
+## Development
 
 ```sh
 pnpm install
-pnpm dev            # Chrome mit Live-Reload
+pnpm dev            # Chrome with live reload
 pnpm dev:firefox
-pnpm build          # Produktions-Build nach .output/
-pnpm compile        # Typecheck
-pnpm icons          # PNG-Icons aus assets/icon.svg rendern
-pnpm test:e2e       # E2E-Suite (braucht Google Chrome unter /Applications)
+pnpm build          # production build to .output/
+pnpm compile        # typecheck
+pnpm icons          # render PNG icons from assets/icon.svg
+pnpm test:e2e       # E2E suite (needs Google Chrome under /Applications)
 ```
 
-Gebaut mit [WXT](https://wxt.dev), React 19 und CodeMirror 6. Die E2E-Suite (`scripts/e2e-sync.mjs`) startet einen lokalen Testserver, installiert die Extension in echtem Chrome (headless, via CDP) und verifiziert Sync, Werkzeuge, Share-Roundtrip und Navigation.
+Built with [WXT](https://wxt.dev), React 19 and CodeMirror 6. The E2E suite (`scripts/e2e-sync.mjs`) starts a local test server, installs the extension in real Chrome (headless, via CDP) and verifies sync, tools, the share round-trip and navigation.

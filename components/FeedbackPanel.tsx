@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PRESETS, type DeviceInstance } from '@/lib/devices';
+import type { DeviceInstance, DevicePreset } from '@/lib/devices';
 import type { Shape } from '@/lib/annotations';
 import { pinNumbers, TOOL_LABELS } from '@/lib/annotations';
 import type { FeedbackItem } from '@/lib/feedbackStore';
@@ -8,10 +8,10 @@ import {
   IconClose,
   IconCopy,
   IconDots,
+  IconDownload,
   IconLink,
   IconMessage,
   IconPlus,
-  IconTerminal,
   IconTrash,
 } from './icons';
 
@@ -20,17 +20,25 @@ interface Props {
   items: FeedbackItem[];
   /** Aktuell geladene Seite (normalisiert). */
   url: string;
+  /** Eingebaute + eigene Presets — bestimmt die Gruppierung. */
+  presets: readonly DevicePreset[];
   devices: DeviceInstance[];
   onJump: (deviceId: string) => void;
   /** Wechselt die Previews auf eine andere Seite (Feedback-Herkunft). */
   onNavigate: (url: string) => void;
   onDelete: (itemId: string) => void;
+  /** Erledigt-Status eines Eintrags umschalten. */
+  onToggleDone: (itemId: string) => void;
   onClearAll: () => void;
   onCopy: () => Promise<void>;
   /** Baut die Share-URL (Feedback deflate+base64url im Hash). */
   onBuildShareLink: () => Promise<string>;
-  /** Baut den Umsetzungs-Prompt fuer Claude Code (laedt Screenshots herunter). */
-  onBuildClaudePrompt: () => Promise<string>;
+  /**
+   * Laedt annotierte Full-Page-Screenshots aller Seiten mit offenem Feedback
+   * herunter (inkl. Notizen an den Markern); liefert die Anzahl der Bilder.
+   * `onProgress` meldet erledigte/gesamte Captures fuer die Anzeige.
+   */
+  onExportScreenshots: (onProgress?: (done: number, total: number) => void) => Promise<number>;
   onClose: () => void;
 }
 
@@ -38,6 +46,7 @@ interface Props {
 function shapeLabel(shape: Shape): string {
   if (shape.tool === 'pin' || shape.tool === 'text') return shape.text || TOOL_LABELS[shape.tool];
   if (shape.tool === 'element') return shape.note ? `${shape.label} — ${shape.note}` : shape.label;
+  if (shape.tool !== 'pen' && shape.note) return `${TOOL_LABELS[shape.tool]} — ${shape.note}`;
   return TOOL_LABELS[shape.tool];
 }
 
@@ -53,26 +62,29 @@ function pathOf(url: string): string {
 export function FeedbackPanel({
   items,
   url,
+  presets,
   devices,
   onJump,
   onNavigate,
   onDelete,
+  onToggleDone,
   onClearAll,
   onCopy,
   onBuildShareLink,
-  onBuildClaudePrompt,
+  onExportScreenshots,
   onClose,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [hideDone, setHideDone] = useState(false);
 
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareError, setShareError] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
 
-  const [prompt, setPrompt] = useState<string | null>(null);
-  const [promptCopied, setPromptCopied] = useState(false);
-  const [promptPending, setPromptPending] = useState(false);
+  const [shotsPending, setShotsPending] = useState(false);
+  const [shotsCount, setShotsCount] = useState<number | null>(null);
+  const [shotsProgress, setShotsProgress] = useState<{ done: number; total: number } | null>(null);
 
   useEffect(() => {
     if (!copied) return;
@@ -86,22 +98,16 @@ export function FeedbackPanel({
     return () => clearTimeout(timer);
   }, [shareCopied]);
 
-  useEffect(() => {
-    if (!promptCopied) return;
-    const timer = window.setTimeout(() => setPromptCopied(false), 1500);
-    return () => clearTimeout(timer);
-  }, [promptCopied]);
-
-  // Link und Prompt codieren den Feedback-Stand — bei Aenderungen veralten sie.
+  // Der Link codiert den Feedback-Stand — bei Aenderungen veraltet er.
   useEffect(() => {
     setShareUrl(null);
     setShareError(false);
-    setPrompt(null);
+    setShotsCount(null);
   }, [items]);
 
   const createShareLink = () => {
     setShareError(false);
-    setPrompt(null);
+    setShotsCount(null);
     onBuildShareLink()
       .then(setShareUrl)
       .catch(() => setShareError(true));
@@ -112,26 +118,19 @@ export function FeedbackPanel({
     void navigator.clipboard.writeText(shareUrl).then(() => setShareCopied(true));
   };
 
-  const createPrompt = () => {
-    if (promptPending) return;
+  const exportShots = () => {
+    if (shotsPending) return;
     setShareUrl(null);
     setShareError(false);
-    setPromptPending(true);
-    onBuildClaudePrompt()
-      .then((text) => {
-        setPrompt(text);
-        // Direkt mitkopieren; die Vorschau bleibt auch ohne Clipboard-Rechte nutzbar.
-        void navigator.clipboard
-          .writeText(text)
-          .then(() => setPromptCopied(true))
-          .catch(() => {});
-      })
-      .finally(() => setPromptPending(false));
-  };
-
-  const copyPrompt = () => {
-    if (!prompt) return;
-    void navigator.clipboard.writeText(prompt).then(() => setPromptCopied(true));
+    setShotsCount(null);
+    setShotsPending(true);
+    onExportScreenshots((done, total) => setShotsProgress({ done, total }))
+      .then(setShotsCount)
+      .catch(() => setShotsCount(0))
+      .finally(() => {
+        setShotsPending(false);
+        setShotsProgress(null);
+      });
   };
 
   // Nach Seite gruppiert (aktuelle zuerst), innerhalb nach Device-Preset.
@@ -146,16 +145,17 @@ export function FeedbackPanel({
   );
 
   const pageCount = byUrl.get(url)?.length ?? 0;
+  const openCount = items.filter((item) => !item.done).length;
 
   return (
     <aside className="panel panel--right" aria-label="Feedback">
       <div className="panel__head">
         <span className="panel__title">Feedback</span>
-        {items.length > 0 && <span className="panel__count">{items.length}</span>}
+        {openCount > 0 && <span className="panel__count">{openCount}</span>}
         <span className="panel__spacer" />
         <button
           className="icon-btn icon-btn--small"
-          title={copied ? 'Kopiert!' : 'Feedback dieser Seite als Text kopieren'}
+          title={copied ? 'Copied!' : "Copy this page's feedback as text"}
           disabled={pageCount === 0}
           onClick={() => {
             void onCopy().then(() => setCopied(true));
@@ -167,7 +167,7 @@ export function FeedbackPanel({
         <span className="panel__menu">
           <button
             className={`icon-btn icon-btn--small${menuOpen ? ' icon-btn--active' : ''}`}
-            title="Verwalten"
+            title="Manage"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((v) => !v)}
           >
@@ -177,6 +177,21 @@ export function FeedbackPanel({
             <>
               <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
               <div className="menu" role="menu">
+                <button
+                  className="menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    setHideDone((v) => !v);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <span className="menu__item-icon">
+                    <IconCheck size={15} />
+                  </span>
+                  <span className="menu__item-name">
+                    {hideDone ? 'Show completed' : 'Hide completed'}
+                  </span>
+                </button>
                 <button
                   className="menu__item menu__item--danger"
                   role="menuitem"
@@ -189,14 +204,14 @@ export function FeedbackPanel({
                   <span className="menu__item-icon">
                     <IconTrash size={15} />
                   </span>
-                  <span className="menu__item-name">Alles loeschen (diese Seite)</span>
+                  <span className="menu__item-name">Delete all (this page)</span>
                 </button>
               </div>
             </>
           )}
         </span>
 
-        <button className="icon-btn icon-btn--small" title="Panel schliessen" onClick={onClose}>
+        <button className="icon-btn icon-btn--small" title="Close panel" onClick={onClose}>
           <IconClose size={14} />
         </button>
       </div>
@@ -209,9 +224,9 @@ export function FeedbackPanel({
         <div className="panel__empty">
           <IconMessage size={28} />
           <p>
-            Noch kein Feedback.
+            No feedback yet.
             <br />
-            Aktiviere den Stift an einem Device und markiere Elemente, setze Pins oder zeichne.
+            Pick a tool from the palette and mark elements, drop pins or draw on a device.
           </p>
         </div>
       )}
@@ -219,26 +234,41 @@ export function FeedbackPanel({
       <div className="panel__scroll">
         {pages.map(([pageUrl, pageItems]) => {
           const isCurrent = pageUrl === url;
-          const groups = PRESETS.map((preset) => ({
-            preset,
-            items: pageItems.filter((item) => item.deviceId === preset.id),
-          })).filter((g) => g.items.length > 0);
+          // Unbekannte deviceIds (geloeschtes Custom-Preset) bekommen eine
+          // eigene Gruppe statt stillschweigend zu verschwinden.
+          const known = new Set(presets.map((p) => p.id));
+          const unknown = [...new Set(pageItems.map((i) => i.deviceId))]
+            .filter((id) => !known.has(id))
+            .map((id): DevicePreset => ({ id, name: id, width: 0, height: 0 }));
+          // `items` bleibt vollstaendig (Pin-Nummern muessen zu den Frames
+          // passen), `visible` ist die ggf. um Erledigtes reduzierte Anzeige.
+          const groups = [...presets, ...unknown]
+            .map((preset) => {
+              const groupItems = pageItems.filter((item) => item.deviceId === preset.id);
+              return {
+                preset,
+                items: groupItems,
+                visible: hideDone ? groupItems.filter((item) => !item.done) : groupItems,
+              };
+            })
+            .filter((g) => g.visible.length > 0);
+          if (groups.length === 0) return null;
 
           return (
             <div key={pageUrl} className={`fb-page${isCurrent ? '' : ' fb-page--other'}`}>
               {(pages.length > 1 || !isCurrent) && (
                 <button
                   className="fb-page__head"
-                  title={isCurrent ? 'Aktuelle Seite' : 'Previews auf diese Seite wechseln'}
+                  title={isCurrent ? 'Current page' : 'Switch the previews to this page'}
                   disabled={isCurrent}
                   onClick={() => onNavigate(pageUrl)}
                 >
                   <span className="fb-page__path">{pathOf(pageUrl)}</span>
-                  {isCurrent && <span className="fb-page__badge">aktuell</span>}
+                  {isCurrent && <span className="fb-page__badge">current</span>}
                 </button>
               )}
 
-              {groups.map(({ preset, items: groupItems }) => {
+              {groups.map(({ preset, items: groupItems, visible }) => {
                 const inGrid = devices.some((d) => d.id === preset.id);
                 const numbers = pinNumbers(groupItems.map((i) => i.shape));
                 return (
@@ -248,16 +278,18 @@ export function FeedbackPanel({
                       title={
                         isCurrent
                           ? inGrid
-                            ? 'Zum Device springen'
-                            : 'Device ins Grid holen'
-                          : 'Previews auf diese Seite wechseln'
+                            ? 'Jump to device'
+                            : 'Add device to the grid'
+                          : 'Switch the previews to this page'
                       }
                       onClick={() => (isCurrent ? onJump(preset.id) : onNavigate(pageUrl))}
                     >
                       <span className="fb-group__name">{preset.name}</span>
-                      <span className="fb-group__size">
-                        {preset.width}×{preset.height}
-                      </span>
+                      {preset.width > 0 && (
+                        <span className="fb-group__size">
+                          {preset.width}×{preset.height}
+                        </span>
+                      )}
                       {isCurrent && !inGrid && (
                         <span className="fb-group__add">
                           <IconPlus size={12} />
@@ -266,17 +298,27 @@ export function FeedbackPanel({
                     </button>
 
                     <ul className="fb-list">
-                      {groupItems.map((item) => (
+                      {visible.map((item) => (
                         <li
                           key={item.id}
-                          className="fb-item"
+                          className={`fb-item${item.done ? ' fb-item--done' : ''}`}
                           title={
                             isCurrent
                               ? shapeLabel(item.shape)
-                              : `${shapeLabel(item.shape)} — Klick wechselt zur Seite`
+                              : `${shapeLabel(item.shape)} — click to switch to this page`
                           }
                           onClick={() => (isCurrent ? onJump(preset.id) : onNavigate(pageUrl))}
                         >
+                          <button
+                            className={`fb-check${item.done ? ' fb-check--done' : ''}`}
+                            title={item.done ? 'Mark as open' : 'Mark as done'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleDone(item.id);
+                            }}
+                          >
+                            {item.done && <IconCheck size={10} />}
+                          </button>
                           {item.shape.tool === 'pin' ? (
                             <span className="fb-item__pin" style={{ background: item.shape.color }}>
                               {numbers.get(item.shape.id)}
@@ -287,7 +329,7 @@ export function FeedbackPanel({
                           <span className="fb-item__label">{shapeLabel(item.shape)}</span>
                           <button
                             className="icon-btn icon-btn--small fb-item__delete"
-                            title="Eintrag loeschen"
+                            title="Delete entry"
                             onClick={(e) => {
                               e.stopPropagation();
                               onDelete(item.id);
@@ -306,21 +348,25 @@ export function FeedbackPanel({
         })}
       </div>
 
-      {pageCount > 0 && (
+      {items.length > 0 && (
         <div className="panel__share">
           <div className="share-row">
-            <button className="share-btn" onClick={createShareLink}>
+            <button className="share-btn" onClick={createShareLink} disabled={pageCount === 0}>
               <IconLink size={14} />
-              Als Link teilen
+              Share as link
             </button>
             <button
               className="share-btn share-btn--alt"
-              onClick={createPrompt}
-              disabled={promptPending}
-              title="Prompt + annotierte Screenshots fuer Claude Code erzeugen"
+              onClick={exportShots}
+              disabled={shotsPending}
+              title="Download annotated screenshots of every page with feedback (notes included)"
             >
-              <IconTerminal size={14} />
-              {promptPending ? 'Erzeuge…' : 'Claude-Prompt'}
+              <IconDownload size={14} />
+              {shotsPending
+                ? shotsProgress && shotsProgress.total > 0
+                  ? `Capturing ${Math.min(shotsProgress.done + 1, shotsProgress.total)}/${shotsProgress.total}…`
+                  : 'Capturing…'
+                : 'Screenshots'}
             </button>
           </div>
 
@@ -336,48 +382,30 @@ export function FeedbackPanel({
                 />
                 <button
                   className="icon-btn icon-btn--small"
-                  title={shareCopied ? 'Kopiert!' : 'Link kopieren'}
+                  title={shareCopied ? 'Copied!' : 'Copy link'}
                   onClick={copyShareLink}
                 >
                   {shareCopied ? <IconCheck size={14} /> : <IconCopy size={14} />}
                 </button>
               </div>
               <div className="share-hint">
-                Alle Markierungen dieser Seite stecken codiert im Link. Wer ihn mit
-                Inkspect-Extension oeffnet, sieht sie direkt auf der Seite.
+                All markings of this page are encoded in the link. Anyone opening it with
+                the Inkspect extension sees them directly on the page.
               </div>
             </>
           )}
 
-          {prompt !== null && (
-            <>
-              <div className="share-box share-box--multiline">
-                <textarea
-                  className="share-box__prompt"
-                  readOnly
-                  value={prompt}
-                  spellCheck={false}
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-                <button
-                  className="icon-btn icon-btn--small"
-                  title={promptCopied ? 'Kopiert!' : 'Prompt kopieren'}
-                  onClick={copyPrompt}
-                >
-                  {promptCopied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-                </button>
-              </div>
-              <div className="share-hint">
-                {promptCopied ? 'In der Zwischenablage — ' : ''}in Claude Code einfuegen.
-                Die annotierten Screenshots liegen im Download-Ordner; der Prompt
-                verweist darauf.
-              </div>
-            </>
+          {shotsCount !== null && (
+            <div className={`share-hint${shotsCount === 0 ? ' share-hint--error' : ''}`}>
+              {shotsCount === 0
+                ? 'No screenshots could be captured.'
+                : `${shotsCount} annotated screenshot${shotsCount === 1 ? '' : 's'} saved to your Downloads folder — markings and notes included.`}
+            </div>
           )}
 
           {shareError && (
             <div className="share-hint share-hint--error">
-              Link konnte nicht erstellt werden.
+              The link could not be created.
             </div>
           )}
         </div>

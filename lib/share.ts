@@ -53,6 +53,6 @@ export async function decodeShare(encoded: string): Promise<FeedbackItem[]> {
   const packed = fromBase64Url(encoded);
   const raw = await pipe(packed, new DecompressionStream('deflate-raw'));
   const payload = JSON.parse(new TextDecoder().decode(raw)) as Partial<SharePayload>;
-  if (payload?.v !== 1) throw new Error('Unbekanntes Share-Format.');
+  if (payload?.v !== 1) throw new Error('Unknown share format.');
   return sanitizeItems(payload.items);
 }

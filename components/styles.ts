@@ -228,6 +228,42 @@ input::placeholder { color: var(--text-2); }
 .menu__item--danger:hover:not(:disabled) { background: var(--danger-dim); color: var(--danger); }
 .menu__divider { height: 1px; margin: 5px 4px; background: var(--border-strong); }
 
+/* Preset-Zeile mit Loesch-Knopf (nur Custom-Presets) */
+.menu__row { display: flex; align-items: center; gap: 2px; }
+.menu__row .menu__item { flex: 1 1 auto; min-width: 0; }
+.menu__delete { flex: 0 0 auto; visibility: hidden; }
+.menu__row:hover .menu__delete { visibility: visible; }
+
+/* Inline-Form: eigene Viewport-Groesse anlegen */
+.menu__title--sep { margin-top: 6px; border-top: 1px solid var(--border-strong); padding-top: 10px; }
+.menu__custom { display: flex; flex-direction: column; gap: 6px; padding: 0 10px 8px; }
+.menu__custom input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: var(--text-0);
+  background: var(--bg-0);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+}
+.menu__custom-size { display: flex; align-items: center; gap: 6px; }
+.menu__custom-size span { color: var(--text-2); }
+.menu__custom-size input { width: 64px; font-variant-numeric: tabular-nums; }
+.menu__custom-add {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-s);
+}
+.menu__custom-add:disabled { opacity: .4; }
+.menu__custom-add:hover:not(:disabled) { background: #6f9aff; }
+
 /* ---------- Ladebalken (unter der Toolbar) ---------- */
 
 .loadbar {
@@ -453,6 +489,24 @@ input::placeholder { color: var(--text-2); }
 .fb-item__delete { visibility: hidden; }
 .fb-item:hover .fb-item__delete { visibility: visible; }
 
+/* Erledigt-Status: Check-Kreis vorn, abgehakte Eintraege gedimmt */
+.fb-check {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: transparent;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 999px;
+  color: #fff;
+}
+.fb-check:hover { border-color: var(--text-1); }
+.fb-check--done { background: #3ecf6e; border-color: #3ecf6e; }
+.fb-item--done { opacity: .45; }
+.fb-item--done .fb-item__label { text-decoration: line-through; }
+
 /* ---------- Feedback versenden (Panel-Footer) ---------- */
 
 .panel__share {
@@ -491,21 +545,6 @@ input::placeholder { color: var(--text-2); }
   display: flex;
   align-items: center;
   gap: 4px;
-}
-.share-box--multiline { align-items: flex-start; }
-.share-box__prompt {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 140px;
-  resize: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
-  line-height: 1.5;
-  color: var(--text-1);
-  background: var(--bg-0);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-s);
-  padding: 6px 8px;
 }
 .share-box__url {
   flex: 1 1 auto;

@@ -62,7 +62,7 @@ export default defineConfig({
   manifest: {
     name: 'Inkspect',
     description:
-      'Responsive-Preview mit synchronen Device-Frames, Live-CSS-Editor und Feedback direkt auf der Seite.',
+      'Responsive preview with synced device frames, live CSS editor and feedback right on the page.',
     permissions: ['declarativeNetRequestWithHostAccess', 'storage'],
 
     icons: {
@@ -79,7 +79,7 @@ export default defineConfig({
     host_permissions: ['<all_urls>'],
 
     action: {
-      default_title: 'Inkspect oeffnen',
+      default_title: 'Open Inkspect',
       default_icon: {
         16: 'icon/16.png',
         32: 'icon/32.png',

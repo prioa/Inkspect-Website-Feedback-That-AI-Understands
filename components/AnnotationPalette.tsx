@@ -49,10 +49,10 @@ export function AnnotationPalette({
   onClear,
 }: Props) {
   return (
-    <div className="palette" role="toolbar" aria-label="Feedback-Werkzeuge">
+    <div className="palette" role="toolbar" aria-label="Feedback tools">
       <button
         className={`icon-btn${tool === 'interact' ? ' icon-btn--active' : ''}`}
-        title="Interagieren — Klicks & Eingaben gehen an die Seite (Esc)"
+        title="Interact — clicks & inputs go to the page (Esc)"
         aria-pressed={tool === 'interact'}
         onClick={() => onTool('interact')}
       >
@@ -80,7 +80,7 @@ export function AnnotationPalette({
           key={c}
           className={`swatch${color === c ? ' swatch--active' : ''}`}
           style={{ background: c }}
-          title="Farbe"
+          title="Color"
           aria-pressed={color === c}
           onClick={() => onColor(c)}
         />
@@ -90,7 +90,7 @@ export function AnnotationPalette({
 
       <button
         className="icon-btn"
-        title="Letzte Markierung zuruecknehmen (Cmd/Ctrl+Z)"
+        title="Undo last marking (Cmd/Ctrl+Z)"
         onClick={onUndo}
         disabled={!canUndo}
       >
@@ -98,7 +98,7 @@ export function AnnotationPalette({
       </button>
       <button
         className="icon-btn icon-btn--danger"
-        title="Alle Markierungen dieser Seite loeschen"
+        title="Delete all markings on this page"
         onClick={onClear}
         disabled={!canUndo}
       >

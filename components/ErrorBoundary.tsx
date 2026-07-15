@@ -41,12 +41,12 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
           zIndex: 2147483647,
         }}
       >
-        <h2 style={{ color: '#ff8080' }}>Inkspect ist abgestuerzt</h2>
+        <h2 style={{ color: '#ff8080' }}>Inkspect crashed</h2>
         <pre style={{ whiteSpace: 'pre-wrap' }}>
           {error.name}: {error.message}
           {'\n\n'}
           {error.stack}
-          {info?.componentStack ? `\n\nKomponenten:\n${info.componentStack}` : ''}
+          {info?.componentStack ? `\n\nComponents:\n${info.componentStack}` : ''}
         </pre>
       </div>
     );

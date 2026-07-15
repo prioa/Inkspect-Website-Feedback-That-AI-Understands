@@ -21,6 +21,8 @@ export interface FeedbackItem {
   deviceId: string;
   shape: Shape;
   createdAt: number;
+  /** Abgehakt (Review-Workflow) — erledigte Marker werden gedimmt dargestellt. */
+  done?: boolean;
 }
 
 const KEY = 'ink-feedback-v1';
@@ -32,6 +34,18 @@ export function normalizeUrl(href: string): string {
     return u.origin + u.pathname + u.search;
   } catch {
     return href;
+  }
+}
+
+/**
+ * Gehoeren zwei Seiten zur selben Domain (Origin)? Feedback fremder Domains
+ * bleibt gespeichert, wird aber weder im Panel noch im Zaehler angezeigt.
+ */
+export function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return a === b;
   }
 }
 
@@ -96,7 +110,7 @@ export async function clearUrl(url: string): Promise<void> {
 
 /** Minimale Struktur-Validierung geteilter/importierter Eintraege. */
 export function sanitizeItems(data: unknown): FeedbackItem[] {
-  if (!Array.isArray(data)) throw new Error('Kein Inkspect-Feedback.');
+  if (!Array.isArray(data)) throw new Error('Not Inkspect feedback.');
   const valid = data.filter((item): item is FeedbackItem => {
     const i = item as Partial<FeedbackItem> | null;
     return (

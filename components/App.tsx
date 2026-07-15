@@ -5,7 +5,19 @@ import { CssEditor } from './CssEditor';
 import { DeviceFrame } from './DeviceFrame';
 import { AnnotationPalette } from './AnnotationPalette';
 import { FeedbackPanel } from './FeedbackPanel';
-import { defaultDevices, instantiate, PRESETS, type DeviceInstance } from '@/lib/devices';
+import {
+  createCustomPreset,
+  defaultDevices,
+  instantiate,
+  isCustomPreset,
+  loadCustomPresets,
+  loadGridState,
+  PRESETS,
+  saveCustomPresets,
+  saveGridState,
+  type DeviceInstance,
+  type DevicePreset,
+} from '@/lib/devices';
 import { frameDocument, isFrameBlocked } from '@/lib/framing';
 import { ScrollSync } from '@/lib/scrollSync';
 import { InteractionSync } from '@/lib/interactionSync';
@@ -26,11 +38,11 @@ import {
   persist,
   removeItems,
   replaceItem,
+  sameOrigin,
   type FeedbackItem,
 } from '@/lib/feedbackStore';
 import { buildShareUrl } from '@/lib/share';
-import { buildClaudePrompt, type DeviceScreenshot } from '@/lib/claudePrompt';
-import { captureElementShot, downloadBlob } from '@/lib/screenshot';
+import { captureFullFrameShot, downloadBlob } from '@/lib/screenshot';
 import { applyOverride, clearOverride, collectSheets, type SheetSource } from '@/lib/stylesheets';
 import type { FrameBypassResponse } from '@/lib/messages';
 import { createLogger } from '@/lib/log';
@@ -47,10 +59,60 @@ export function App({
   onClose: () => void;
   initialFeedbackOpen?: boolean;
 }) {
-  const [devices, setDevices] = useState<DeviceInstance[]>(defaultDevices);
+  // Presets = eingebaute + eigene des Nutzers; Grid und Zoom werden persistiert
+  // und beim Start wiederhergestellt (Setup soll Sessions ueberleben).
+  const [presets, setPresets] = useState<readonly DevicePreset[]>(PRESETS);
+  const [devices, setDevices] = useState<DeviceInstance[]>([]);
   const [src, setSrc] = useState(location.href);
   const [zoom, setZoom] = useState(0.6);
   const [reloadKey, setReloadKey] = useState(0);
+  /** Erst nach dem Restore speichern — sonst ueberschreibt der Default den Stand. */
+  const layoutRestored = useRef(false);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const [custom, grid] = await Promise.all([loadCustomPresets(), loadGridState()]);
+        if (!alive) return;
+        const all = [...PRESETS, ...custom];
+        setPresets(all);
+        const stored = (grid?.devices ?? []).flatMap((d) => {
+          const preset = all.find((p) => p.id === d.presetId);
+          return preset ? [{ ...instantiate(preset), rotated: !!d.rotated }] : [];
+        });
+        if (grid && stored.length > 0) {
+          setDevices(stored);
+          setZoom(grid.zoom);
+        } else {
+          setDevices(defaultDevices());
+        }
+      } catch (e) {
+        log.error('Layout laden fehlgeschlagen', e);
+        if (alive) setDevices(defaultDevices());
+      } finally {
+        layoutRestored.current = true;
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Grid + Zoom fortschreiben (debounced; jede Aenderung von devices/zoom).
+  useEffect(() => {
+    if (!layoutRestored.current) return;
+    const timer = window.setTimeout(() => {
+      persist(
+        saveGridState({
+          devices: devices.map((d) => ({ presetId: d.id, rotated: d.rotated })),
+          zoom,
+        }),
+        'Layout speichern',
+      );
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [devices, zoom]);
 
   const [sheets, setSheets] = useState<SheetSource[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -291,14 +353,14 @@ export function App({
     try {
       next = new URL(input, location.href);
     } catch {
-      setHint('Keine gueltige URL.');
+      setHint('Not a valid URL.');
       return;
     }
 
     if (next.origin !== location.origin) {
       setHint(
-        `Nur Pfade auf ${location.origin}. Eine fremde Origin macht die Frames cross-site — ` +
-          `damit gehen Login-Cookies und der Zugriff auf die Stylesheets verloren.`,
+        `Only paths on ${location.origin}. A foreign origin makes the frames cross-site — ` +
+          `login cookies and access to the stylesheets would be lost.`,
       );
       return;
     }
@@ -328,7 +390,7 @@ export function App({
       })) as FrameBypassResponse;
 
       if (!res.ok) {
-        setHint(`Konnte die Frame-Blockade nicht umgehen: ${res.error}`);
+        setHint(`Could not bypass the frame blocking: ${res.error}`);
         return;
       }
       setBypassEnabled(true);
@@ -347,9 +409,36 @@ export function App({
     onClose();
   }, [bypassEnabled, onClose]);
 
-  const addDevice = useCallback((presetId: string) => {
-    const preset = PRESETS.find((p) => p.id === presetId);
-    if (preset) setDevices((current) => [...current, instantiate(preset)]);
+  const addDevice = useCallback(
+    (presetId: string) => {
+      const preset = presets.find((p) => p.id === presetId);
+      if (preset) setDevices((current) => [...current, instantiate(preset)]);
+    },
+    [presets],
+  );
+
+  /** Legt ein eigenes Preset an (persistiert) und stellt es direkt ins Grid. */
+  const addCustomDevice = useCallback((name: string, width: number, height: number) => {
+    const preset = createCustomPreset(name, width, height);
+    if (!preset) return;
+    setPresets((current) => {
+      const next = [...current, preset];
+      persist(saveCustomPresets(next.filter((p) => isCustomPreset(p.id))), 'Devices speichern');
+      return next;
+    });
+    setDevices((current) => [...current, instantiate(preset)]);
+  }, []);
+
+  // Entfernt ein Custom-Preset samt Grid-Instanzen. Zugehoeriges Feedback
+  // bleibt bestehen — das Panel zeigt unbekannte deviceIds als eigene Gruppe.
+  const removeCustomPreset = useCallback((presetId: string) => {
+    if (!isCustomPreset(presetId)) return;
+    setPresets((current) => {
+      const next = current.filter((p) => p.id !== presetId);
+      persist(saveCustomPresets(next.filter((p) => isCustomPreset(p.id))), 'Devices speichern');
+      return next;
+    });
+    setDevices((current) => current.filter((d) => d.id !== presetId));
   }, []);
 
   const rotateDevice = useCallback((uid: string) => {
@@ -448,16 +537,28 @@ export function App({
     persist(removeItems([itemId]), 'Feedback loeschen');
   }, []);
 
+  /** Erledigt-Status eines Eintrags umschalten (Review-Workflow). */
+  const toggleDone = useCallback(
+    (itemId: string) => {
+      const existing = feedback.find((item) => item.id === itemId);
+      if (!existing) return;
+      const updated: FeedbackItem = { ...existing, done: !existing.done };
+      setFeedback((current) => current.map((item) => (item.id === itemId ? updated : item)));
+      persist(replaceItem(updated), 'Feedback speichern');
+    },
+    [feedback],
+  );
+
   const setShapeNote = useCallback(
     (_uid: string, shapeId: string, note: string) => {
       const existing = feedback.find((item) => item.shape.id === shapeId);
       if (!existing) return;
       const shape = existing.shape;
-      // Pins/Texte tragen ihren Inhalt in `text`, markierte Elemente in `note`;
-      // Zeichenformen haben keinen Freitext.
-      if (shape.tool !== 'pin' && shape.tool !== 'text' && shape.tool !== 'element') return;
+      // Pins/Texte tragen ihren Inhalt in `text`, alle anderen Marker mit
+      // Freitext in `note`; nur Freihand hat keinen.
+      if (shape.tool === 'pen') return;
       const updatedShape: Shape =
-        shape.tool === 'element' ? { ...shape, note } : { ...shape, text: note };
+        shape.tool === 'pin' || shape.tool === 'text' ? { ...shape, text: note } : { ...shape, note };
       const updated: FeedbackItem = { ...existing, shape: updatedShape };
       setFeedback((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       persist(replaceItem(updated), 'Notiz speichern');
@@ -488,27 +589,30 @@ export function App({
   // Textzusammenfassung fuer Uebergabe an Kollegen/Tickets.
   const copyFeedback = useCallback(async () => {
     const lines = [`Inkspect Feedback — ${activeUrl}`];
-    for (const preset of PRESETS) {
+    for (const preset of presets) {
+      // Erledigte Eintraege bleiben aussen vor — der Export ist eine To-do-Liste.
       const shapes = feedback
-        .filter((item) => item.deviceId === preset.id && item.url === activeUrl)
+        .filter((item) => item.deviceId === preset.id && item.url === activeUrl && !item.done)
         .map((item) => item.shape);
       if (shapes.length === 0) continue;
       lines.push('', `## ${preset.name} (${preset.width}×${preset.height})`);
       const numbers = pinNumbers(shapes);
       for (const shape of shapes) {
         if (shape.tool === 'pin') {
-          lines.push(`${numbers.get(shape.id)}. ${shape.text || '(Pin ohne Notiz)'}`);
+          lines.push(`${numbers.get(shape.id)}. ${shape.text || '(pin without note)'}`);
         } else if (shape.tool === 'element') {
           lines.push(`- Element ${shape.label}${shape.note ? `: "${shape.note}"` : ''}`);
         } else if (shape.tool === 'text') {
           lines.push(`- Text: "${shape.text}"`);
+        } else if (shape.tool !== 'pen' && shape.note) {
+          lines.push(`- ${TOOL_LABELS[shape.tool]}: "${shape.note}"`);
         } else {
           lines.push(`- ${TOOL_LABELS[shape.tool]}`);
         }
       }
     }
     await navigator.clipboard.writeText(lines.join('\n'));
-  }, [feedback, activeUrl]);
+  }, [feedback, activeUrl, presets]);
 
   // Teilen per Link: Feedback dieser Seite komprimiert im URL-Hash.
   // Anzeige und Kopieren uebernimmt das Feedback-Panel.
@@ -521,85 +625,138 @@ export function App({
     [feedback, activeUrl],
   );
 
+  // Waehrend des Screenshot-Exports rendern die Overlays die Notizen als
+  // Sprechblasen — der Text steht dann am richtigen Punkt im Bild.
+  const [showNotes, setShowNotes] = useState(false);
+
+  /** Warten, bis alle Frames die Zielseite fertig geladen haben. */
+  const waitForPage = useCallback((url: string, timeout = 12_000): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const tick = () => {
+        const list = [...frames.current.values()];
+        const ready =
+          list.length > 0 &&
+          list.every((iframe) => {
+            const doc = frameDocument(iframe);
+            try {
+              return doc != null && doc.readyState === 'complete' && normalizeUrl(doc.location.href) === url;
+            } catch {
+              return false;
+            }
+          });
+        if (ready) return resolve(true);
+        if (Date.now() - start > timeout) return resolve(false);
+        window.setTimeout(tick, 150);
+      };
+      tick();
+    });
+  }, []);
+
   /**
-   * Laedt fuer jedes Device mit Feedback einen annotierten Screenshot
-   * herunter (sichtbarer Tab, zugeschnitten auf den Frame) — die Bilder
-   * machen Freihand-Markierungen fuer Claude Code erst verstaendlich.
+   * Laedt fuer jede Seite der aktuellen Domain mit offenem Feedback
+   * Full-Page-Screenshots herunter (ein Bild pro Device mit Feedback,
+   * Frame slice-weise gescrollt und gestitcht). Notizen werden als
+   * Sprechblasen am jeweiligen Marker mitgerendert. Andere Seiten werden
+   * dafuer kurz in den Previews geladen; am Ende geht es zurueck zur
+   * Ausgangsseite. `onProgress` meldet erledigte/gesamte Devices.
    */
-  const exportScreenshots = useCallback(async (): Promise<DeviceScreenshot[]> => {
-    /** Oberster Dokument-Y einer Markierung — dahin wird vor dem Capture gescrollt. */
-    const topOf = (shape: Shape): number => {
-      if (shape.tool === 'pen') {
-        const ys = (shape.strokes ?? []).flat().map((p) => p.y);
-        return ys.length > 0 ? Math.min(...ys) : Number.POSITIVE_INFINITY;
-      }
-      if ('y1' in shape) return Math.min(shape.y1, shape.y2);
-      return shape.y;
-    };
-
-    const shots: DeviceScreenshot[] = [];
-    const captured = new Set<string>();
-
-    for (const device of devices) {
-      if (captured.has(device.id)) continue;
-      const shapes = feedback
-        .filter((item) => item.url === activeUrl && item.deviceId === device.id)
-        .map((item) => item.shape);
-      const iframe = frames.current.get(device.uid);
-      const viewport = iframe?.parentElement;
-      if (shapes.length === 0 || !viewport) continue;
-      captured.add(device.id);
-
-      // captureVisibleTab ist auf 2 Aufrufe/s begrenzt.
-      if (shots.length > 0) await new Promise((r) => setTimeout(r, 600));
-
-      viewport.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-
-      // Frame zur obersten Markierung scrollen — der Screenshot zeigt nur den
-      // sichtbaren Ausschnitt, und die Marker sollen darauf zu sehen sein.
-      const win = iframe?.contentWindow;
-      const minY = Math.min(...shapes.map(topOf));
-      let previousScroll: { x: number; y: number } | null = null;
-      try {
-        if (win && Number.isFinite(minY)) {
-          previousScroll = { x: win.scrollX, y: win.scrollY };
-          win.scrollTo(0, Math.max(0, minY - 40));
+  const exportScreenshots = useCallback(
+    async (onProgress?: (done: number, total: number) => void): Promise<number> => {
+      /** Dateiname-Slug aus Pfad + Query der Seite. */
+      const slugOf = (url: string): string => {
+        try {
+          const u = new URL(url);
+          const slug = (u.pathname + u.search).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+          return slug || 'home';
+        } catch {
+          return 'page';
         }
-      } catch {
-        /* Frame nicht lesbar */
-      }
-      await new Promise((r) => setTimeout(r, 200));
+      };
 
+      const startUrl = activeUrl;
+      // Aktuelle Seite zuerst — sie ist schon geladen. Nur Seiten mit offenen
+      // Eintraegen; abgehaktes Feedback braucht keinen Screenshot mehr.
+      const open = feedback.filter((i) => sameOrigin(i.url, startUrl) && !i.done);
+      const pages = [...new Set(open.map((i) => i.url))].sort(
+        (a, b) => (a === startUrl ? -1 : b === startUrl ? 1 : a.localeCompare(b)),
+      );
+
+      // Gesamtzahl der Captures vorab — fuer die Fortschrittsanzeige.
+      const gridPresetIds = new Set(devices.map((d) => d.id));
+      const total = pages.reduce(
+        (sum, pageUrl) =>
+          sum +
+          new Set(
+            open
+              .filter((i) => i.url === pageUrl && gridPresetIds.has(i.deviceId))
+              .map((i) => i.deviceId),
+          ).size,
+        0,
+      );
+      let done = 0;
+      onProgress?.(done, total);
+
+      let downloads = 0;
+      let currentPage = startUrl;
+      setShowNotes(true);
       try {
-        const blob = await captureElementShot(viewport.getBoundingClientRect());
-        if (blob) {
-          const file = `inkspect-feedback-${device.id}.png`;
-          downloadBlob(blob, file);
-          shots.push({ presetId: device.id, file });
+        // Notizen-Sprechblasen erst rendern lassen.
+        await new Promise((r) => setTimeout(r, 150));
+
+        for (const pageUrl of pages) {
+          if (pageUrl !== currentPage) {
+            handleNavigate(pageUrl);
+            currentPage = pageUrl;
+            const loaded = await waitForPage(pageUrl);
+            if (!loaded) {
+              log.warn('Seite fuer Screenshot nicht geladen', pageUrl);
+              continue;
+            }
+            await new Promise((r) => setTimeout(r, 250));
+          }
+
+          const captured = new Set<string>();
+          for (const device of devices) {
+            if (captured.has(device.id)) continue;
+            const hasOpen = open.some(
+              (item) => item.url === pageUrl && item.deviceId === device.id,
+            );
+            const iframe = frames.current.get(device.uid);
+            const viewport = iframe?.parentElement;
+            if (!hasOpen || !iframe || !viewport) continue;
+            captured.add(device.id);
+
+            viewport.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+
+            try {
+              const blob = await captureFullFrameShot(
+                iframe,
+                () => viewport.getBoundingClientRect(),
+                zoom,
+              );
+              if (blob) {
+                downloadBlob(blob, `inkspect-feedback-${slugOf(pageUrl)}-${device.id}.png`);
+                downloads += 1;
+              }
+            } catch (e) {
+              log.warn('Screenshot fehlgeschlagen', device.name, e);
+            }
+
+            done += 1;
+            onProgress?.(done, total);
+          }
         }
-      } catch (e) {
-        log.warn('Screenshot fehlgeschlagen', device.name, e);
+      } finally {
+        setShowNotes(false);
+        // Zurueck zur Ausgangsseite, falls fuer andere Seiten navigiert wurde.
+        if (currentPage !== startUrl) handleNavigate(startUrl);
       }
 
-      try {
-        if (win && previousScroll) win.scrollTo(previousScroll.x, previousScroll.y);
-      } catch {
-        /* Frame nicht lesbar */
-      }
-    }
-
-    return shots;
-  }, [devices, feedback, activeUrl]);
-
-  // Einfuegefertiger Umsetzungs-Prompt fuer Claude Code.
-  const buildClaudeCodePrompt = useCallback(async () => {
-    const shots = await exportScreenshots();
-    return buildClaudePrompt(
-      activeUrl,
-      feedback.filter((item) => item.url === activeUrl),
-      shots,
-    );
-  }, [feedback, activeUrl, exportScreenshots]);
+      return downloads;
+    },
+    [devices, feedback, activeUrl, zoom, handleNavigate, waitForPage],
+  );
 
   // Shortcuts: Esc zurueck zum Interagieren, Cmd/Ctrl+Z Undo (nur im
   // Zeichenmodus), 1-7 waehlt ein Werkzeug.
@@ -634,7 +791,11 @@ export function App({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [annotating, undoShape, selectTool]);
 
-  const feedbackCount = feedback.length;
+  // Nur Feedback der aktuellen Domain — Eintraege anderer Domains bleiben
+  // gespeichert, tauchen aber weder im Panel noch im Zaehler auf. Die Badges
+  // zaehlen nur offene (nicht abgehakte) Eintraege.
+  const domainFeedback = feedback.filter((item) => sameOrigin(item.url, activeUrl));
+  const feedbackCount = domainFeedback.filter((item) => !item.done).length;
   const pageFeedbackCount = feedback.filter((item) => item.url === activeUrl).length;
 
   return (
@@ -642,12 +803,15 @@ export function App({
       <Toolbar
         src={src}
         zoom={zoom}
+        presets={presets}
         editorOpen={editorOpen}
         syncEnabled={syncEnabled}
         feedbackOpen={feedbackOpen}
         feedbackCount={feedbackCount}
         onNavigate={handleNavigate}
         onAddDevice={addDevice}
+        onAddCustomDevice={addCustomDevice}
+        onRemoveCustomPreset={removeCustomPreset}
         onZoom={setZoom}
         onReload={reloadFrames}
         onToggleEditor={() => setEditorOpen((v) => !v)}
@@ -662,15 +826,15 @@ export function App({
 
       {blocked && !bypassEnabled && (
         <div className="banner">
-          <strong>Diese Seite verbietet das Einbetten.</strong>
+          <strong>This page refuses to be embedded.</strong>
           <span>
-            Sie sendet <code>X-Frame-Options: DENY</code> oder{' '}
-            <code>frame-ancestors 'none'</code>. Zum Umgehen entfernt Inkspect diese Header — nur
-            in diesem Tab, nur fuer die Preview-Frames.
+            It sends <code>X-Frame-Options: DENY</code> or{' '}
+            <code>frame-ancestors 'none'</code>. To work around this, Inkspect removes these
+            headers — only in this tab, only for the preview frames.
           </span>
           <span className="device__bar-spacer" />
           <button onClick={() => void enableBypass()} disabled={bypassPending}>
-            {bypassPending ? 'Aktiviere…' : 'Blockade umgehen'}
+            {bypassPending ? 'Enabling…' : 'Bypass blocking'}
           </button>
         </div>
       )}
@@ -699,8 +863,10 @@ export function App({
               reloadKey={reloadKey}
               annotating={annotating}
               shapes={itemsFor(device.id).map((item) => item.shape)}
+              dimmedIds={new Set(itemsFor(device.id).filter((i) => i.done).map((i) => i.shape.id))}
               tool={drawTool}
               color={color}
+              showNotes={showNotes}
               onLoad={handleLoad}
               onAttach={handleAttach}
               onRotate={rotateDevice}
@@ -713,16 +879,18 @@ export function App({
 
         {feedbackOpen && (
           <FeedbackPanel
-            items={feedback}
+            items={domainFeedback}
             url={activeUrl}
+            presets={presets}
             devices={devices}
             onJump={focusDevice}
             onNavigate={handleNavigate}
             onDelete={removeShape}
+            onToggleDone={toggleDone}
             onClearAll={clearAllShapes}
             onCopy={copyFeedback}
             onBuildShareLink={buildShareLink}
-            onBuildClaudePrompt={buildClaudeCodePrompt}
+            onExportScreenshots={exportScreenshots}
             onClose={() => setFeedbackOpen(false)}
           />
         )}

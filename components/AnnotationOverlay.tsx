@@ -12,11 +12,18 @@ interface Props {
   /** Nur im Korrekturmodus faengt das Overlay Pointer-Events ab. */
   active: boolean;
   shapes: Shape[];
+  /** Shape-Ids erledigter Eintraege — gedimmt gerendert, ohne Notiz-Bubble. */
+  dimmedIds?: Set<string>;
   tool: Tool;
   color: string;
   frameEl: HTMLIFrameElement | null;
   /** Zaehlt Frame-Loads hoch — der Scroll-Listener muss dann neu haengen. */
   loadCount: number;
+  /**
+   * Notizen als Sprechblasen direkt im Overlay rendern — an waehrend des
+   * Screenshot-Exports, damit der Text am richtigen Punkt im Bild steht.
+   */
+  showNotes?: boolean;
   onAdd: (shape: Shape) => void;
   onSetNote: (shapeId: string, note: string) => void;
 }
@@ -65,10 +72,12 @@ export function AnnotationOverlay({
   zoom,
   active,
   shapes,
+  dimmedIds,
   tool,
   color,
   frameEl,
   loadCount,
+  showNotes = false,
   onAdd,
   onSetNote,
 }: Props) {
@@ -195,7 +204,7 @@ export function AnnotationOverlay({
 
   /**
    * DOM-Bezug fuer eine Markierung an Dokument-Koordinaten — macht Exporte
-   * (Claude-Code-Prompt) im Quellcode verortbar.
+   * (Text-Export) im Quellcode verortbar.
    */
   const anchorAt = (x: number, y: number): ElementRef => {
     const win = frameEl?.contentWindow;
@@ -325,9 +334,10 @@ export function AnnotationOverlay({
     };
   };
 
-  // Zeichenformen speichern ohne Notiz-Editor — Freitext gibt es nur bei
-  // Pin und Element-Picker. Als DOM-Bezug dienen die gekreuzten Elemente,
-  // beim Pfeil das Element unter der Spitze.
+  // Freihand speichert ohne Notiz-Editor; Rechteck/Ellipse/Pfeil oeffnen wie
+  // Pin und Element-Picker direkt das Notizfeld (optional, leer = ohne).
+  // Als DOM-Bezug dienen die gekreuzten Elemente, beim Pfeil das Element
+  // unter der Spitze.
   const handleUp = () => {
     if (!draft) return;
     setDraft(null);
@@ -344,6 +354,7 @@ export function AnnotationOverlay({
             ? anchorAt(draft.x2, draft.y2)
             : anchorAt((draft.x1 + draft.x2) / 2, (draft.y1 + draft.y2) / 2);
         onAdd({ ...draft, ...ref });
+        setNoteDraft({ shapeId: draft.id, x: draft.x2, y: draft.y2, value: '' });
       }
     }
   };
@@ -371,7 +382,16 @@ export function AnnotationOverlay({
         onPointerLeave={() => setPicked(null)}
       >
         <g transform={`translate(${-scroll.x}, ${-scroll.y})`}>
-          {shapes.map((s) => renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id)))}
+          {shapes.map((s) =>
+            dimmedIds?.has(s.id) ? (
+              <g key={`dim-${s.id}`} opacity={0.35}>
+                {renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id))}
+              </g>
+            ) : (
+              renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id))
+            ),
+          )}
+          {showNotes && shapes.filter((s) => !dimmedIds?.has(s.id)).map((s) => renderNoteBubble(s, zoom))}
           {draft && renderShape(draft, strokeWidth, fontSize, zoom)}
           {active && tool === 'element' && picked && !noteDraft && (
             <g pointerEvents="none">
@@ -404,6 +424,7 @@ export function AnnotationOverlay({
           autoFocus
           spellCheck={false}
           placeholder="Text…"
+          aria-label="Text annotation"
           onChange={(e) => setTextDraft({ ...textDraft, value: e.target.value })}
           onKeyDown={(e) => {
             // stopPropagation: Esc/Enter sollen nur den Draft betreffen,
@@ -429,7 +450,7 @@ export function AnnotationOverlay({
             autoFocus
             spellCheck={false}
             rows={3}
-            placeholder="Notiz (optional)…"
+            placeholder="Note (optional)…"
             onChange={(e) => setNoteDraft({ ...noteDraft, value: e.target.value })}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -444,10 +465,95 @@ export function AnnotationOverlay({
             }}
             onBlur={commitNote}
           />
-          <div className="anno__note-hint">Enter speichert · Esc ohne Notiz</div>
+          <div className="anno__note-hint">Enter saves · Esc skips the note</div>
         </div>
       )}
     </div>
+  );
+}
+
+/** Zeilenumbruch fuer Notiz-Sprechblasen — SVG-<text> bricht nicht selbst um. */
+function wrapNote(text: string, maxChars: number, maxLines: number): string[] {
+  const words = text.trim().split(/\s+/);
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    if (line && line.length + 1 + word.length > maxChars) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+    if (lines.length === maxLines) break;
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
+    lines[maxLines - 1] = `${lines[maxLines - 1]!.slice(0, maxChars - 1)}…`;
+  }
+  return lines;
+}
+
+/** Notiztext und Ankerpunkt (Dokumentraum) einer Markierung — null ohne Notiz. */
+function noteOf(shape: Shape): { text: string; x: number; y: number } | null {
+  switch (shape.tool) {
+    case 'pin':
+      return shape.text ? { text: shape.text, x: shape.x + 14, y: shape.y + 6 } : null;
+    case 'element':
+      return shape.note ? { text: shape.note, x: shape.x, y: shape.y + shape.h + 6 } : null;
+    case 'rect':
+    case 'ellipse':
+      return shape.note
+        ? { text: shape.note, x: Math.min(shape.x1, shape.x2), y: Math.max(shape.y1, shape.y2) + 6 }
+        : null;
+    case 'arrow':
+      return shape.note ? { text: shape.note, x: shape.x2 + 8, y: shape.y2 + 6 } : null;
+    default:
+      return null; // Freihand hat keinen Freitext, Text rendert sich selbst
+  }
+}
+
+/**
+ * Notiz als Sprechblase neben der Markierung — nur waehrend des
+ * Screenshot-Exports sichtbar, damit der Text im Bild am richtigen Punkt
+ * steht. Konstante Bildschirmgroesse, deshalb /zoom.
+ */
+function renderNoteBubble(shape: Shape, zoom: number) {
+  const note = noteOf(shape);
+  if (!note) return null;
+
+  const size = 12 / zoom;
+  const lineH = size * 1.35;
+  const pad = 7 / zoom;
+  const lines = wrapNote(note.text, 32, 5);
+  const longest = lines.reduce((max, l) => Math.max(max, l.length), 0);
+  const w = longest * size * 0.6 + pad * 2;
+  const h = lines.length * lineH + pad * 2;
+
+  return (
+    <g key={`note-${shape.id}`} pointerEvents="none">
+      <rect
+        x={note.x}
+        y={note.y}
+        width={w}
+        height={h}
+        rx={6 / zoom}
+        fill="rgba(14, 16, 20, 0.92)"
+        stroke={shape.color}
+        strokeWidth={1.2 / zoom}
+      />
+      {lines.map((line, i) => (
+        <text
+          key={i}
+          x={note.x + pad}
+          y={note.y + pad + i * lineH + size * 0.85}
+          fill="#fff"
+          fontSize={size}
+          fontFamily='ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
+        >
+          {line}
+        </text>
+      ))}
+    </g>
   );
 }
 

@@ -90,8 +90,8 @@ export function CssEditor({
           disabled={!sheets || sheets.length === 0}
           aria-label="Stylesheet"
         >
-          {!sheets && <option value="">Lade Stylesheets…</option>}
-          {sheets?.length === 0 && <option value="">Keine Stylesheets gefunden</option>}
+          {!sheets && <option value="">Loading stylesheets…</option>}
+          {sheets?.length === 0 && <option value="">No stylesheets found</option>}
           {sheets?.map((s) => (
             <option key={s.id} value={s.id}>
               {overrides[s.id] != null ? '● ' : ''}
@@ -99,17 +99,17 @@ export function CssEditor({
             </option>
           ))}
         </select>
-        <button onClick={() => active && onReset(active.id)} disabled={!dirty} title="Zuruecksetzen">
+        <button onClick={() => active && onReset(active.id)} disabled={!dirty} title="Reset">
           Reset
         </button>
       </div>
 
       {active && !active.readable && (
         <div className="editor__status editor__status--error">
-          Quelltext nicht ladbar{active.error ? `: ${active.error}` : ''}
+          Source could not be loaded{active.error ? `: ${active.error}` : ''}
         </div>
       )}
-      {dirty && <div className="editor__status editor__dirty">geaendert — live in allen Frames</div>}
+      {dirty && <div className="editor__status editor__dirty">modified — live in all frames</div>}
 
       <div className="editor__cm" ref={hostRef} />
     </div>

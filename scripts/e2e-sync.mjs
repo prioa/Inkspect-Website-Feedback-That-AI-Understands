@@ -249,7 +249,7 @@ try {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     return {
       freihand: [...sr.querySelectorAll('.fb-item__label')].filter(
-        (n) => n.textContent === 'Freihand',
+        (n) => n.textContent === 'Freehand',
       ).length,
       noteOpen: !!sr.querySelector('.anno__note'),
     };
@@ -300,7 +300,7 @@ try {
     `items: ${share.items?.length ?? 'keine'}, url: ${share.url.slice(0, 60)}…`,
   );
 
-  // --- 10b. Claude-Code-Prompt: Screenshots + Selektoren + Notizen ---
+  // --- 10b. Screenshots-Export: annotierte Full-Page-PNGs im Download-Ordner ---
   const downloadDir = mkdtempSync(join(tmpdir(), 'inkspect-e2e-'));
   const cdp = await page.createCDPSession();
   await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir });
@@ -309,39 +309,35 @@ try {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     sr.querySelector('.share-btn--alt').click();
   });
+  // Export ist fertig, sobald das Panel die Erfolgsmeldung zeigt.
   await page
     .waitForFunction(() => {
       const sr = document.getElementById('inkspect-root').shadowRoot;
-      return !!sr.querySelector('.share-box__prompt');
-    }, { timeout: 10000 })
+      return [...sr.querySelectorAll('.share-hint')].some((n) =>
+        n.textContent.includes('Downloads'),
+      );
+      // Full-Page: ~6 Slices × 600 ms plus Capture-Zeit
+    }, { timeout: 30000 })
     .catch(() => {});
   await new Promise((r) => setTimeout(r, 600)); // Download zu Ende schreiben lassen
 
-  const promptText = await page.evaluate(() => {
-    const sr = document.getElementById('inkspect-root').shadowRoot;
-    return sr.querySelector('.share-box__prompt')?.value ?? '';
-  });
   const shotFiles = readdirSync(downloadDir).filter(
     (f) => f.startsWith('inkspect-feedback-') && f.endsWith('.png'),
   );
+  const shotFile = 'inkspect-feedback-home-iphone-se.png';
   check(
-    'Claude-Code-Prompt (Screenshots + Selektoren)',
-    promptText.includes('#name') &&
-      promptText.includes('Logo zu klein') &&
-      promptText.includes('iPhone SE (375×667)') &&
-      promptText.includes('Hand-drawn markup') &&
-      promptText.includes('inkspect-feedback-iphone-se.png') &&
-      shotFiles.includes('inkspect-feedback-iphone-se.png'),
-    `laenge: ${promptText.length}, dateien: ${shotFiles.join(', ') || 'keine'}`,
+    'Screenshots-Export (Datei pro Device mit Feedback)',
+    shotFiles.includes(shotFile),
+    `dateien: ${shotFiles.join(', ') || 'keine'}`,
   );
 
   // --- 10c. Screenshot zeigt die Marker (rote Pixel von Pin/Strichen) ---
   let redPixels = 0;
-  if (shotFiles.includes('inkspect-feedback-iphone-se.png')) {
-    const b64 = readFileSync(join(downloadDir, 'inkspect-feedback-iphone-se.png')).toString(
-      'base64',
-    );
-    redPixels = await page.evaluate(async (encoded) => {
+  let darkPixels = 0;
+  let shotSize = { w: 0, h: 0 };
+  if (shotFiles.includes(shotFile)) {
+    const b64 = readFileSync(join(downloadDir, shotFile)).toString('base64');
+    ({ redPixels, darkPixels, shotSize } = await page.evaluate(async (encoded) => {
       const img = new Image();
       await new Promise((resolve, reject) => {
         img.onload = resolve;
@@ -354,14 +350,87 @@ try {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
       const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-      let count = 0;
+      let red = 0;
+      let dark = 0;
       for (let i = 0; i < data.length; i += 4) {
-        if (data[i] > 190 && data[i + 1] < 130 && data[i + 2] < 130) count += 1;
+        const [r, g, b] = [data[i], data[i + 1], data[i + 2]];
+        if (r > 190 && g < 130 && b < 130) red += 1;
+        // Notiz-Sprechblase: rgba(14,16,20,.92) ueber weisser Seite blendet zu
+        // ca. rgb(33,35,39) — leicht blaustichig, anders als neutralgrauer
+        // Text-Antialias (r==g==b).
+        if (Math.abs(r - 33) <= 6 && Math.abs(g - 35) <= 6 && Math.abs(b - 39) <= 7 && b > r) {
+          dark += 1;
+        }
       }
-      return count;
-    }, b64);
+      return {
+        redPixels: red,
+        darkPixels: dark,
+        shotSize: { w: img.naturalWidth, h: img.naturalHeight },
+      };
+    }, b64));
   }
   check('Screenshot zeigt Markierungen', redPixels > 50, `rote Pixel: ${redPixels}`);
+  check(
+    'Screenshot zeigt Notiz-Sprechblase am Marker',
+    darkPixels > 100,
+    `Sprechblasen-Pixel: ${darkPixels}`,
+  );
+  // Full-Page: Testseite ist 4000 px hoch, Zoom 0.6, dpr 1 → ~2400 px.
+  check(
+    'Screenshot ist Full-Page (ganze Dokumenthoehe)',
+    shotSize.h > 2300 && shotSize.h < 2500 && shotSize.w > 200,
+    `${shotSize.w}×${shotSize.h}`,
+  );
+
+  // --- 10d. Erledigt-Status: abhaken dimmt Marker und zaehlt Badge runter ---
+  const doneState = await page.evaluate(async () => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    const countBefore = sr.querySelector('.panel__count')?.textContent;
+    sr.querySelectorAll('.fb-check')[1]?.click(); // Element-Eintrag (input#name)
+    await new Promise((r) => setTimeout(r, 300));
+    const dimmed = [...sr.querySelectorAll('.anno__svg g')].filter(
+      (g) => g.getAttribute('opacity') === '0.35',
+    ).length;
+    return {
+      countBefore,
+      countAfter: sr.querySelector('.panel__count')?.textContent,
+      dimmed,
+      struck: sr.querySelectorAll('.fb-item--done').length,
+    };
+  });
+  check(
+    'Erledigt-Status (Badge + gedimmter Marker)',
+    doneState.countBefore === '4' &&
+      doneState.countAfter === '3' &&
+      doneState.dimmed === 1 &&
+      doneState.struck === 1,
+    `badge ${doneState.countBefore}→${doneState.countAfter}, dimmed: ${doneState.dimmed}`,
+  );
+
+  const hiddenCount = await page.evaluate(async () => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    sr.querySelector('.panel__menu > button')?.click();
+    await new Promise((r) => setTimeout(r, 150));
+    [...sr.querySelectorAll('.menu__item')]
+      .find((b) => b.textContent.includes('Hide completed'))
+      ?.click();
+    await new Promise((r) => setTimeout(r, 200));
+    return sr.querySelectorAll('.fb-item').length;
+  });
+  check('Hide completed blendet Erledigtes aus', hiddenCount === 3, `sichtbar: ${hiddenCount}`);
+
+  // Ausgangszustand fuer Folge-Tests wiederherstellen
+  await page.evaluate(async () => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    sr.querySelector('.panel__menu > button')?.click();
+    await new Promise((r) => setTimeout(r, 150));
+    [...sr.querySelectorAll('.menu__item')]
+      .find((b) => b.textContent.includes('Show completed'))
+      ?.click();
+    await new Promise((r) => setTimeout(r, 200));
+    sr.querySelectorAll('.fb-check')[1]?.click();
+  });
+  await new Promise((r) => setTimeout(r, 300));
 
   // --- 11. Link-Sync: Klick auf <a href> navigiert alle Frames ---
   await pickTool(0); // Interagieren — Overlays inaktiv, Klicks gehen zur Seite
@@ -497,7 +566,7 @@ try {
     const sr = document.getElementById('inkspect-root')?.shadowRoot;
     return {
       open: !!sr,
-      crashed: sr ? sr.textContent.includes('abgestuerzt') : false,
+      crashed: sr ? sr.textContent.includes('Inkspect crashed') : false,
       polylines: sr ? sr.querySelectorAll('.anno__svg polyline').length : 0,
     };
   });
@@ -505,6 +574,68 @@ try {
     'Legacy-Pen-Import ohne Crash',
     legacy.open && !legacy.crashed && legacy.polylines >= 1,
     `open: ${legacy.open}, crashed: ${legacy.crashed}, polylines: ${legacy.polylines}`,
+  );
+
+  // --- 15. Custom Device anlegen; Grid + Preset ueberleben einen Reload ---
+  await page.evaluate(async () => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    sr.querySelector('.add-device > button').click();
+    await new Promise((r) => setTimeout(r, 150));
+    // React liest Werte ueber onChange — native Setter + input-Event noetig.
+    const setValue = (input, value) => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    setValue(sr.querySelector('.menu__custom-name'), 'Kiosk');
+    const sizes = sr.querySelectorAll('.menu__custom-size input');
+    setValue(sizes[0], '500');
+    setValue(sizes[1], '700');
+    await new Promise((r) => setTimeout(r, 100));
+    sr.querySelector('.menu__custom-add').click();
+  });
+  await new Promise((r) => setTimeout(r, 800)); // Grid-Save ist 300 ms debounced
+  const custom = await page.evaluate(() => {
+    const frames = [...document.getElementById('inkspect-root').shadowRoot.querySelectorAll('iframe')];
+    return { frames: frames.length, widths: frames.map((f) => Number(f.width)) };
+  });
+  check(
+    'Custom Device im Grid',
+    custom.frames === 3 && custom.widths.includes(500),
+    `frames: ${custom.frames}, widths: ${custom.widths.join(', ')}`,
+  );
+
+  await page.reload({ waitUntil: 'networkidle0' });
+  await new Promise((r) => setTimeout(r, 1500)); // document_idle; Share-Hash oeffnet ggf. selbst
+  await page.evaluate(() => {
+    if (!document.getElementById('inkspect-root')) {
+      window.dispatchEvent(new Event('inkspect:toggle'));
+    }
+  });
+  await page
+    .waitForFunction(
+      () =>
+        document.getElementById('inkspect-root')?.shadowRoot?.querySelectorAll('iframe').length >= 3,
+      { timeout: 8000 },
+    )
+    .catch(() => {});
+  const persisted = await page.evaluate(async () => {
+    const sr = document.getElementById('inkspect-root')?.shadowRoot;
+    if (!sr) return { frames: 0, widths: [], menuHasCustom: false };
+    const frames = [...sr.querySelectorAll('iframe')];
+    sr.querySelector('.add-device > button')?.click();
+    await new Promise((r) => setTimeout(r, 150));
+    const names = [...sr.querySelectorAll('.menu__item-name')].map((n) => n.textContent);
+    return {
+      frames: frames.length,
+      widths: frames.map((f) => Number(f.width)),
+      menuHasCustom: names.includes('Kiosk'),
+    };
+  });
+  check(
+    'Setup persistiert (Grid + Custom-Preset nach Reload)',
+    persisted.frames === 3 && persisted.widths.includes(500) && persisted.menuHasCustom,
+    `frames: ${persisted.frames}, widths: ${persisted.widths.join(', ')}, Preset: ${persisted.menuHasCustom}`,
   );
 } catch (e) {
   results.push(`ERROR ${e.message}`);

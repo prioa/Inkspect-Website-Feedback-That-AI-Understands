@@ -14,8 +14,12 @@ interface Props {
   /** Globaler Zeichenmodus — die Overlays aller Frames sind scharf. */
   annotating: boolean;
   shapes: Shape[];
+  /** Shape-Ids erledigter Eintraege — gedimmt gerendert. */
+  dimmedIds: Set<string>;
   tool: Tool;
   color: string;
+  /** Notizen im Overlay einblenden (Screenshot-Export). */
+  showNotes: boolean;
   onLoad: (device: DeviceInstance, iframe: HTMLIFrameElement) => void;
   onAttach: (device: DeviceInstance, iframe: HTMLIFrameElement | null) => void;
   onRotate: (uid: string) => void;
@@ -31,8 +35,10 @@ export function DeviceFrame({
   reloadKey,
   annotating,
   shapes,
+  dimmedIds,
   tool,
   color,
+  showNotes,
   onLoad,
   onAttach,
   onRotate,
@@ -72,14 +78,14 @@ export function DeviceFrame({
         <button
           className="icon-btn icon-btn--small"
           onClick={() => onRotate(device.uid)}
-          title="Ausrichtung drehen (Hoch-/Querformat)"
+          title="Rotate orientation (portrait/landscape)"
         >
           <IconRotateDevice size={14} />
         </button>
         <button
           className="icon-btn icon-btn--small icon-btn--danger"
           onClick={() => onRemove(device.uid)}
-          title="Entfernen"
+          title="Remove"
         >
           <IconClose size={14} />
         </button>
@@ -110,8 +116,10 @@ export function DeviceFrame({
           zoom={zoom}
           active={annotating}
           shapes={shapes}
+          dimmedIds={dimmedIds}
           tool={tool}
           color={color}
+          showNotes={showNotes}
           frameEl={frameEl}
           loadCount={loadCount}
           onAdd={(shape) => onAddShape(device.uid, shape)}
