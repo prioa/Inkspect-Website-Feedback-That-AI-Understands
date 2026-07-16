@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { isCustomPreset, SIZE_MAX, SIZE_MIN, type DevicePreset } from '@/lib/devices';
 import {
+  IconCheck,
   IconClose,
   IconCode,
+  IconExpand,
   IconGlobe,
   IconLink,
   IconLinkOff,
@@ -15,13 +17,23 @@ import {
   IconTablet,
 } from './icons';
 
+/** Einzeln schaltbare Sync-Bereiche (Toolbar-Menue). */
+export interface SyncPrefs {
+  scroll: boolean;
+  hover: boolean;
+  /** Klicks, Eingaben und der Navigations-Angleich. */
+  input: boolean;
+}
+
+export type SyncKey = keyof SyncPrefs | 'all';
+
 interface Props {
   src: string;
   zoom: number;
   /** Eingebaute + eigene Presets — die Menueliste. */
   presets: readonly DevicePreset[];
   editorOpen: boolean;
-  syncEnabled: boolean;
+  sync: SyncPrefs;
   feedbackOpen: boolean;
   feedbackCount: number;
   onNavigate: (url: string) => void;
@@ -32,8 +44,11 @@ interface Props {
   onZoom: (zoom: number) => void;
   onReload: () => void;
   onToggleEditor: () => void;
-  onToggleSync: () => void;
+  /** Schaltet einen Sync-Bereich um — 'all' fuer alles an/aus. */
+  onToggleSync: (key: SyncKey) => void;
   onToggleFeedback: () => void;
+  /** Wechselt in den Vollbild-Modus (Seite ueber das ganze Fenster). */
+  onFullscreen: () => void;
   onClose: () => void;
 }
 
@@ -47,12 +62,18 @@ const ZOOM_MIN = 0.2;
 const ZOOM_MAX = 1;
 const ZOOM_STEP = 0.05;
 
+const SYNC_ROWS: { key: keyof SyncPrefs; label: string }[] = [
+  { key: 'scroll', label: 'Scroll' },
+  { key: 'hover', label: 'Hover' },
+  { key: 'input', label: 'Clicks & inputs' },
+];
+
 export function Toolbar({
   src,
   zoom,
   presets,
   editorOpen,
-  syncEnabled,
+  sync,
   feedbackOpen,
   feedbackCount,
   onNavigate,
@@ -64,10 +85,53 @@ export function Toolbar({
   onToggleEditor,
   onToggleSync,
   onToggleFeedback,
+  onFullscreen,
   onClose,
 }: Props) {
-  const [draft, setDraft] = useState(src);
+  // Die Domain steht fest (Cross-Origin ist ohnehin gesperrt) — editierbar
+  // ist nur der Pfad. Eine eingefuegte volle URL derselben Origin wird auf
+  // ihren Pfad reduziert; fremde Origins landen unveraendert in onNavigate,
+  // das den verstaendlichen Hinweis zeigt.
+  const { origin, host } = (() => {
+    try {
+      const u = new URL(src);
+      return { origin: u.origin, host: u.host };
+    } catch {
+      return { origin: location.origin, host: location.host };
+    }
+  })();
+  const pathOf = (url: string): string => {
+    try {
+      const u = new URL(url, origin);
+      return u.origin === origin ? u.pathname + u.search + u.hash : url;
+    } catch {
+      return url;
+    }
+  };
+
+  const [draft, setDraft] = useState(() => pathOf(src));
+  useEffect(() => {
+    // Navigation in den Frames (Links, SPA-Routing) zieht die Anzeige nach.
+    setDraft(pathOf(src));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src]);
+
+  const submitDraft = () => {
+    const value = draft.trim();
+    if (!value) return;
+    if (/^https?:\/\//i.test(value)) {
+      onNavigate(value); // volle URL — onNavigate validiert die Origin
+      return;
+    }
+    onNavigate(origin + (value.startsWith('/') ? value : `/${value}`));
+  };
+
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Sync-Menue: der Button zeigt den Sammelzustand, die Rows schalten einzeln.
+  const [syncMenuOpen, setSyncMenuOpen] = useState(false);
+  const syncAny = sync.scroll || sync.hover || sync.input;
+  const syncAll = sync.scroll && sync.hover && sync.input;
 
   // Inline-Form fuer eigene Viewport-Groessen im Add-Device-Menue.
   const [customName, setCustomName] = useState('');
@@ -103,18 +167,21 @@ export function Toolbar({
         className="omnibox"
         onSubmit={(e) => {
           e.preventDefault();
-          onNavigate(draft);
+          submitDraft();
         }}
       >
         <span className="omnibox__icon">
           <IconGlobe size={15} />
         </span>
+        <span className="omnibox__origin" title={origin}>
+          {host}
+        </span>
         <input
           className="omnibox__input"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => setDraft(pathOf(e.target.value))}
           spellCheck={false}
-          aria-label="URL"
+          aria-label="Path"
         />
         <button
           type="button"
@@ -136,18 +203,46 @@ export function Toolbar({
           <IconCode />
         </button>
 
-        <button
-          className={`icon-btn${syncEnabled ? ' icon-btn--active' : ''}`}
-          onClick={onToggleSync}
-          aria-pressed={syncEnabled}
-          title={
-            syncEnabled
-              ? 'Interaction sync on: clicks & inputs run on all frames'
-              : 'Interaction sync off'
-          }
-        >
-          {syncEnabled ? <IconLink /> : <IconLinkOff />}
-        </button>
+        <span className="toolbar__menu">
+          <button
+            className={`icon-btn${syncAny ? ' icon-btn--active' : ''}${syncMenuOpen ? ' icon-btn--active' : ''}`}
+            onClick={() => setSyncMenuOpen((v) => !v)}
+            aria-expanded={syncMenuOpen}
+            title={
+              syncAny
+                ? 'Sync across frames — click to choose what gets mirrored'
+                : 'Sync off — click to choose what gets mirrored'
+            }
+          >
+            {syncAny ? <IconLink /> : <IconLinkOff />}
+          </button>
+          {syncMenuOpen && (
+            <>
+              <div className="menu-backdrop" onClick={() => setSyncMenuOpen(false)} />
+              <div className="menu" role="menu">
+                <div className="menu__title">Sync across frames</div>
+                {SYNC_ROWS.map((row) => (
+                  <button
+                    key={row.key}
+                    className="menu__item"
+                    role="menuitemcheckbox"
+                    aria-checked={sync[row.key]}
+                    onClick={() => onToggleSync(row.key)}
+                  >
+                    <span className="menu__item-name">{row.label}</span>
+                    <span className="menu__check">
+                      {sync[row.key] && <IconCheck size={14} />}
+                    </span>
+                  </button>
+                ))}
+                <div className="menu__divider" />
+                <button className="menu__item" role="menuitem" onClick={() => onToggleSync('all')}>
+                  <span className="menu__item-name">{syncAll ? 'Turn all off' : 'Turn all on'}</span>
+                </button>
+              </div>
+            </>
+          )}
+        </span>
 
         <button
           className={`icon-btn toolbar__feedback${feedbackOpen ? ' icon-btn--active' : ''}`}
@@ -157,6 +252,14 @@ export function Toolbar({
         >
           <IconMessage />
           {feedbackCount > 0 && <span className="toolbar__badge">{feedbackCount}</span>}
+        </button>
+
+        <button
+          className="icon-btn"
+          onClick={onFullscreen}
+          title="Full window mode — view the page at full size and give feedback"
+        >
+          <IconExpand />
         </button>
       </div>
 

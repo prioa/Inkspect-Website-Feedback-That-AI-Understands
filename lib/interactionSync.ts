@@ -26,7 +26,10 @@ const log = createLogger('interaction-sync');
 const WATCHDOG_INTERVAL_MS = 700;
 
 export class InteractionSync {
+  /** Klicks & Eingaben spiegeln (inkl. Navigations-Angleich des Watchdogs). */
   enabled = true;
+  /** Hover-Zustaende spiegeln — unabhaengig von Klicks/Eingaben schaltbar. */
+  hoverEnabled = true;
 
   /**
    * Meldet die aktuelle Frame-URL, sobald sie sich aendert — auch bei
@@ -40,6 +43,8 @@ export class InteractionSync {
   private readonly detachers = new Map<HTMLIFrameElement, () => void>();
   /** Zuletzt synthetisch gehovertes Element pro Ziel-Frame (fuer mouseout). */
   private readonly hovered = new Map<HTMLIFrameElement, Element>();
+  /** Frames im Touch-Modus: nehmen keine Hover-Spiegelung an und senden keine. */
+  private readonly touchFrames = new Set<HTMLIFrameElement>();
   private replaying = false;
 
   /** Letzte bekannte URL pro Frame (Watchdog-Zustand). */
@@ -62,9 +67,19 @@ export class InteractionSync {
     };
 
     const onMouseOver = (e: Event) => {
-      if (!this.shouldMirror(e)) return;
+      if (!this.shouldMirrorHover(e)) return;
+      // Touch-Frames kennen kein Hover — weder senden noch empfangen.
+      if (this.touchFrames.has(iframe)) return;
       const el = composedTarget(e);
       if (el) this.replayHover(iframe, el);
+    };
+
+    // Verlaesst der Zeiger den Frame ganz (relatedTarget == null), wuerde der
+    // simulierte Hover in den Ziel-Frames sonst haengen bleiben — es kommt ja
+    // kein weiteres mouseover mehr, das ihn abloest.
+    const onMouseOut = (e: Event) => {
+      if (!this.shouldMirrorHover(e)) return;
+      if ((e as MouseEvent).relatedTarget == null) this.clearHover(iframe);
     };
 
     const onInput = (e: Event) => {
@@ -85,17 +100,28 @@ export class InteractionSync {
     doc.addEventListener('input', onInput, true);
     doc.addEventListener('change', onChange, true);
     doc.addEventListener('mouseover', onMouseOver, true);
+    doc.addEventListener('mouseout', onMouseOut, true);
 
     this.detachers.set(iframe, () => {
       doc.removeEventListener('click', onClick, true);
       doc.removeEventListener('input', onInput, true);
       doc.removeEventListener('change', onChange, true);
       doc.removeEventListener('mouseover', onMouseOver, true);
+      doc.removeEventListener('mouseout', onMouseOut, true);
     });
 
     if (this.watchdog === undefined) {
       this.watchdog = window.setInterval(this.watchdogTick, WATCHDOG_INTERVAL_MS);
     }
+  }
+
+  /**
+   * Touch-Modus eines Frames setzen: er bekommt keine simulierten Hover mehr
+   * und spiegelt eigene Hover nicht auf die anderen Frames.
+   */
+  setTouch(iframe: HTMLIFrameElement, on: boolean): void {
+    if (on) this.touchFrames.add(iframe);
+    else this.touchFrames.delete(iframe);
   }
 
   detach(iframe: HTMLIFrameElement): void {
@@ -113,6 +139,7 @@ export class InteractionSync {
     for (const detach of this.detachers.values()) detach();
     this.detachers.clear();
     this.hovered.clear();
+    this.touchFrames.clear();
     this.stopWatchdog();
   }
 
@@ -182,6 +209,10 @@ export class InteractionSync {
 
   private shouldMirror(e: Event): boolean {
     return this.enabled && !this.replaying && e.isTrusted;
+  }
+
+  private shouldMirrorHover(e: Event): boolean {
+    return this.hoverEnabled && !this.replaying && e.isTrusted;
   }
 
   private *others(source: HTMLIFrameElement, segments: string[]): Generator<Element> {
@@ -256,6 +287,7 @@ export class InteractionSync {
     try {
       for (const target of this.detachers.keys()) {
         if (target === source) continue;
+        if (this.touchFrames.has(target)) continue;
         const doc = frameDocument(target);
         const match = doc ? findByShadowPath(doc, segments) : null;
         if (!match) continue;
@@ -279,6 +311,34 @@ export class InteractionSync {
       }
     } catch (e) {
       log.warn('Hover-Replay fehlgeschlagen', e);
+    } finally {
+      this.replaying = false;
+    }
+  }
+
+  /** Loest die simulierte Hover-Kette in allen Ziel-Frames (Quelle verlassen). */
+  private clearHover(source: HTMLIFrameElement): void {
+    this.replaying = true;
+    try {
+      for (const target of this.detachers.keys()) {
+        if (target === source) continue;
+        const previous = this.hovered.get(target);
+        if (!previous) continue;
+        this.hovered.delete(target);
+
+        const doc = frameDocument(target);
+        if (!doc) continue;
+        applyHoverSim(doc, null);
+
+        const win = previous.ownerDocument.defaultView;
+        if (win && previous.isConnected) {
+          const base = pointerInit(previous);
+          dispatchHoverEvents(previous, win, ['pointerout', 'mouseout'], true, base, null);
+          dispatchHoverEvents(previous, win, ['pointerleave', 'mouseleave'], false, base, null);
+        }
+      }
+    } catch (e) {
+      log.warn('Hover-Reset fehlgeschlagen', e);
     } finally {
       this.replaying = false;
     }

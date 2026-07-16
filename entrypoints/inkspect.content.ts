@@ -15,6 +15,13 @@ const HOST_ID = 'inkspect-root';
 /** Fenster-Event zum Oeffnen/Schliessen — SW-unabhaengig, u. a. fuer Tests. */
 export const TOGGLE_EVENT = 'inkspect:toggle';
 
+/**
+ * Offen-Zustand pro Tab: sessionStorage ueberlebt F5/Reload (das Content-
+ * Script stirbt dabei mit), bleibt aber tab-lokal und verschwindet mit dem
+ * Tab. Manche Seiten sperren den Zugriff (Sandbox) — deshalb ueberall guarded.
+ */
+const OPEN_FLAG = 'ink-ui-open';
+
 export default defineContentScript({
   matches: ['*://*/*'],
   // Bewusst per Manifest statt scripting.executeScript registriert — letzteres
@@ -45,6 +52,12 @@ export default defineContentScript({
         return;
       }
       log.info('open UI');
+
+      try {
+        sessionStorage.setItem(OPEN_FLAG, withFeedback ? 'feedback' : '1');
+      } catch {
+        /* Seite blockiert sessionStorage */
+      }
 
       host = document.createElement('div');
       host.id = HOST_ID;
@@ -85,6 +98,11 @@ export default defineContentScript({
 
     function close(): void {
       log.info('close UI');
+      try {
+        sessionStorage.removeItem(OPEN_FLAG);
+      } catch {
+        /* Seite blockiert sessionStorage */
+      }
       root?.unmount();
       root = null;
       host?.remove();
@@ -124,6 +142,18 @@ export default defineContentScript({
           open(true);
         })
         .catch((e: unknown) => log.error('geteiltes Feedback unlesbar', e));
+    } else {
+      // War die UI in diesem Tab offen, ueberlebt sie F5/Reload.
+      let flag: string | null = null;
+      try {
+        flag = sessionStorage.getItem(OPEN_FLAG);
+      } catch {
+        /* Seite blockiert sessionStorage */
+      }
+      if (flag) {
+        log.info('UI-Zustand wiederhergestellt (Reload)');
+        open(flag === 'feedback');
+      }
     }
 
     log.debug('content script bereit (dormant)');

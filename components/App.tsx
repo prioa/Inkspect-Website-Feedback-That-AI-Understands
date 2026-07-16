@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
-import { Toolbar } from './Toolbar';
+import { Toolbar, type SyncKey, type SyncPrefs } from './Toolbar';
 import { CssEditor } from './CssEditor';
 import { DeviceFrame } from './DeviceFrame';
-import { AnnotationPalette } from './AnnotationPalette';
+import { AnnotationPalette, FeedbackBar } from './AnnotationPalette';
 import { FeedbackPanel } from './FeedbackPanel';
+import { IconMessage } from './icons';
 import {
   createCustomPreset,
   defaultDevices,
@@ -15,21 +16,25 @@ import {
   PRESETS,
   saveCustomPresets,
   saveGridState,
+  viewport,
   type DeviceInstance,
   type DevicePreset,
 } from '@/lib/devices';
 import { frameDocument, isFrameBlocked } from '@/lib/framing';
 import { ScrollSync } from '@/lib/scrollSync';
 import { InteractionSync } from '@/lib/interactionSync';
+import { findByShadowPath } from '@/lib/selector';
 import {
   ANNOTATION_COLORS,
   penOverlaps,
-  pinNumbers,
-  TOOL_LABELS,
+  shapeBounds,
+  shapeFocusPoint,
+  shapeId,
   type PaletteTool,
   type Shape,
   type Tool,
 } from '@/lib/annotations';
+import type { NoteEditRequest } from './AnnotationOverlay';
 import {
   addItems,
   clearUrl,
@@ -49,6 +54,60 @@ import { createLogger } from '@/lib/log';
 
 const APPLY_DEBOUNCE_MS = 150;
 const log = createLogger('app');
+
+/** Pseudo-Device des Vollbild-Modus: Feedback haengt an dieser Preset-Id. */
+const FULLSCREEN_ID = 'fullscreen';
+const FS_UID = 'fullscreen';
+
+/** Toleranz um die Marker-Box beim Doppelklick-Hit-Test (Dokument-Pixel). */
+const EDIT_HIT_PAD = 8;
+
+/** Abstand zwischen Device-Karten im Grid (muss zum CSS-gap passen). */
+const GRID_GAP = 20;
+/** Karten-Chrom um den Viewport: 2×10px Padding + 2×1px Rahmen. */
+const CARD_CHROME = 22;
+
+/**
+ * Zeilenfuellender Zoom pro Device: Karten werden greedy in Zeilen gepackt
+ * (Basisbreite = Viewport × Zoom) und jede Zeile dann proportional auf die
+ * volle Grid-Breite skaliert. Ein Device, das allein schon zu breit ist,
+ * wird auf Zeilenbreite verkleinert — mindestens ein Device pro Zeile.
+ * Vergroessert wird hoechstens bis 100 %, sonst rastern die Frames unscharf.
+ */
+function rowZooms(
+  devices: DeviceInstance[],
+  zoom: number,
+  containerWidth: number,
+): Map<string, number> {
+  const zooms = new Map<string, number>();
+  if (containerWidth <= 0) {
+    for (const d of devices) zooms.set(d.uid, zoom);
+    return zooms;
+  }
+
+  let row: DeviceInstance[] = [];
+  let rowWidth = 0;
+  const flush = () => {
+    if (row.length === 0) return;
+    const chrome = row.length * CARD_CHROME + (row.length - 1) * GRID_GAP;
+    const base = row.reduce((sum, d) => sum + viewport(d).width * zoom, 0);
+    // -1px pro Karte als Rundungsreserve, damit die Zeile nie umbricht.
+    const factor = Math.max(0.05, (containerWidth - chrome - row.length) / base);
+    const capped = Math.min(factor, 1 / zoom);
+    for (const d of row) zooms.set(d.uid, zoom * capped);
+    row = [];
+    rowWidth = 0;
+  };
+
+  for (const d of devices) {
+    const w = viewport(d).width * zoom + CARD_CHROME;
+    if (row.length > 0 && rowWidth + GRID_GAP + w > containerWidth) flush();
+    rowWidth = row.length === 0 ? w : rowWidth + GRID_GAP + w;
+    row.push(d);
+  }
+  flush();
+  return zooms;
+}
 
 export function App({
   shadowRoot,
@@ -125,8 +184,86 @@ export function App({
   const [hint, setHint] = useState<string | null>(null);
 
   const [editorOpen, setEditorOpen] = useState(false);
-  const [syncEnabled, setSyncEnabled] = useState(true);
+  // Sync-Bereiche einzeln schaltbar (Toolbar-Menue am Link-Icon).
+  const [syncPrefs, setSyncPrefs] = useState<SyncPrefs>({ scroll: true, hover: true, input: true });
+  const toggleSync = useCallback((key: SyncKey) => {
+    setSyncPrefs((prefs) => {
+      if (key === 'all') {
+        const on = !(prefs.scroll && prefs.hover && prefs.input);
+        return { scroll: on, hover: on, input: on };
+      }
+      return { ...prefs, [key]: !prefs[key] };
+    });
+  }, []);
   const [feedbackOpen, setFeedbackOpen] = useState(initialFeedbackOpen);
+
+  // Vollbild-Modus: die Seite fuellt das ganze Fenster (ein Frame, Zoom 1),
+  // unten mittig schwebt die Werkzeugleiste, rechts unten der Panel-Knopf.
+  const [fullscreen, setFullscreen] = useState(false);
+  const [fsSize, setFsSize] = useState(() => ({
+    w: window.innerWidth,
+    h: window.innerHeight,
+  }));
+  useEffect(() => {
+    if (!fullscreen) return;
+    const measure = () => setFsSize({ w: window.innerWidth, h: window.innerHeight });
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [fullscreen]);
+  const fsDevice: DeviceInstance = useMemo(
+    () => ({
+      id: FULLSCREEN_ID,
+      name: 'Full window',
+      width: fsSize.w,
+      height: fsSize.h,
+      uid: FS_UID,
+      rotated: false,
+    }),
+    [fsSize],
+  );
+
+  // Zeilenfuellendes Grid: die Grid-Breite wird gemessen (reagiert auch auf
+  // Panel-/Editor-Toggles), daraus ergibt sich der effektive Zoom pro Device.
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [gridWidth, setGridWidth] = useState(0);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el || fullscreen) return;
+    const observer = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w != null) setGridWidth(w);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fullscreen]);
+
+  /** Effektiver Zoom pro Device (Zeile auf volle Breite skaliert). */
+  const effZooms = useMemo(() => rowZooms(devices, zoom, gridWidth), [devices, zoom, gridWidth]);
+  // Frame-Listener (Kontextmenue) und der Screenshot-Export lesen den
+  // jeweils aktuellen Wert ueber die Ref.
+  const effZoomsRef = useRef(effZooms);
+  effZoomsRef.current = effZooms;
+
+  // Touch-Modus pro Device-Instanz: der Hover-Sync muss Touch-Frames kennen
+  // (weder Hover senden noch empfangen). Das Set ueberlebt Frame-Reloads.
+  const touchUids = useRef(new Set<string>());
+  const handleTouchChange = useCallback((uid: string, touch: boolean) => {
+    if (touch) touchUids.current.add(uid);
+    else touchUids.current.delete(uid);
+    const iframe = frames.current.get(uid);
+    if (iframe) interactionSync.current.setTouch(iframe, touch);
+  }, []);
+
+  // Haelt das Offen-Flag des Content-Scripts aktuell: nach F5 kommt die UI
+  // inklusive Panel-Zustand wieder (sessionStorage ist tab-lokal).
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('ink-ui-open', feedbackOpen ? 'feedback' : '1');
+    } catch {
+      /* Seite blockiert sessionStorage */
+    }
+  }, [feedbackOpen]);
 
   // Ladebalken: an bei Navigationsstart (Link-Klick, Adresswechsel, Reload),
   // aus beim ersten fertig geladenen Frame bzw. SPA-URL-Wechsel.
@@ -156,12 +293,38 @@ export function App({
     setTool(next);
   }, []);
 
+  // Die Werkzeug-Palette ist ein Kontextmenue: Rechtsklick (auf Grid,
+  // Overlay oder in einer Vorschau) oeffnet sie neben der Maus.
+  const [paletteAt, setPaletteAt] = useState<{ x: number; y: number } | null>(null);
+  const openPalette = useCallback((x: number, y: number) => setPaletteAt({ x, y }), []);
+  const closePalette = useCallback(() => setPaletteAt(null), []);
+
+  // Frame-Listener sehen sonst einen veralteten Zoom.
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+
   // Feedback ist an die Landingpage gebunden: activeUrl folgt der tatsaechlich
   // geladenen Frame-URL (auch bei Link-Klicks in den Previews). Der State
   // haelt *alle* Eintraege — angezeigt auf den Frames wird nur die aktuelle
   // Seite, das Panel gruppiert den Rest nach Seite.
   const [activeUrl, setActiveUrl] = useState(() => normalizeUrl(location.href));
   const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
+
+  // Frame-Listener (dblclick) leben ausserhalb des Render-Zyklus.
+  const feedbackRef = useRef(feedback);
+  feedbackRef.current = feedback;
+  const activeUrlRef = useRef(activeUrl);
+  activeUrlRef.current = activeUrl;
+
+  // Doppelklick auf einen Marker im Frame: Overlay dieses Devices oeffnet
+  // den Notiz-Editor mit dem vorhandenen Text.
+  const [noteEdit, setNoteEdit] = useState<({ uid: string } & NoteEditRequest) | null>(null);
+
+  // Frisch gemountete Overlays (Vollbild-Wechsel, Navigation) wuerden einen
+  // liegen gebliebenen Editier-Wunsch erneut oeffnen — verwerfen.
+  useEffect(() => {
+    setNoteEdit(null);
+  }, [fullscreen, activeUrl]);
 
   useEffect(() => {
     let alive = true;
@@ -200,8 +363,10 @@ export function App({
   }, []);
 
   useEffect(() => {
-    interactionSync.current.enabled = syncEnabled;
-  }, [syncEnabled]);
+    scrollSync.current.enabled = syncPrefs.scroll;
+    interactionSync.current.enabled = syncPrefs.input;
+    interactionSync.current.hoverEnabled = syncPrefs.hover;
+  }, [syncPrefs]);
 
   // SPA-Navigationen (pushState, kein load-Event) meldet der URL-Watchdog —
   // nur so folgt das Feedback auch Router-Seitenwechseln.
@@ -234,58 +399,107 @@ export function App({
     else frames.current.delete(device.uid);
   }, []);
 
-  const handleLoad = useCallback((device: DeviceInstance, iframe: HTMLIFrameElement) => {
-    setNavigating(false);
-    if (isFrameBlocked(iframe)) {
-      log.warn('Frame blockiert', device.name, iframe.src);
-      setBlocked(true);
-      return;
-    }
-    log.debug('Frame geladen', device.name);
-    setBlocked(false);
-
-    const doc = frameDocument(iframe);
-    if (!doc) return;
-
-    scrollSync.current.attach(iframe);
-    interactionSync.current.attach(iframe);
-
-    // Feedback folgt der echten Seite — auch wenn in den Frames navigiert wird.
-    try {
-      const url = normalizeUrl(doc.location.href);
-      setActiveUrl((current) => (current === url ? current : url));
-    } catch {
-      /* Frame nicht lesbar */
-    }
-
-    // Nach Reload/Navigation eines Frames muessen die Overrides erneut greifen.
-    let reapplied = 0;
-    for (const sheet of sheetsRef.current ?? []) {
-      const css = overridesRef.current[sheet.id];
-      if (css != null) {
-        applyOverride(doc, sheet, css);
-        reapplied += 1;
+  const handleLoad = useCallback(
+    (device: DeviceInstance, iframe: HTMLIFrameElement) => {
+      setNavigating(false);
+      if (isFrameBlocked(iframe)) {
+        log.warn('Frame blockiert', device.name, iframe.src);
+        setBlocked(true);
+        return;
       }
-    }
-    if (reapplied > 0) log.debug('Overrides erneut angewendet', device.name, reapplied);
+      log.debug('Frame geladen', device.name);
+      setBlocked(false);
 
-    if (sheetsRef.current === null && !collecting.current) {
-      collecting.current = true;
-      log.info('sammle Stylesheets aus', device.name);
-      void log
-        .time('collectSheets', () => collectSheets(doc))
-        .then((found) => {
-          log.info(
-            'Stylesheets gefunden',
-            found.length,
-            found.map((s) => `${s.label}${s.readable ? '' : ' (unlesbar)'}`),
-          );
-          setSheets(found);
-          setActiveId((current) => current ?? found[0]?.id ?? null);
-        })
-        .catch((e: unknown) => log.error('collectSheets fehlgeschlagen', e));
-    }
-  }, []);
+      const doc = frameDocument(iframe);
+      if (!doc) return;
+
+      scrollSync.current.attach(iframe);
+      interactionSync.current.attach(iframe);
+      interactionSync.current.setTouch(iframe, touchUids.current.has(device.uid));
+
+      // Rechtsklick in der Vorschau oeffnet die Werkzeug-Palette neben der
+      // Maus. Frame-Koordinaten sind unskaliert — der effektive Zoom dieses
+      // Devices rechnet sie in Shell-Koordinaten um. Der Listener stirbt mit
+      // dem Dokument.
+      doc.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const z =
+          device.uid === FS_UID
+            ? 1
+            : (effZoomsRef.current.get(device.uid) ?? zoomRef.current);
+        const rect = iframe.getBoundingClientRect();
+        openPalette(rect.left + e.clientX * z, rect.top + e.clientY * z);
+      });
+
+      // Doppelklick auf einen Marker (Interaktionsmodus — nur dann erreichen
+      // Klicks den Frame): Notiz-Editor mit dem vorhandenen Text oeffnen.
+      // Hit-Test in Dokument-Koordinaten, hinterste Eintraege zuerst — die
+      // liegen im Overlay obenauf.
+      doc.addEventListener('dblclick', (e) => {
+        const page = feedbackRef.current.filter(
+          (item) => item.deviceId === device.id && item.url === activeUrlRef.current,
+        );
+        for (let i = page.length - 1; i >= 0; i--) {
+          const b = shapeBounds(page[i]!.shape);
+          if (
+            b &&
+            e.pageX >= b.x - EDIT_HIT_PAD &&
+            e.pageX <= b.x + b.w + EDIT_HIT_PAD &&
+            e.pageY >= b.y - EDIT_HIT_PAD &&
+            e.pageY <= b.y + b.h + EDIT_HIT_PAD
+          ) {
+            e.preventDefault();
+            const shapeIdHit = page[i]!.shape.id;
+            setNoteEdit((prev) => ({
+              uid: device.uid,
+              shapeId: shapeIdHit,
+              x: e.pageX,
+              y: e.pageY,
+              nonce: (prev?.nonce ?? 0) + 1,
+            }));
+            return;
+          }
+        }
+      });
+
+      // Feedback folgt der echten Seite — auch wenn in den Frames navigiert wird.
+      try {
+        const url = normalizeUrl(doc.location.href);
+        setActiveUrl((current) => (current === url ? current : url));
+      } catch {
+        /* Frame nicht lesbar */
+      }
+
+      // Nach Reload/Navigation eines Frames muessen die Overrides erneut greifen.
+      let reapplied = 0;
+      for (const sheet of sheetsRef.current ?? []) {
+        const css = overridesRef.current[sheet.id];
+        if (css != null) {
+          applyOverride(doc, sheet, css);
+          reapplied += 1;
+        }
+      }
+      if (reapplied > 0) log.debug('Overrides erneut angewendet', device.name, reapplied);
+
+      if (sheetsRef.current === null && !collecting.current) {
+        collecting.current = true;
+        log.info('sammle Stylesheets aus', device.name);
+        void log
+          .time('collectSheets', () => collectSheets(doc))
+          .then((found) => {
+            log.info(
+              'Stylesheets gefunden',
+              found.length,
+              found.map((s) => `${s.label}${s.readable ? '' : ' (unlesbar)'}`),
+            );
+            setSheets(found);
+            setActiveId((current) => current ?? found[0]?.id ?? null);
+          })
+          .catch((e: unknown) => log.error('collectSheets fehlgeschlagen', e));
+      }
+    },
+    [openPalette],
+  );
 
   // Live-Anwendung: laeuft debounced ueber `overrides`.
   useEffect(() => {
@@ -404,7 +618,10 @@ export function App({
     scrollSync.current.detachAll();
     interactionSync.current.detachAll();
     if (bypassEnabled) {
-      await browser.runtime.sendMessage({ type: 'ink:frame-bypass', enabled: false });
+      await browser.runtime.sendMessage({
+        type: 'ink:frame-bypass',
+        enabled: false,
+      });
     }
     onClose();
   }, [bypassEnabled, onClose]);
@@ -468,8 +685,12 @@ export function App({
 
   const addShape = useCallback(
     (uid: string, shape: Shape) => {
-      const device = devices.find((d) => d.uid === uid);
+      const device = uid === FS_UID ? fsDevice : devices.find((d) => d.uid === uid);
       if (!device) return;
+
+      // Nach dem Absetzen zurueck zum Standardverhalten (Interagieren) —
+      // das ggf. offene Notizfeld bleibt davon unberuehrt bedienbar.
+      setTool('interact');
 
       // Freihand: kreuzt oder ueberlappt der neue Zug bestehende Striche
       // gleicher Farbe auf diesem Device, gehoeren sie zu einer Korrektur.
@@ -510,6 +731,62 @@ export function App({
         }
       }
 
+      // Element-Marker werden auf alle Viewports gespiegelt: derselbe
+      // Selektor wird in jedem anderen Frame aufgeloest und dort mit dessen
+      // eigener Bounding-Box als Kopie gespeichert. `syncId` verknuepft die
+      // Kopien — Notiz-Aenderungen laufen darueber auf alle.
+      if (shape.tool === 'element' && shape.selector) {
+        const syncId = shape.id;
+        const batch: FeedbackItem[] = [
+          {
+            id: shape.id,
+            url: activeUrl,
+            deviceId: device.id,
+            shape: { ...shape, syncId },
+            createdAt: Date.now(),
+          },
+        ];
+        const covered = new Set([device.id]);
+        for (const [otherUid, iframe] of frames.current) {
+          if (otherUid === uid) continue;
+          const target =
+            otherUid === FS_UID ? fsDevice : devices.find((d) => d.uid === otherUid);
+          // Instanzen desselben Presets teilen sich den Eintrag ohnehin.
+          if (!target || covered.has(target.id)) continue;
+          const doc = frameDocument(iframe);
+          const win = doc?.defaultView;
+          if (!doc || !win) continue;
+          let el: Element | null = null;
+          try {
+            el = findByShadowPath(doc, shape.selector.split(' >>> '));
+          } catch {
+            el = null;
+          }
+          if (!el) continue;
+          covered.add(target.id);
+          const rect = el.getBoundingClientRect();
+          const cloneId = shapeId();
+          batch.push({
+            id: cloneId,
+            url: activeUrl,
+            deviceId: target.id,
+            shape: {
+              ...shape,
+              id: cloneId,
+              syncId,
+              x: rect.left + win.scrollX,
+              y: rect.top + win.scrollY,
+              w: rect.width,
+              h: rect.height,
+            },
+            createdAt: Date.now(),
+          });
+        }
+        setFeedback((current) => [...current, ...batch]);
+        persist(addItems(batch), 'Feedback speichern');
+        return;
+      }
+
       const item: FeedbackItem = {
         id: shape.id,
         url: activeUrl,
@@ -520,7 +797,7 @@ export function App({
       setFeedback((current) => [...current, item]);
       persist(addItems([item]), 'Feedback speichern');
     },
-    [devices, activeUrl, feedback],
+    [devices, fsDevice, activeUrl, feedback],
   );
 
   /** Entfernt den zuletzt gesetzten Marker der aktuellen Seite (egal welches Device). */
@@ -549,21 +826,49 @@ export function App({
     [feedback],
   );
 
+  /**
+   * Notiz/Text eines Eintrags setzen. Pins/Texte tragen ihren Inhalt in
+   * `text`, alle anderen Marker (inkl. Freihand) in `note`. Auf andere
+   * Viewports replizierte Element-Marker (gleiche syncId) bekommen die
+   * Notiz mit — es ist eine Korrektur, nicht mehrere.
+   */
+  const applyItemText = useCallback(
+    (existing: FeedbackItem, value: string) => {
+      const update = (shape: Shape): Shape =>
+        shape.tool === 'pin' || shape.tool === 'text'
+          ? { ...shape, text: value }
+          : { ...shape, note: value || undefined };
+      const sync = existing.shape.tool === 'element' ? existing.shape.syncId : undefined;
+      const affected = feedback.filter(
+        (item) =>
+          item.id === existing.id ||
+          (sync != null && item.shape.tool === 'element' && item.shape.syncId === sync),
+      );
+      const updated = affected.map((item) => ({ ...item, shape: update(item.shape) }));
+      const byId = new Map(updated.map((item) => [item.id, item]));
+      setFeedback((current) => current.map((item) => byId.get(item.id) ?? item));
+      for (const item of updated) persist(replaceItem(item), 'Notiz speichern');
+    },
+    [feedback],
+  );
+
   const setShapeNote = useCallback(
     (_uid: string, shapeId: string, note: string) => {
       const existing = feedback.find((item) => item.shape.id === shapeId);
       if (!existing) return;
-      const shape = existing.shape;
-      // Pins/Texte tragen ihren Inhalt in `text`, alle anderen Marker mit
-      // Freitext in `note`; nur Freihand hat keinen.
-      if (shape.tool === 'pen') return;
-      const updatedShape: Shape =
-        shape.tool === 'pin' || shape.tool === 'text' ? { ...shape, text: note } : { ...shape, note };
-      const updated: FeedbackItem = { ...existing, shape: updatedShape };
-      setFeedback((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      persist(replaceItem(updated), 'Notiz speichern');
+      applyItemText(existing, note);
     },
-    [feedback],
+    [feedback, applyItemText],
+  );
+
+  // Notiz/Text eines Eintrags direkt im Panel aendern oder ergaenzen.
+  const editItemText = useCallback(
+    (itemId: string, text: string) => {
+      const existing = feedback.find((item) => item.id === itemId);
+      if (!existing) return;
+      applyItemText(existing, text.trim());
+    },
+    [feedback, applyItemText],
   );
 
   const clearAllShapes = useCallback(() => {
@@ -574,45 +879,219 @@ export function App({
   // Panel-Klick: zum Device springen — oder es ins Grid holen, falls entfernt.
   const focusDevice = useCallback(
     (presetId: string) => {
+      // Vollbild-Feedback lebt auf dem Vollbild-Frame — dorthin wechseln.
+      if (presetId === FULLSCREEN_ID) {
+        setFullscreen(true);
+        return;
+      }
       const instance = devices.find((d) => d.id === presetId);
       if (!instance) {
         addDevice(presetId);
         return;
       }
-      shadowRoot
-        .querySelector(`[data-uid="${instance.uid}"]`)
-        ?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      shadowRoot.querySelector(`[data-uid="${instance.uid}"]`)?.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'center',
+        block: 'nearest',
+      });
     },
     [devices, addDevice, shadowRoot],
   );
 
-  // Textzusammenfassung fuer Uebergabe an Kollegen/Tickets.
-  const copyFeedback = useCallback(async () => {
-    const lines = [`Inkspect Feedback — ${activeUrl}`];
-    for (const preset of presets) {
-      // Erledigte Eintraege bleiben aussen vor — der Export ist eine To-do-Liste.
-      const shapes = feedback
-        .filter((item) => item.deviceId === preset.id && item.url === activeUrl && !item.done)
-        .map((item) => item.shape);
-      if (shapes.length === 0) continue;
-      lines.push('', `## ${preset.name} (${preset.width}×${preset.height})`);
-      const numbers = pinNumbers(shapes);
-      for (const shape of shapes) {
-        if (shape.tool === 'pin') {
-          lines.push(`${numbers.get(shape.id)}. ${shape.text || '(pin without note)'}`);
-        } else if (shape.tool === 'element') {
-          lines.push(`- Element ${shape.label}${shape.note ? `: "${shape.note}"` : ''}`);
-        } else if (shape.tool === 'text') {
-          lines.push(`- Text: "${shape.text}"`);
-        } else if (shape.tool !== 'pen' && shape.note) {
-          lines.push(`- ${TOOL_LABELS[shape.tool]}: "${shape.note}"`);
-        } else {
-          lines.push(`- ${TOOL_LABELS[shape.tool]}`);
+  /**
+   * Warten, bis alle Frames die Zielseite fertig geladen haben. Der Vergleich
+   * ist bewusst tolerant (Trailing-Slash-Redirects wie /sub → /sub/ zaehlen
+   * als Treffer) — sonst laeuft der Multi-Page-Export in den Timeout, obwohl
+   * die richtige Seite laengst steht. Auch der Panel-Sprung auf Eintraege
+   * fremder Seiten wartet hierueber, bevor er den Marker anfliegt.
+   */
+  const waitForPage = useCallback((url: string, timeout = 12_000): Promise<boolean> => {
+    const canon = (u: string) => u.replace(/\/+$/, '');
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const tick = () => {
+        const list = [...frames.current.values()];
+        const ready =
+          list.length > 0 &&
+          list.every((iframe) => {
+            const doc = frameDocument(iframe);
+            try {
+              return (
+                doc != null &&
+                doc.readyState === 'complete' &&
+                canon(normalizeUrl(doc.location.href)) === canon(url)
+              );
+            } catch {
+              return false;
+            }
+          });
+        if (ready) return resolve(true);
+        if (Date.now() - start > timeout) return resolve(false);
+        window.setTimeout(tick, 150);
+      };
+      tick();
+    });
+  }, []);
+
+  /** Marker auf den Frames global ein-/ausblenden (Auge im Panel-Kopf). */
+  const [markersVisible, setMarkersVisible] = useState(true);
+
+  // Panel-Klick auf einen Eintrag: Device und Marker anfliegen, dann kurz
+  // aufflashen — Device-Rahmen und Marker pulsieren, damit klar ist, um
+  // welche Korrektur auf welchem Layout es geht.
+  const [flash, setFlash] = useState<{
+    uid: string;
+    shapeId: string;
+    nonce: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!flash) return;
+    const timer = window.setTimeout(() => setFlash(null), 1800);
+    return () => clearTimeout(timer);
+  }, [flash]);
+
+  /** Device anfliegen, Marker zentrieren, aufblitzen — Seite muss geladen sein. */
+  const focusItemNow = useCallback(
+    (item: FeedbackItem) => {
+      // Vollbild-Eintraege: in den Vollbild-Modus wechseln und dort flashen.
+      if (item.deviceId === FULLSCREEN_ID) {
+        setFullscreen(true);
+        const iframe = frames.current.get(FS_UID);
+        if (iframe) {
+          const target = shapeFocusPoint(item.shape);
+          try {
+            const win = iframe.contentWindow;
+            win?.scrollTo({
+              left: Math.max(0, target.x - win.innerWidth / 2),
+              top: Math.max(0, target.y - win.innerHeight / 2),
+              behavior: 'smooth',
+            });
+          } catch {
+            /* Frame nicht lesbar */
+          }
+        }
+        setMarkersVisible(true);
+        setFlash((prev) => ({
+          uid: FS_UID,
+          shapeId: item.shape.id,
+          nonce: (prev?.nonce ?? 0) + 1,
+        }));
+        return;
+      }
+      const instance = devices.find((d) => d.id === item.deviceId);
+      if (!instance) {
+        addDevice(item.deviceId);
+        return;
+      }
+      shadowRoot.querySelector(`[data-uid="${instance.uid}"]`)?.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'center',
+        block: 'nearest',
+      });
+
+      // Den Marker im Frame in die Mitte scrollen (Scroll-Sync zieht die
+      // uebrigen Frames mit).
+      const iframe = frames.current.get(instance.uid);
+      if (iframe) {
+        const target = shapeFocusPoint(item.shape);
+        try {
+          const win = iframe.contentWindow;
+          win?.scrollTo({
+            left: Math.max(0, target.x - win.innerWidth / 2),
+            top: Math.max(0, target.y - win.innerHeight / 2),
+            behavior: 'smooth',
+          });
+        } catch {
+          /* Frame nicht lesbar */
         }
       }
-    }
-    await navigator.clipboard.writeText(lines.join('\n'));
-  }, [feedback, activeUrl, presets]);
+
+      setMarkersVisible(true); // ausgeblendete Marker wuerden den Flash schlucken
+      setFlash((prev) => ({
+        uid: instance.uid,
+        shapeId: item.shape.id,
+        nonce: (prev?.nonce ?? 0) + 1,
+      }));
+    },
+    [devices, addDevice, shadowRoot],
+  );
+
+  // Panel-Klick auf einen Eintrag: liegt er auf einer anderen Seite, erst
+  // dorthin navigieren und nach dem Laden zum Marker springen — sonst direkt.
+  const focusItem = useCallback(
+    (item: FeedbackItem) => {
+      if (item.url === activeUrl) {
+        focusItemNow(item);
+        return;
+      }
+      handleNavigate(item.url);
+      void waitForPage(item.url).then((loaded) => {
+        if (!loaded) log.warn('Seite fuer Panel-Sprung nicht rechtzeitig geladen', item.url);
+        // Kurzer Aufschub: Overlays und Layout der frischen Frames stehen lassen.
+        window.setTimeout(() => focusItemNow(item), 250);
+      });
+    },
+    [activeUrl, focusItemNow, handleNavigate, waitForPage],
+  );
+
+  // Hover ueber einen Panel-Eintrag: die zugehoerige Markierung im Viewport
+  // ruhig hervorheben (nur aktuelle Seite — andere Seiten rendern nicht).
+  const [hoverMark, setHoverMark] = useState<{
+    uid: string;
+    shapeId: string;
+  } | null>(null);
+  const previewItem = useCallback(
+    (item: FeedbackItem | null) => {
+      if (!item || item.url !== activeUrl) {
+        setHoverMark(null);
+        return;
+      }
+      if (item.deviceId === FULLSCREEN_ID) {
+        setHoverMark(fullscreen ? { uid: FS_UID, shapeId: item.shape.id } : null);
+        return;
+      }
+      const instance = devices.find((d) => d.id === item.deviceId);
+      setHoverMark(instance ? { uid: instance.uid, shapeId: item.shape.id } : null);
+    },
+    [devices, activeUrl, fullscreen],
+  );
+
+  // Drag&Drop-Sortierung der Device-Karten: waehrend des Zugs wird die Liste
+  // live umsortiert (die Karte weicht aus), gespeichert wird ueber die
+  // bestehende Grid-Persistenz.
+  const [dragUid, setDragUid] = useState<string | null>(null);
+  const handleDragHover = useCallback(
+    (overUid: string, side: 'before' | 'after') => {
+      if (!dragUid || dragUid === overUid) return;
+      setDevices((list) => {
+        const from = list.findIndex((d) => d.uid === dragUid);
+        const over = list.findIndex((d) => d.uid === overUid);
+        if (from < 0 || over < 0) return list;
+        let to = side === 'before' ? over : over + 1;
+        if (from < to) to -= 1; // Index gilt fuer die Liste OHNE das gezogene Element
+        if (to === from) return list;
+        const next = [...list];
+        const [moved] = next.splice(from, 1);
+        if (moved) next.splice(to, 0, moved);
+        return next;
+      });
+    },
+    [dragUid],
+  );
+
+  // Klick auf den Feedback-Zaehler eines Devices: Panel oeffnen und die
+  // betroffene Gruppe dort kurz hervorheben.
+  const [panelHighlight, setPanelHighlight] = useState<{
+    deviceId: string;
+    nonce: number;
+  } | null>(null);
+  const showDeviceFeedback = useCallback((presetId: string) => {
+    setFeedbackOpen(true);
+    setPanelHighlight((prev) => ({
+      deviceId: presetId,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
+  }, []);
 
   // Teilen per Link: Feedback dieser Seite komprimiert im URL-Hash.
   // Anzeige und Kopieren uebernimmt das Feedback-Panel.
@@ -628,30 +1107,6 @@ export function App({
   // Waehrend des Screenshot-Exports rendern die Overlays die Notizen als
   // Sprechblasen — der Text steht dann am richtigen Punkt im Bild.
   const [showNotes, setShowNotes] = useState(false);
-
-  /** Warten, bis alle Frames die Zielseite fertig geladen haben. */
-  const waitForPage = useCallback((url: string, timeout = 12_000): Promise<boolean> => {
-    return new Promise((resolve) => {
-      const start = Date.now();
-      const tick = () => {
-        const list = [...frames.current.values()];
-        const ready =
-          list.length > 0 &&
-          list.every((iframe) => {
-            const doc = frameDocument(iframe);
-            try {
-              return doc != null && doc.readyState === 'complete' && normalizeUrl(doc.location.href) === url;
-            } catch {
-              return false;
-            }
-          });
-        if (ready) return resolve(true);
-        if (Date.now() - start > timeout) return resolve(false);
-        window.setTimeout(tick, 150);
-      };
-      tick();
-    });
-  }, []);
 
   /**
    * Laedt fuer jede Seite der aktuellen Domain mit offenem Feedback
@@ -678,8 +1133,8 @@ export function App({
       // Aktuelle Seite zuerst — sie ist schon geladen. Nur Seiten mit offenen
       // Eintraegen; abgehaktes Feedback braucht keinen Screenshot mehr.
       const open = feedback.filter((i) => sameOrigin(i.url, startUrl) && !i.done);
-      const pages = [...new Set(open.map((i) => i.url))].sort(
-        (a, b) => (a === startUrl ? -1 : b === startUrl ? 1 : a.localeCompare(b)),
+      const pages = [...new Set(open.map((i) => i.url))].sort((a, b) =>
+        a === startUrl ? -1 : b === startUrl ? 1 : a.localeCompare(b),
       );
 
       // Gesamtzahl der Captures vorab — fuer die Fortschrittsanzeige.
@@ -709,10 +1164,10 @@ export function App({
             handleNavigate(pageUrl);
             currentPage = pageUrl;
             const loaded = await waitForPage(pageUrl);
-            if (!loaded) {
-              log.warn('Seite fuer Screenshot nicht geladen', pageUrl);
-              continue;
-            }
+            // Auch nach Timeout weitermachen: die Frames zeigen mit hoher
+            // Wahrscheinlichkeit die richtige Seite (Redirect/Query-Drift) —
+            // ein Capture ist besser als eine kommentarlos fehlende Datei.
+            if (!loaded) log.warn('Seite evtl. nicht fertig geladen — Capture trotzdem', pageUrl);
             await new Promise((r) => setTimeout(r, 250));
           }
 
@@ -733,7 +1188,7 @@ export function App({
               const blob = await captureFullFrameShot(
                 iframe,
                 () => viewport.getBoundingClientRect(),
-                zoom,
+                effZoomsRef.current.get(device.uid) ?? zoom,
               );
               if (blob) {
                 downloadBlob(blob, `inkspect-feedback-${slugOf(pageUrl)}-${device.id}.png`);
@@ -772,7 +1227,12 @@ export function App({
         origin?.localName === 'textarea' ||
         origin?.isContentEditable === true;
       if (e.key === 'Escape') {
-        if (!typing) selectTool('interact');
+        setPaletteAt(null);
+        if (!typing) {
+          // Erst den Zeichenmodus beenden; ein weiteres Esc verlaesst das Vollbild.
+          if (toolRef.current !== 'interact') selectTool('interact');
+          else setFullscreen(false);
+        }
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
@@ -791,34 +1251,44 @@ export function App({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [annotating, undoShape, selectTool]);
 
-  // Nur Feedback der aktuellen Domain — Eintraege anderer Domains bleiben
-  // gespeichert, tauchen aber weder im Panel noch im Zaehler auf. Die Badges
+  // Nur Feedback der aktuellen Domain im Hauptbereich — fremde Domains
+  // bekommen im Panel einen eigenen, einklappbaren Bereich. Die Badges
   // zaehlen nur offene (nicht abgehakte) Eintraege.
   const domainFeedback = feedback.filter((item) => sameOrigin(item.url, activeUrl));
+  const otherDomainFeedback = feedback.filter((item) => !sameOrigin(item.url, activeUrl));
   const feedbackCount = domainFeedback.filter((item) => !item.done).length;
   const pageFeedbackCount = feedback.filter((item) => item.url === activeUrl).length;
 
+  // Das Panel kennt das Vollbild-Pseudo-Device als eigene Gruppe.
+  const panelPresets = useMemo<readonly DevicePreset[]>(
+    () => [...presets, fsDevice],
+    [presets, fsDevice],
+  );
+
   return (
-    <div className="root">
-      <Toolbar
-        src={src}
-        zoom={zoom}
-        presets={presets}
-        editorOpen={editorOpen}
-        syncEnabled={syncEnabled}
-        feedbackOpen={feedbackOpen}
-        feedbackCount={feedbackCount}
-        onNavigate={handleNavigate}
-        onAddDevice={addDevice}
-        onAddCustomDevice={addCustomDevice}
-        onRemoveCustomPreset={removeCustomPreset}
-        onZoom={setZoom}
-        onReload={reloadFrames}
-        onToggleEditor={() => setEditorOpen((v) => !v)}
-        onToggleSync={() => setSyncEnabled((v) => !v)}
-        onToggleFeedback={() => setFeedbackOpen((v) => !v)}
-        onClose={() => void handleClose()}
-      />
+    <div className={`root${fullscreen ? ' root--fs' : ''}`}>
+      {!fullscreen && (
+        <Toolbar
+          src={activeUrl}
+          zoom={zoom}
+          presets={presets}
+          editorOpen={editorOpen}
+          sync={syncPrefs}
+          feedbackOpen={feedbackOpen}
+          feedbackCount={feedbackCount}
+          onNavigate={handleNavigate}
+          onAddDevice={addDevice}
+          onAddCustomDevice={addCustomDevice}
+          onRemoveCustomPreset={removeCustomPreset}
+          onZoom={setZoom}
+          onReload={reloadFrames}
+          onToggleEditor={() => setEditorOpen((v) => !v)}
+          onToggleSync={toggleSync}
+          onToggleFeedback={() => setFeedbackOpen((v) => !v)}
+          onFullscreen={() => setFullscreen(true)}
+          onClose={() => void handleClose()}
+        />
+      )}
 
       <div className={`loadbar${navigating ? ' loadbar--active' : ''}`} />
 
@@ -828,9 +1298,9 @@ export function App({
         <div className="banner">
           <strong>This page refuses to be embedded.</strong>
           <span>
-            It sends <code>X-Frame-Options: DENY</code> or{' '}
-            <code>frame-ancestors 'none'</code>. To work around this, Inkspect removes these
-            headers — only in this tab, only for the preview frames.
+            It sends <code>X-Frame-Options: DENY</code> or <code>frame-ancestors 'none'</code>. To
+            work around this, Inkspect removes these headers — only in this tab, only for the
+            preview frames.
           </span>
           <span className="device__bar-spacer" />
           <button onClick={() => void enableBypass()} disabled={bypassPending}>
@@ -840,7 +1310,7 @@ export function App({
       )}
 
       <div className="body">
-        {editorOpen && (
+        {!fullscreen && editorOpen && (
           <CssEditor
             shadowRoot={shadowRoot}
             sheets={sheets}
@@ -853,42 +1323,117 @@ export function App({
           />
         )}
 
-        <div className="grid">
+        {fullscreen && (
+          <div className="fs-stage">
+            <DeviceFrame
+              key={FS_UID}
+              bare
+              device={fsDevice}
+              src={src}
+              zoom={1}
+              reloadKey={reloadKey}
+              annotating={annotating}
+              shapes={itemsFor(FULLSCREEN_ID).map((item) => item.shape)}
+              dimmedIds={
+                new Set(
+                  itemsFor(FULLSCREEN_ID)
+                    .filter((i) => i.done)
+                    .map((i) => i.shape.id),
+                )
+              }
+              tool={drawTool}
+              color={color}
+              showNotes={showNotes}
+              markersVisible={markersVisible}
+              flashShapeId={flash?.uid === FS_UID ? flash.shapeId : null}
+              flashNonce={flash?.nonce ?? 0}
+              flashActive={false}
+              hoverShapeId={hoverMark?.uid === FS_UID ? hoverMark.shapeId : null}
+              noteEdit={noteEdit?.uid === FS_UID ? noteEdit : null}
+              dragging={false}
+              onLoad={handleLoad}
+              onAttach={handleAttach}
+              onRotate={() => {}}
+              onRemove={() => {}}
+              onBadgeClick={showDeviceFeedback}
+              onAddShape={addShape}
+              onSetShapeNote={setShapeNote}
+              onDragBegin={() => {}}
+              onDragHover={() => {}}
+              onDragEnd={() => {}}
+            />
+          </div>
+        )}
+
+        {!fullscreen && (
+        <div
+          ref={gridRef}
+          className={`grid${dragUid ? ' grid--dragging' : ''}`}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            openPalette(e.clientX, e.clientY);
+          }}
+        >
           {devices.map((device) => (
             <DeviceFrame
               key={device.uid}
               device={device}
               src={src}
-              zoom={zoom}
+              zoom={effZooms.get(device.uid) ?? zoom}
               reloadKey={reloadKey}
               annotating={annotating}
               shapes={itemsFor(device.id).map((item) => item.shape)}
-              dimmedIds={new Set(itemsFor(device.id).filter((i) => i.done).map((i) => i.shape.id))}
+              dimmedIds={
+                new Set(
+                  itemsFor(device.id)
+                    .filter((i) => i.done)
+                    .map((i) => i.shape.id),
+                )
+              }
               tool={drawTool}
               color={color}
               showNotes={showNotes}
+              markersVisible={markersVisible}
+              flashShapeId={flash?.uid === device.uid ? flash.shapeId : null}
+              flashNonce={flash?.nonce ?? 0}
+              flashActive={flash?.uid === device.uid}
+              hoverShapeId={hoverMark?.uid === device.uid ? hoverMark.shapeId : null}
+              noteEdit={noteEdit?.uid === device.uid ? noteEdit : null}
+              dragging={dragUid === device.uid}
               onLoad={handleLoad}
               onAttach={handleAttach}
+              onTouchChange={handleTouchChange}
               onRotate={rotateDevice}
               onRemove={removeDevice}
+              onBadgeClick={showDeviceFeedback}
               onAddShape={addShape}
               onSetShapeNote={setShapeNote}
+              onDragBegin={setDragUid}
+              onDragHover={handleDragHover}
+              onDragEnd={() => setDragUid(null)}
             />
           ))}
         </div>
+        )}
 
         {feedbackOpen && (
           <FeedbackPanel
             items={domainFeedback}
+            otherItems={otherDomainFeedback}
             url={activeUrl}
-            presets={presets}
+            presets={panelPresets}
             devices={devices}
+            markersVisible={markersVisible}
+            onToggleMarkers={() => setMarkersVisible((v) => !v)}
+            highlight={panelHighlight}
             onJump={focusDevice}
+            onJumpItem={focusItem}
+            onPreviewItem={previewItem}
+            onEditItem={editItemText}
             onNavigate={handleNavigate}
             onDelete={removeShape}
             onToggleDone={toggleDone}
             onClearAll={clearAllShapes}
-            onCopy={copyFeedback}
             onBuildShareLink={buildShareLink}
             onExportScreenshots={exportScreenshots}
             onClose={() => setFeedbackOpen(false)}
@@ -896,15 +1441,50 @@ export function App({
         )}
       </div>
 
-      <AnnotationPalette
-        tool={tool}
-        color={color}
-        canUndo={pageFeedbackCount > 0}
-        onTool={selectTool}
-        onColor={setColor}
-        onUndo={undoShape}
-        onClear={clearAllShapes}
-      />
+      {fullscreen && (
+        <>
+          <FeedbackBar
+            tool={tool}
+            color={color}
+            canUndo={pageFeedbackCount > 0}
+            onTool={selectTool}
+            onColor={setColor}
+            onUndo={undoShape}
+            onClear={clearAllShapes}
+            onExit={() => setFullscreen(false)}
+          />
+          <button
+            className="fs-fab"
+            title={feedbackOpen ? 'Hide feedback panel' : 'Show feedback panel'}
+            aria-pressed={feedbackOpen}
+            onClick={() => setFeedbackOpen((v) => !v)}
+          >
+            <IconMessage size={22} />
+            {feedbackCount > 0 && <span className="fs-fab__badge">{feedbackCount}</span>}
+          </button>
+        </>
+      )}
+
+      {paletteAt && (
+        <AnnotationPalette
+          at={paletteAt}
+          tool={tool}
+          color={color}
+          canUndo={pageFeedbackCount > 0}
+          onTool={(next) => {
+            selectTool(next);
+            closePalette();
+          }}
+          onColor={setColor}
+          onUndo={undoShape}
+          onClear={() => {
+            clearAllShapes();
+            closePalette();
+          }}
+          onDismiss={closePalette}
+          onMove={openPalette}
+        />
+      )}
     </div>
   );
 }

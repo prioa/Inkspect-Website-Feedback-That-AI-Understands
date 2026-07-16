@@ -119,6 +119,9 @@ input::placeholder { color: var(--text-2); }
   margin: 0 2px;
 }
 .toolbar__feedback { position: relative; }
+/* Anker fuer das Sync-Menue — sonst positioniert sich das Dropdown am
+   .root (position: fixed) und landet unterhalb des Viewports. */
+.toolbar__menu { position: relative; display: inline-flex; }
 .toolbar__badge {
   position: absolute;
   top: 2px;
@@ -153,6 +156,17 @@ input::placeholder { color: var(--text-2); }
 }
 .omnibox:focus-within { border-color: var(--accent); }
 .omnibox__icon { display: grid; place-items: center; color: var(--text-2); flex: 0 0 auto; }
+/* Feste Domain vor dem editierbaren Pfad — Cross-Origin ist ohnehin gesperrt. */
+.omnibox__origin {
+  flex: 0 0 auto;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 12.5px;
+  padding-left: 2px;
+}
 .omnibox__input {
   flex: 1 1 auto;
   min-width: 0;
@@ -350,7 +364,7 @@ input::placeholder { color: var(--text-2); }
 /* ---------- Feedback-Panel (rechtes Panel) ---------- */
 
 .panel {
-  width: 300px;
+  width: 320px;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -459,9 +473,9 @@ input::placeholder { color: var(--text-2); }
 .fb-list { list-style: none; margin: 2px 0 0; padding: 0; }
 .fb-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  padding: 5px 8px;
+  padding: 6px 8px;
   border-radius: var(--radius-s);
   cursor: pointer;
 }
@@ -470,6 +484,7 @@ input::placeholder { color: var(--text-2); }
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
+  margin-top: 1px;
   border-radius: 999px;
   color: #fff;
   font-size: 10px;
@@ -477,17 +492,64 @@ input::placeholder { color: var(--text-2); }
   line-height: 18px;
   text-align: center;
 }
-.fb-item__dot { flex: 0 0 auto; width: 10px; height: 10px; margin: 0 4px; border-radius: 999px; }
-.fb-item__label {
+.fb-item__dot { flex: 0 0 auto; width: 10px; height: 10px; margin: 5px 4px 0; border-radius: 999px; }
+.fb-check { margin-top: 2px; }
+.fb-item__body {
   flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.fb-item__label {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-1);
+  color: var(--text-0);
+  line-height: 1.4;
 }
-.fb-item__delete { visibility: hidden; }
-.fb-item:hover .fb-item__delete { visibility: visible; }
+.fb-item__label--empty { color: var(--text-2); font-style: italic; }
+.fb-item__label--empty:hover { color: var(--accent); }
+.fb-item__meta {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 11px;
+}
+.fb-item__actions {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+  visibility: hidden;
+}
+.fb-item:hover .fb-item__actions,
+.fb-item--editing .fb-item__actions { visibility: visible; }
+.fb-item--editing { cursor: default; }
+.fb-item__edit {
+  width: 100%;
+  resize: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-0);
+  background: var(--bg-0);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  padding: 4px 6px;
+}
+.fb-item__edit:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* Device-Badge geklickt: betroffene Panel-Gruppe blitzt kurz auf */
+.fb-group--flash .fb-item { animation: ink-item-flash 1.6s ease-out; }
+.fb-group--flash .fb-group__head { animation: ink-item-flash 1.6s ease-out; }
+@keyframes ink-item-flash {
+  0%, 100% { background: transparent; }
+  20%, 60% { background: var(--accent-dim); }
+}
 
 /* Erledigt-Status: Check-Kreis vorn, abgehakte Eintraege gedimmt */
 .fb-check {
@@ -555,6 +617,41 @@ input::placeholder { color: var(--text-2); }
 }
 .share-hint { color: var(--text-2); font-size: 11px; line-height: 1.45; }
 .share-hint--error { color: #f0a9a9; }
+.share-hint--ok { color: #7fd88f; }
+
+/* ---------- Fremde Domains (Panel-Abschnitt) ---------- */
+
+.fb-other { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 8px; }
+.fb-other__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-s);
+  text-align: left;
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 600;
+}
+.fb-other__head:hover { background: var(--bg-3); color: var(--text-0); }
+.fb-other__title { flex: 1 1 auto; }
+.fb-other__chev {
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform .12s ease;
+}
+.fb-other__chev--open { transform: rotate(90deg); }
+.fb-other__domain { cursor: default; }
+.fb-other__domain:hover:not(:disabled) { background: var(--bg-2); color: var(--text-1); }
+.fb-item--static { cursor: default; }
 
 /* ---------- Device-Grid ---------- */
 
@@ -587,9 +684,26 @@ input::placeholder { color: var(--text-2); }
   gap: 7px;
   padding: 0 2px 8px;
   color: var(--text-1);
+  /* Griff fuer die Drag&Drop-Sortierung der Karten. */
+  cursor: grab;
+  user-select: none;
 }
+.device__bar:active { cursor: grabbing; }
+
+/* Karte wird gezogen: transparent lassen, Ziel-Layout entsteht live. */
+.device--dragging { opacity: .4; }
+/* Waehrend des Drags schlucken die iframes sonst die dragover-Events. */
+.grid--dragging .device__viewport iframe { pointer-events: none; }
 .device__icon { display: grid; place-items: center; color: var(--text-2); }
-.device__name { font-weight: 600; color: var(--text-0); }
+/* Name darf schrumpfen — die Kartenbreite bestimmt allein der Viewport. */
+.device__name {
+  font-weight: 600;
+  color: var(--text-0);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .device__size {
   font-variant-numeric: tabular-nums;
   color: var(--text-2);
@@ -599,15 +713,28 @@ input::placeholder { color: var(--text-2); }
   border-radius: 999px;
 }
 .device__bar-spacer { flex: 1 1 auto; }
+/* Der Zaehler ist ein Button: Klick oeffnet das Panel und hebt die Gruppe hervor. */
 .device__anno-count {
   min-width: 18px;
   padding: 1px 6px;
+  border: none;
   border-radius: 999px;
   background: var(--accent);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
+  line-height: 1.4;
   text-align: center;
+  cursor: pointer;
+}
+.device__anno-count:hover:not(:disabled) { background: #6f9aff; }
+
+/* Kurzer Rahmen-Puls, wenn ein Panel-Eintrag dieses Device anspringt. */
+.device--flash { animation: ink-device-flash 1.6s ease-out; }
+@keyframes ink-device-flash {
+  0%, 100% { box-shadow: none; }
+  15%, 55% { box-shadow: 0 0 0 3px var(--accent); }
+  35%, 75% { box-shadow: 0 0 0 1px var(--accent); }
 }
 
 .device__viewport {
@@ -642,6 +769,21 @@ input::placeholder { color: var(--text-2); }
   touch-action: none;
 }
 .anno--pick .anno__svg { cursor: pointer; }
+/* Doppelter Puls um den per Panel-Klick angesprungenen Marker. */
+.anno__flash { animation: ink-anno-flash 1.8s ease-out forwards; }
+@keyframes ink-anno-flash {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  35% { opacity: .25; }
+  55% { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* Notiz-Sprechblase blendet beim Hover kurz ein. */
+.anno__bubble { animation: ink-bubble-in .14s ease-out; }
+@keyframes ink-bubble-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 .anno__input {
   position: absolute;
   pointer-events: auto;
@@ -682,14 +824,16 @@ input::placeholder { color: var(--text-2); }
   font-size: 11px;
 }
 
-/* ---------- Schwebende Werkzeug-Palette ---------- */
+/* ---------- Werkzeug-Palette (Kontextmenue per Rechtsklick) ---------- */
 
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+}
 .palette {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 30;
+  position: fixed;
+  z-index: 50;
   display: flex;
   align-items: center;
   gap: 3px;
@@ -698,6 +842,12 @@ input::placeholder { color: var(--text-2); }
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-l);
+  transform-origin: 12px 12px;
+  animation: ink-palette-in .12s ease-out;
+}
+@keyframes ink-palette-in {
+  from { opacity: 0; transform: scale(.95); }
+  to { opacity: 1; transform: none; }
 }
 .palette__sep { width: 1px; height: 20px; background: var(--border-strong); margin: 0 3px; flex: 0 0 auto; }
 
@@ -713,6 +863,81 @@ input::placeholder { color: var(--text-2); }
 }
 .swatch:hover { transform: scale(1.12); }
 .swatch--active { border-color: var(--bg-2); box-shadow: 0 0 0 2px var(--text-0); }
+
+/* ---------- Vollbild-Modus ---------- */
+
+/* Ohne Toolbar sitzt der Ladebalken ganz oben. */
+.root--fs .loadbar { top: 0; }
+
+.fs-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* Nacktes Device (Vollbild): kein Karten-Chrom, Frame randlos. */
+.device--bare { padding: 0; border: none; border-radius: 0; background: transparent; }
+.device--bare .device__viewport { border: none; border-radius: 0; }
+.device--annotating.device--bare .device__viewport {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* Feedback-Panel schwebt im Vollbild ueber der Seite statt sie zu stauchen. */
+.root--fs .panel--right {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 44;
+  box-shadow: var(--shadow-l);
+}
+
+/* Fixe Werkzeugleiste unten mittig. */
+.fsbar {
+  top: auto;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  transform-origin: center bottom;
+  animation: none;
+  z-index: 45;
+}
+
+/* Feedback-Knopf unten rechts. */
+.fs-fab {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-l);
+}
+.fs-fab:hover:not(:disabled) { background: #6f9aff; }
+.fs-fab__badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
 
 /* ---------- Scrollbars ---------- */
 

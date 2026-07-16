@@ -126,5 +126,14 @@ export function sanitizeItems(data: unknown): FeedbackItem[] {
 
 /** Fire-and-forget-Wrapper: UI-State ist fuehrend, Persistenz folgt. */
 export function persist(operation: Promise<unknown>, what: string): void {
-  operation.catch((e: unknown) => log.error(`${what} fehlgeschlagen`, e));
+  operation.catch((e: unknown) => {
+    // Nach einem Extension-Update/-Reload laeuft auf offenen Tabs noch das
+    // alte Content-Script — dessen storage-Zugriffe sterben mit diesem
+    // Fehler. Kein echter Defekt: die Seite muss einmal neu geladen werden.
+    if (e instanceof Error && e.message.includes('Extension context invalidated')) {
+      log.warn(`${what} uebersprungen — Extension wurde neu geladen. Seite neu laden (F5), um weiter zu speichern.`);
+      return;
+    }
+    log.error(`${what} fehlgeschlagen`, e);
+  });
 }

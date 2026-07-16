@@ -43,6 +43,11 @@ export interface ElementShape {
   selector?: string;
   /** Optionaler Freitext zum Marker. */
   note?: string;
+  /**
+   * Gemeinsame Id der auf alle Devices replizierten Element-Marker — Notiz-
+   * Aenderungen laufen ueber sie auf alle Kopien.
+   */
+  syncId?: string;
 }
 
 export interface PinShape extends ElementRef {
@@ -64,6 +69,8 @@ export interface PenShape extends ElementRef {
   tool: 'pen';
   color: string;
   strokes: Point[][];
+  /** Optionaler Freitext zum Marker. */
+  note?: string;
 }
 
 export interface BoxShape extends ElementRef {
@@ -169,6 +176,65 @@ export function pinNumbers(shapes: Shape[]): Map<string, number> {
     if (s.tool === 'pin') map.set(s.id, ++n);
   }
   return map;
+}
+
+/** Punkt, den man ansteuern sollte, um die Markierung zu sehen (Dokumentraum). */
+export function shapeFocusPoint(shape: Shape): Point {
+  switch (shape.tool) {
+    case 'element':
+      return { x: shape.x + shape.w / 2, y: shape.y + shape.h / 2 };
+    case 'pin':
+    case 'text':
+      return { x: shape.x, y: shape.y };
+    case 'arrow':
+      return { x: shape.x2, y: shape.y2 };
+    case 'rect':
+    case 'ellipse':
+      return { x: (shape.x1 + shape.x2) / 2, y: (shape.y1 + shape.y2) / 2 };
+    case 'pen': {
+      const first = shape.strokes?.[0]?.[0];
+      return first ?? { x: 0, y: 0 };
+    }
+  }
+}
+
+/** Umgebendes Rechteck einer Markierung im Dokumentraum (Hover/Flash). */
+export function shapeBounds(
+  shape: Shape,
+): { x: number; y: number; w: number; h: number } | null {
+  switch (shape.tool) {
+    case 'element':
+      return { x: shape.x, y: shape.y, w: shape.w, h: shape.h };
+    case 'pin':
+      return { x: shape.x - 14, y: shape.y - 14, w: 28, h: 28 };
+    case 'rect':
+    case 'ellipse':
+    case 'arrow':
+      return {
+        x: Math.min(shape.x1, shape.x2),
+        y: Math.min(shape.y1, shape.y2),
+        w: Math.abs(shape.x2 - shape.x1),
+        h: Math.abs(shape.y2 - shape.y1),
+      };
+    case 'text':
+      // Textbreite grob geschaetzt — reicht fuer Hover-Treffer und Flash.
+      return { x: shape.x - 4, y: shape.y - 4, w: Math.max(60, shape.text.length * 9), h: 30 };
+    case 'pen': {
+      const points = (shape.strokes ?? []).flat();
+      if (points.length === 0) return null;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const p of points) {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
+      }
+      return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    }
+  }
 }
 
 let shapeCounter = 0;

@@ -89,6 +89,13 @@ export const IconPen = ({ size }: IconProps) => (
   </Icon>
 );
 
+/** Klassischer Stift (Bearbeiten) — nicht der Freihand-Kringel von IconPen. */
+export const IconEditPen = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+  </Icon>
+);
+
 export const IconRect = ({ size }: IconProps) => (
   <Icon size={size}>
     <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -223,6 +230,51 @@ export const IconDots = ({ size }: IconProps) => (
     <circle cx="12" cy="5" r="1" />
     <circle cx="12" cy="12" r="1" />
     <circle cx="12" cy="19" r="1" />
+  </Icon>
+);
+
+export const IconEye = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </Icon>
+);
+
+export const IconEyeOff = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-7 0-10-7-10-7a17.4 17.4 0 0 1 4.06-4.94" />
+    <path d="M9.9 5.24A9.6 9.6 0 0 1 12 5c7 0 10 7 10 7a17.5 17.5 0 0 1-1.67 2.68" />
+    <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+    <path d="m2 2 20 20" />
+  </Icon>
+);
+
+/** Vollbild betreten: vier Ecken nach aussen. */
+export const IconExpand = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M15 3h6v6" />
+    <path d="M9 21H3v-6" />
+    <path d="M21 3l-7 7" />
+    <path d="M3 21l7-7" />
+  </Icon>
+);
+
+/** Vollbild verlassen: Pfeile nach innen. */
+export const IconCollapse = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 14h6v6" />
+    <path d="M20 10h-6V4" />
+    <path d="M14 10l7-7" />
+    <path d="M3 21l7-7" />
+  </Icon>
+);
+
+/** Touch-Modus: tippender Finger. */
+export const IconTouch = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M9 11V5a2 2 0 0 1 4 0v6" />
+    <path d="M13 9.5a2 2 0 0 1 4 1V13" />
+    <path d="M17 12.5a2 2 0 0 1 3.5 1.5c0 2.5-1 4-2 6-.8 1.7-2.4 2-4.5 2h-1.8c-1.8 0-2.9-.6-3.9-2L5 15.5a1.9 1.9 0 0 1 3-2.3l1 1.3" />
   </Icon>
 );
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { ElementRef, Point, Shape, Tool } from '@/lib/annotations';
-import { elementLabel, pinNumbers, shapeId } from '@/lib/annotations';
+import { elementLabel, pinNumbers, shapeBounds, shapeId } from '@/lib/annotations';
 import { shadowPath } from '@/lib/selector';
 
 interface Props {
@@ -22,10 +22,29 @@ interface Props {
   /**
    * Notizen als Sprechblasen direkt im Overlay rendern — an waehrend des
    * Screenshot-Exports, damit der Text am richtigen Punkt im Bild steht.
+   * Unabhaengig davon erscheint die Notiz beim Hover ueber dem Marker.
    */
   showNotes?: boolean;
+  /** Marker, der gerade per Panel-Klick angeflogen wurde — pulsiert kurz. */
+  flashShapeId?: string | null;
+  /** Aendert sich pro Flash — startet die CSS-Animation neu. */
+  flashNonce?: number;
+  /** Marker, dessen Panel-Eintrag gerade gehovert wird — ruhig hervorheben. */
+  hoverShapeId?: string | null;
+  /** Doppelklick auf einen Marker (App): Notiz-Editor mit dem Text oeffnen. */
+  editRequest?: NoteEditRequest | null;
   onAdd: (shape: Shape) => void;
   onSetNote: (shapeId: string, note: string) => void;
+}
+
+/** Von der App gemeldeter Editier-Wunsch (Doppelklick im Frame). */
+export interface NoteEditRequest {
+  shapeId: string;
+  /** Klickpunkt in Dokument-Koordinaten — dort erscheint der Editor. */
+  x: number;
+  y: number;
+  /** Zaehlt pro Doppelklick hoch — oeffnet den Editor auch erneut. */
+  nonce: number;
 }
 
 interface TextDraft {
@@ -34,16 +53,28 @@ interface TextDraft {
   value: string;
 }
 
-/** Offener Notiz-Editor zum zuletzt gesetzten Marker. */
+/** Offener Notiz-Editor zum zuletzt gesetzten oder doppelt geklickten Marker. */
 interface NoteDraft {
   shapeId: string;
   /** Ankerpunkt in Dokument-Koordinaten. */
   x: number;
   y: number;
   value: string;
+  /**
+   * Text beim Oeffnen (Editier-Session per Doppelklick). Gesetzt darf der
+   * Commit auch leeren; beim Anlegen bleibt "leer" schlicht "keine Notiz".
+   */
+  initial?: string;
 }
 
-/** Bounding-Box, Label und CSS-Pfad des Elements unter dem Cursor (Dokumentraum). */
+interface BoxEdges {
+  t: number;
+  r: number;
+  b: number;
+  l: number;
+}
+
+/** Bounding-Box, Label, CSS-Pfad und Box-Model des Elements unterm Cursor (Dokumentraum). */
 interface ElementTarget {
   x: number;
   y: number;
@@ -51,9 +82,13 @@ interface ElementTarget {
   h: number;
   label: string;
   selector: string;
+  margin: BoxEdges;
+  padding: BoxEdges;
 }
 
 const MIN_DRAG = 3;
+/** Toleranz um die Marker-Box fuer den Notiz-Hover (Dokument-Pixel). */
+const HOVER_PAD = 8;
 
 /** elementFromPoint, das in offene Shadow Roots absteigt (Web Components). */
 function deepElementFromPoint(doc: Document, x: number, y: number): Element | null {
@@ -78,6 +113,10 @@ export function AnnotationOverlay({
   frameEl,
   loadCount,
   showNotes = false,
+  flashShapeId = null,
+  flashNonce = 0,
+  hoverShapeId = null,
+  editRequest = null,
   onAdd,
   onSetNote,
 }: Props) {
@@ -106,6 +145,89 @@ export function AnnotationOverlay({
     noteDraftRef.current = value;
     setNoteDraftState(value);
   };
+
+  // Doppelklick auf einen Marker (von der App gemeldet, weil die Events im
+  // Interaktionsmodus im Frame landen): Notiz-Editor mit dem vorhandenen
+  // Text am Klickpunkt oeffnen.
+  useEffect(() => {
+    if (!editRequest) return;
+    const shape = shapes.find((s) => s.id === editRequest.shapeId);
+    if (!shape) return;
+    const value = editableTextOf(shape);
+    setNoteDraft({
+      shapeId: shape.id,
+      x: editRequest.x,
+      y: editRequest.y,
+      value,
+      initial: value,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRequest?.nonce]);
+
+  // Notiz eines Markers beim Ueberfahren einblenden. Getroffen wird per
+  // Bounding-Box-Mathe statt per Hit-Element im SVG — so schluckt das Overlay
+  // im Interaktionsmodus keine Klicks, die zur Seite gehoeren. Die Blase
+  // haengt an der Mausposition (Dokumentraum) und laeuft mit.
+  const [hoverNote, setHoverNote] = useState<{ id: string; x: number; y: number } | null>(null);
+  const notedShapes = shapes.filter((s) => !dimmedIds?.has(s.id) && noteOf(s) != null);
+  const notedRef = useRef(notedShapes);
+  notedRef.current = notedShapes;
+
+  const updateHover = (x: number, y: number) => {
+    const id = hitNote(x, y);
+    setHoverNote(id ? { id, x, y } : null);
+  };
+
+  const hitNote = (x: number, y: number): string | null => {
+    for (const s of notedRef.current) {
+      const b = shapeBounds(s);
+      if (
+        b &&
+        x >= b.x - HOVER_PAD &&
+        x <= b.x + b.w + HOVER_PAD &&
+        y >= b.y - HOVER_PAD &&
+        y <= b.y + b.h + HOVER_PAD
+      ) {
+        return s.id;
+      }
+    }
+    return null;
+  };
+
+  // Im Interaktionsmodus laufen die Mausbewegungen im Frame selbst — dort
+  // lauschen und in Dokument-Koordinaten (pageX/pageY) hit-testen.
+  useEffect(() => {
+    const win = frameEl?.contentWindow;
+    if (!win) return;
+
+    let raf = 0;
+    const onMove = (e: MouseEvent) => {
+      const { pageX, pageY } = e;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => updateHover(pageX, pageY));
+    };
+    const onOut = (e: MouseEvent) => {
+      if (e.relatedTarget == null) setHoverNote(null);
+    };
+
+    try {
+      win.addEventListener('mousemove', onMove, { passive: true });
+      win.document.addEventListener('mouseout', onOut, true);
+    } catch {
+      return; // Frame nicht lesbar
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      try {
+        win.removeEventListener('mousemove', onMove);
+        win.document.removeEventListener('mouseout', onOut, true);
+      } catch {
+        /* Frame schon weg */
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frameEl, loadCount]);
 
   // Scroll-Position des Frames verfolgen, damit die Markierungen am Inhalt
   // kleben bleiben. try/catch: der Frame kann blockiert (cross-origin) sein.
@@ -189,6 +311,8 @@ export function AnnotationOverlay({
       );
       if (!el || el.tagName === 'HTML') return null;
       const r = el.getBoundingClientRect();
+      const cs = win.getComputedStyle(el);
+      const nv = (v: string) => Number.parseFloat(v) || 0;
       return {
         x: r.left + win.scrollX,
         y: r.top + win.scrollY,
@@ -196,6 +320,8 @@ export function AnnotationOverlay({
         h: r.height,
         label: elementLabel(el),
         selector: shadowPath(el).join(' >>> '),
+        margin: { t: nv(cs.marginTop), r: nv(cs.marginRight), b: nv(cs.marginBottom), l: nv(cs.marginLeft) },
+        padding: { t: nv(cs.paddingTop), r: nv(cs.paddingRight), b: nv(cs.paddingBottom), l: nv(cs.paddingLeft) },
       };
     } catch {
       return null; // Frame nicht lesbar
@@ -241,7 +367,9 @@ export function AnnotationOverlay({
     if (!current) return;
     setNoteDraft(null);
     const value = current.value.trim();
-    if (value) onSetNote(current.shapeId, value);
+    // Nur echte Aenderungen speichern — beim Bearbeiten (initial gesetzt)
+    // darf der Text auch geleert werden, beim Anlegen ist leer = keine Notiz.
+    if (value !== (current.initial ?? '')) onSetNote(current.shapeId, value);
   };
 
   const handleDown = (e: ReactPointerEvent) => {
@@ -263,7 +391,8 @@ export function AnnotationOverlay({
       const target = pickAt(e);
       if (!target) return;
       const id = shapeId();
-      onAdd({ id, tool: 'element', color, ...target });
+      const { x, y, w, h, label, selector } = target;
+      onAdd({ id, tool: 'element', color, x, y, w, h, label, selector });
       setPicked(null);
       setNoteDraft({ shapeId: id, x: p.x, y: p.y, value: '' });
       return;
@@ -291,6 +420,11 @@ export function AnnotationOverlay({
   };
 
   const handleMove = (e: ReactPointerEvent) => {
+    // Auch im Zeichenmodus: Notiz beim Ueberfahren eines Markers zeigen.
+    if (!draft) {
+      const p = toDoc(e);
+      updateHover(p.x, p.y);
+    }
     // Element-Picker: Live-Highlight des Elements unterm Cursor.
     if (active && tool === 'element' && !draft) {
       setPicked(pickAt(e));
@@ -363,6 +497,14 @@ export function AnnotationOverlay({
   const fontSize = 15 / zoom;
   const numbers = pinNumbers(shapes);
 
+  /** Flash-Rahmen um den per Panel angesprungenen Marker. */
+  const flashShape = flashShapeId ? shapes.find((s) => s.id === flashShapeId) : null;
+  const flashBox = flashShape ? shapeBounds(flashShape) : null;
+
+  /** Ruhige Hervorhebung, solange der Panel-Eintrag gehovert wird. */
+  const hoverShape = hoverShapeId ? shapes.find((s) => s.id === hoverShapeId) : null;
+  const hoverBox = hoverShape ? shapeBounds(hoverShape) : null;
+
   /** Editor-Position in Overlay-Pixeln, an den Raendern eingeklemmt. */
   const clampEditor = (x: number, y: number, w: number, h: number) => ({
     left: Math.max(4, Math.min((x - scroll.x) * zoom + 14, width * zoom - w - 4)),
@@ -379,8 +521,25 @@ export function AnnotationOverlay({
         onPointerMove={handleMove}
         onPointerUp={handleUp}
         onPointerCancel={() => setDraft(null)}
-        onPointerLeave={() => setPicked(null)}
+        onPointerLeave={() => {
+          setPicked(null);
+          setHoverNote(null);
+        }}
       >
+        <defs>
+          {/* Weicher Schatten fuer Notiz-Sprechblasen; Werte /zoom, damit die
+              Bildschirmgroesse konstant bleibt. Gleiche Definition in jedem
+              Overlay — url(#…) greift die erste im Shadow-Root. */}
+          <filter id="ink-note-shadow" x="-40%" y="-40%" width="180%" height="200%">
+            <feDropShadow
+              dx="0"
+              dy={2.5 / zoom}
+              stdDeviation={4.5 / zoom}
+              floodColor="#000"
+              floodOpacity="0.45"
+            />
+          </filter>
+        </defs>
         <g transform={`translate(${-scroll.x}, ${-scroll.y})`}>
           {shapes.map((s) =>
             dimmedIds?.has(s.id) ? (
@@ -391,10 +550,57 @@ export function AnnotationOverlay({
               renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id))
             ),
           )}
-          {showNotes && shapes.filter((s) => !dimmedIds?.has(s.id)).map((s) => renderNoteBubble(s, zoom))}
+          {showNotes &&
+            shapes
+              .filter((s) => !dimmedIds?.has(s.id))
+              .map((s) => renderNoteBubble(s, zoom))}
+          {!showNotes &&
+            hoverNote &&
+            (() => {
+              const shape = notedShapes.find((s) => s.id === hoverNote.id);
+              if (!shape) return null;
+              // Direkt neben dem Cursor, eingeklemmt in den sichtbaren
+              // Frame-Ausschnitt (Dokumentraum: scroll..scroll+viewport).
+              return renderNoteBubble(
+                shape,
+                zoom,
+                { x: hoverNote.x + 14 / zoom, y: hoverNote.y + 18 / zoom },
+                { x: scroll.x, y: scroll.y, w: width, h: height },
+              );
+            })()}
           {draft && renderShape(draft, strokeWidth, fontSize, zoom)}
+          {hoverBox && (
+            <rect
+              className="anno__mark-hover"
+              x={hoverBox.x - 6 / zoom}
+              y={hoverBox.y - 6 / zoom}
+              width={hoverBox.w + 12 / zoom}
+              height={hoverBox.h + 12 / zoom}
+              rx={8 / zoom}
+              fill="rgba(91, 140, 255, 0.14)"
+              stroke="var(--accent)"
+              strokeWidth={2 / zoom}
+              pointerEvents="none"
+            />
+          )}
+          {flashBox && (
+            <rect
+              key={`flash-${flashNonce}`}
+              className="anno__flash"
+              x={flashBox.x - 8 / zoom}
+              y={flashBox.y - 8 / zoom}
+              width={flashBox.w + 16 / zoom}
+              height={flashBox.h + 16 / zoom}
+              rx={10 / zoom}
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth={3 / zoom}
+              pointerEvents="none"
+            />
+          )}
           {active && tool === 'element' && picked && !noteDraft && (
             <g pointerEvents="none">
+              {renderBoxModel(picked, zoom)}
               <rect
                 x={picked.x}
                 y={picked.y}
@@ -406,7 +612,13 @@ export function AnnotationOverlay({
                 strokeWidth={strokeWidth}
                 strokeDasharray={`${5 / zoom} ${4 / zoom}`}
               />
-              {renderElementLabel(picked.x, picked.y, picked.label, color, zoom)}
+              {renderLabelPill(
+                picked.x,
+                picked.y,
+                `${picked.label} · ${Math.round(picked.w)}×${Math.round(picked.h)}`,
+                color,
+                zoom,
+              )}
             </g>
           )}
         </g>
@@ -493,6 +705,12 @@ function wrapNote(text: string, maxChars: number, maxLines: number): string[] {
   return lines;
 }
 
+/** Editierbarer Inhalt einer Markierung: Pins/Texte tragen ihn in `text`, alle anderen in `note`. */
+function editableTextOf(shape: Shape): string {
+  if (shape.tool === 'pin' || shape.tool === 'text') return shape.text;
+  return shape.note ?? '';
+}
+
 /** Notiztext und Ankerpunkt (Dokumentraum) einer Markierung — null ohne Notiz. */
 function noteOf(shape: Shape): { text: string; x: number; y: number } | null {
   switch (shape.tool) {
@@ -507,46 +725,78 @@ function noteOf(shape: Shape): { text: string; x: number; y: number } | null {
         : null;
     case 'arrow':
       return shape.note ? { text: shape.note, x: shape.x2 + 8, y: shape.y2 + 6 } : null;
+    case 'pen': {
+      if (!shape.note) return null;
+      const b = shapeBounds(shape);
+      return b ? { text: shape.note, x: b.x, y: b.y + b.h + 6 } : null;
+    }
     default:
-      return null; // Freihand hat keinen Freitext, Text rendert sich selbst
+      return null; // Text rendert sich selbst
   }
 }
 
 /**
- * Notiz als Sprechblase neben der Markierung — nur waehrend des
- * Screenshot-Exports sichtbar, damit der Text im Bild am richtigen Punkt
- * steht. Konstante Bildschirmgroesse, deshalb /zoom.
+ * Notiz als Sprechblase — beim Hover direkt neben dem Cursor (`at`, in den
+ * sichtbaren Ausschnitt `view` eingeklemmt), beim Screenshot-Export am
+ * Marker verankert. Konstante Bildschirmgroesse, deshalb /zoom.
  */
-function renderNoteBubble(shape: Shape, zoom: number) {
-  const note = noteOf(shape);
-  if (!note) return null;
+function renderNoteBubble(
+  shape: Shape,
+  zoom: number,
+  at?: Point,
+  view?: { x: number; y: number; w: number; h: number },
+) {
+  const source = noteOf(shape);
+  if (!source) return null;
 
   const size = 12 / zoom;
-  const lineH = size * 1.35;
-  const pad = 7 / zoom;
-  const lines = wrapNote(note.text, 32, 5);
+  const lineH = size * 1.45;
+  const padY = 9 / zoom;
+  const padRight = 12 / zoom;
+  // Farbiger Akzentbalken links statt vollfarbigem Rahmen — der Text rueckt
+  // entsprechend ein.
+  const barX = 8 / zoom;
+  const barW = 3 / zoom;
+  const textX = barX + barW + 9 / zoom;
+  const lines = wrapNote(source.text, 32, 5);
   const longest = lines.reduce((max, l) => Math.max(max, l.length), 0);
-  const w = longest * size * 0.6 + pad * 2;
-  const h = lines.length * lineH + pad * 2;
+  const w = textX + longest * size * 0.6 + padRight;
+  const h = lines.length * lineH + padY * 2;
+
+  const note = { ...source, ...(at ?? {}) };
+  if (at && view) {
+    const edge = 4 / zoom;
+    note.x = Math.max(view.x + edge, Math.min(note.x, view.x + view.w - w - edge));
+    note.y = Math.max(view.y + edge, Math.min(note.y, view.y + view.h - h - edge));
+  }
 
   return (
-    <g key={`note-${shape.id}`} pointerEvents="none">
+    <g key={`note-${shape.id}`} className="anno__bubble" pointerEvents="none">
       <rect
         x={note.x}
         y={note.y}
         width={w}
         height={h}
-        rx={6 / zoom}
+        rx={9 / zoom}
         fill="rgba(14, 16, 20, 0.92)"
-        stroke={shape.color}
-        strokeWidth={1.2 / zoom}
+        stroke="rgba(255, 255, 255, 0.12)"
+        strokeWidth={1 / zoom}
+        filter="url(#ink-note-shadow)"
+      />
+      <rect
+        x={note.x + barX}
+        y={note.y + padY}
+        width={barW}
+        height={h - padY * 2}
+        rx={barW / 2}
+        fill={shape.color}
       />
       {lines.map((line, i) => (
         <text
           key={i}
-          x={note.x + pad}
-          y={note.y + pad + i * lineH + size * 0.85}
-          fill="#fff"
+          x={note.x + textX}
+          y={note.y + padY + i * lineH + size * 0.88}
+          fill="#f2f4f8"
           fontSize={size}
           fontFamily='ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
         >
@@ -557,22 +807,104 @@ function renderNoteBubble(shape: Shape, zoom: number) {
   );
 }
 
-/** Element-Label am oberen Boxrand; rutscht nach innen, wenn oben kein Platz ist. */
-function renderElementLabel(x: number, y: number, label: string, color: string, zoom: number) {
+/**
+ * Beschriftungs-Pill: dunkle Kapsel mit farbigem Rand und weissem Text —
+ * ersetzt den frueheren Text mit Kontur-Stroke, der auf bunten Seiten
+ * unruhig wirkte. Sitzt oberhalb des Ankers; rutscht nach innen, wenn oben
+ * kein Platz ist. Konstante Bildschirmgroesse, deshalb /zoom.
+ */
+function renderLabelPill(x: number, y: number, text: string, color: string, zoom: number) {
   const size = 11 / zoom;
-  const ly = y > 16 / zoom ? y - 5 / zoom : y + size + 4 / zoom;
+  const padX = 6 / zoom;
+  const padY = 3.5 / zoom;
+  const w = text.length * size * 0.62 + padX * 2;
+  const h = size + padY * 2;
+  const top = y - h - 4 / zoom >= 0 ? y - h - 4 / zoom : y + 4 / zoom;
   return (
-    <text
-      x={x + 2 / zoom}
-      y={ly}
-      fill={color}
-      fontSize={size}
-      fontWeight={700}
-      fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-      style={{ paintOrder: 'stroke', stroke: 'rgba(0,0,0,.6)', strokeWidth: size / 5 }}
-    >
-      {label}
-    </text>
+    <g pointerEvents="none">
+      <rect
+        x={x}
+        y={top}
+        width={w}
+        height={h}
+        rx={h / 2}
+        fill="rgba(14, 16, 20, 0.92)"
+        stroke={color}
+        strokeWidth={1 / zoom}
+      />
+      <text
+        x={x + padX}
+        y={top + padY + size * 0.82}
+        fill="#fff"
+        fontSize={size}
+        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+      >
+        {text}
+      </text>
+    </g>
+  );
+}
+
+/**
+ * Box-Model-Visualisierung fuer den Element-Picker (Figma-Dev-Mode-Metapher):
+ * Margin-Streifen orange, Padding-Streifen gruen, Werte als Mini-Pills, wenn
+ * der Streifen genug Platz bietet. Negative Margins werden nicht gezeichnet.
+ */
+function renderBoxModel(t: ElementTarget, zoom: number) {
+  const { margin: m, padding: p } = t;
+  const ml = Math.max(0, m.l);
+  const mr = Math.max(0, m.r);
+  const strips: { x: number; y: number; w: number; h: number; v: number; kind: 'm' | 'p' }[] = [];
+
+  if (m.t > 0) strips.push({ x: t.x - ml, y: t.y - m.t, w: t.w + ml + mr, h: m.t, v: m.t, kind: 'm' });
+  if (m.b > 0) strips.push({ x: t.x - ml, y: t.y + t.h, w: t.w + ml + mr, h: m.b, v: m.b, kind: 'm' });
+  if (ml > 0) strips.push({ x: t.x - ml, y: t.y, w: ml, h: t.h, v: ml, kind: 'm' });
+  if (mr > 0) strips.push({ x: t.x + t.w, y: t.y, w: mr, h: t.h, v: mr, kind: 'm' });
+
+  if (p.t > 0) strips.push({ x: t.x, y: t.y, w: t.w, h: p.t, v: p.t, kind: 'p' });
+  if (p.b > 0) strips.push({ x: t.x, y: t.y + t.h - p.b, w: t.w, h: p.b, v: p.b, kind: 'p' });
+  if (p.l > 0) strips.push({ x: t.x, y: t.y + p.t, w: p.l, h: t.h - p.t - p.b, v: p.l, kind: 'p' });
+  if (p.r > 0) strips.push({ x: t.x + t.w - p.r, y: t.y + p.t, w: p.r, h: t.h - p.t - p.b, v: p.r, kind: 'p' });
+
+  const labelSize = 9.5 / zoom;
+  return (
+    <g pointerEvents="none">
+      {strips.map((s, i) => (
+        <rect
+          key={i}
+          x={s.x}
+          y={s.y}
+          width={Math.max(0, s.w)}
+          height={Math.max(0, s.h)}
+          fill={s.kind === 'm' ? 'rgba(246, 178, 107, .32)' : 'rgba(147, 196, 125, .38)'}
+        />
+      ))}
+      {strips
+        .filter((s) => s.v >= 2 && Math.min(s.w, s.h) * zoom >= 11)
+        .map((s, i) => {
+          const label = String(Math.round(s.v));
+          const w = label.length * labelSize * 0.65 + 8 / zoom;
+          const h = labelSize + 5 / zoom;
+          const cx = s.x + s.w / 2;
+          const cy = s.y + s.h / 2;
+          return (
+            <g key={`v${i}`}>
+              <rect x={cx - w / 2} y={cy - h / 2} width={w} height={h} rx={h / 2} fill="rgba(14, 16, 20, .85)" />
+              <text
+                x={cx}
+                y={cy}
+                fill="#fff"
+                fontSize={labelSize}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+              >
+                {label}
+              </text>
+            </g>
+          );
+        })}
+    </g>
   );
 }
 
@@ -599,7 +931,7 @@ function renderShape(
             stroke={shape.color}
             strokeWidth={strokeWidth}
           />
-          {renderElementLabel(shape.x, shape.y, shape.label, shape.color, zoom)}
+          {renderLabelPill(shape.x, shape.y, shape.label, shape.color, zoom)}
         </g>
       );
     case 'pin': {
@@ -674,20 +1006,36 @@ function renderShape(
         </g>
       );
     }
-    case 'text':
+    case 'text': {
+      // Dunkle Kapsel mit farbigem Rand statt Text mit Kontur-Stroke.
+      const padX = 7 / zoom;
+      const padY = 4 / zoom;
+      const w = shape.text.length * fontSize * 0.58 + padX * 2;
+      const h = fontSize + padY * 2;
       return (
-        <text
-          key={shape.id}
-          x={shape.x}
-          y={shape.y + fontSize}
-          fill={shape.color}
-          fontSize={fontSize}
-          fontWeight={600}
-          fontFamily='ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
-          style={{ paintOrder: 'stroke', stroke: 'rgba(0,0,0,.55)', strokeWidth: fontSize / 6 }}
-        >
-          {shape.text}
-        </text>
+        <g key={shape.id}>
+          <rect
+            x={shape.x - padX}
+            y={shape.y}
+            width={w}
+            height={h}
+            rx={6 / zoom}
+            fill="rgba(14, 16, 20, 0.92)"
+            stroke={shape.color}
+            strokeWidth={1.2 / zoom}
+          />
+          <text
+            x={shape.x}
+            y={shape.y + padY + fontSize * 0.82}
+            fill="#fff"
+            fontSize={fontSize}
+            fontWeight={600}
+            fontFamily='ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
+          >
+            {shape.text}
+          </text>
+        </g>
       );
+    }
   }
 }

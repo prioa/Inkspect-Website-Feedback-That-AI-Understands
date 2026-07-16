@@ -17,6 +17,9 @@ function ratio(offset: number, max: number): number {
  * anderen Frame wird ueber einen CSS-Pfad gefunden.
  */
 export class ScrollSync {
+  /** Scroll-Spiegelung ein-/ausschaltbar (Sync-Menue in der Toolbar). */
+  enabled = true;
+
   private readonly detachers = new Map<HTMLIFrameElement, () => void>();
   private syncing = false;
 
@@ -45,7 +48,7 @@ export class ScrollSync {
   private propagate(source: HTMLIFrameElement, e: Event): void {
     // Das Setzen von scrollTop loest in den Zielframes erneut 'scroll' aus.
     // Ohne dieses Flag schaukeln sich die Frames gegenseitig auf.
-    if (this.syncing) return;
+    if (!this.enabled || this.syncing) return;
     this.syncing = true;
 
     const target = e.target as Node | null;
