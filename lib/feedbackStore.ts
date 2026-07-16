@@ -81,31 +81,55 @@ async function writeAll(items: FeedbackItem[]): Promise<void> {
   await browser.storage.local.set({ [KEY]: items });
 }
 
+// Schreiboperationen sind Read-Modify-Write-Zyklen auf demselben Key —
+// parallel gestartet wuerde der zweite `set` das Update des ersten
+// ueberschreiben (Lost Update). Die Kette serialisiert sie.
+let writeQueue: Promise<unknown> = Promise.resolve();
+function enqueue<T>(op: () => Promise<T>): Promise<T> {
+  const next = writeQueue.then(op, op);
+  writeQueue = next.catch(() => {});
+  return next;
+}
+
 /** Alle Eintraege des Browsers — das Panel gruppiert selbst nach Seite. */
 export async function loadAll(): Promise<FeedbackItem[]> {
   return readAll();
 }
 
 /** Fuegt Eintraege hinzu; bereits bekannte ids (Import-Merge) werden uebersprungen. */
-export async function addItems(newItems: FeedbackItem[]): Promise<number> {
-  const all = await readAll();
-  const known = new Set(all.map((item) => item.id));
-  const fresh = newItems.filter((item) => !known.has(item.id));
-  if (fresh.length > 0) await writeAll([...all, ...fresh]);
-  return fresh.length;
+export function addItems(newItems: FeedbackItem[]): Promise<number> {
+  return enqueue(async () => {
+    const all = await readAll();
+    const known = new Set(all.map((item) => item.id));
+    const fresh = newItems.filter((item) => !known.has(item.id));
+    if (fresh.length > 0) await writeAll([...all, ...fresh]);
+    return fresh.length;
+  });
 }
 
-export async function removeItems(ids: string[]): Promise<void> {
+export function removeItems(ids: string[]): Promise<void> {
   const remove = new Set(ids);
-  await writeAll((await readAll()).filter((item) => !remove.has(item.id)));
+  return enqueue(async () =>
+    writeAll((await readAll()).filter((item) => !remove.has(item.id))),
+  );
 }
 
-export async function replaceItem(item: FeedbackItem): Promise<void> {
-  await writeAll((await readAll()).map((existing) => (existing.id === item.id ? item : existing)));
+export function replaceItem(item: FeedbackItem): Promise<void> {
+  return replaceItems([item]);
 }
 
-export async function clearUrl(url: string): Promise<void> {
-  await writeAll((await readAll()).filter((item) => item.url !== url));
+/** Ersetzt mehrere Eintraege in einem Schreibzyklus (synchronisierte Marker). */
+export function replaceItems(items: FeedbackItem[]): Promise<void> {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return enqueue(async () =>
+    writeAll((await readAll()).map((existing) => byId.get(existing.id) ?? existing)),
+  );
+}
+
+export function clearUrl(url: string): Promise<void> {
+  return enqueue(async () =>
+    writeAll((await readAll()).filter((item) => item.url !== url)),
+  );
 }
 
 /** Minimale Struktur-Validierung geteilter/importierter Eintraege. */

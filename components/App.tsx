@@ -43,6 +43,7 @@ import {
   persist,
   removeItems,
   replaceItem,
+  replaceItems,
   sameOrigin,
   type FeedbackItem,
 } from '@/lib/feedbackStore';
@@ -847,7 +848,7 @@ export function App({
       const updated = affected.map((item) => ({ ...item, shape: update(item.shape) }));
       const byId = new Map(updated.map((item) => [item.id, item]));
       setFeedback((current) => current.map((item) => byId.get(item.id) ?? item));
-      for (const item of updated) persist(replaceItem(item), 'Notiz speichern');
+      persist(replaceItems(updated), 'Notiz speichern');
     },
     [feedback],
   );
@@ -1242,6 +1243,8 @@ export function App({
         return;
       }
       if (typing) return;
+      // Browser-Shortcuts (Cmd/Ctrl+1 = Tab-Wechsel, Alt+Ziffer) nicht kapern.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const idx = Number(e.key) - 1;
       const next = TOOL_KEYS[idx];
       if (next) selectTool(next);
@@ -1253,9 +1256,16 @@ export function App({
 
   // Nur Feedback der aktuellen Domain im Hauptbereich — fremde Domains
   // bekommen im Panel einen eigenen, einklappbaren Bereich. Die Badges
-  // zaehlen nur offene (nicht abgehakte) Eintraege.
-  const domainFeedback = feedback.filter((item) => sameOrigin(item.url, activeUrl));
-  const otherDomainFeedback = feedback.filter((item) => !sameOrigin(item.url, activeUrl));
+  // zaehlen nur offene (nicht abgehakte) Eintraege. Memoisiert: das Panel
+  // resettet seinen Share-/Export-Status an der Identitaet von `items`.
+  const domainFeedback = useMemo(
+    () => feedback.filter((item) => sameOrigin(item.url, activeUrl)),
+    [feedback, activeUrl],
+  );
+  const otherDomainFeedback = useMemo(
+    () => feedback.filter((item) => !sameOrigin(item.url, activeUrl)),
+    [feedback, activeUrl],
+  );
   const feedbackCount = domainFeedback.filter((item) => !item.done).length;
   const pageFeedbackCount = feedback.filter((item) => item.url === activeUrl).length;
 
