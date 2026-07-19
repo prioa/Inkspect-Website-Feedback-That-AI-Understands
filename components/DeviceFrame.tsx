@@ -223,7 +223,7 @@ export function DeviceFrame({
         </button>
         {(shapes.length > 0 || hidden) && (
           <button
-            className={`icon-btn icon-btn--small${hidden ? ' icon-btn--active' : ''}`}
+            className={`icon-btn icon-btn--small device__eye${hidden ? ' icon-btn--active' : ''}`}
             onClick={() => setHidden((v) => !v)}
             aria-pressed={hidden}
             title={hidden ? 'Show markings on this device' : 'Hide markings on this device'}
@@ -232,7 +232,7 @@ export function DeviceFrame({
           </button>
         )}
         <button
-          className="icon-btn icon-btn--small"
+          className="icon-btn icon-btn--small device__rotate"
           onClick={() => onRotate(device.uid)}
           title="Rotate orientation (portrait/landscape)"
         >

@@ -103,7 +103,7 @@ try {
       return { left: r.left, top: r.top, scale: r.width / f.width };
     });
   });
-  check('Default-Devices (iPhone SE + Laptop)', frameInfo.length === 2, `${frameInfo.length} frames`);
+  check('Default-Devices (iPhone SE + Desktop HD)', frameInfo.length === 2, `${frameInfo.length} frames`);
 
   // --- 0b. Omnibox: Domain fix, nur der Pfad ist editierbar ---
   const omni = await page.evaluate(() => {
@@ -119,13 +119,12 @@ try {
     `origin: ${omni.origin}, path: ${omni.path}`,
   );
 
-  // --- 0c. Sync-Submenue: oeffnet AM Button (im Viewport), Rows schalten ---
-  // Regression: ohne position:relative am Menue-Anker landete das Dropdown
-  // unterhalb des Viewports und war unsichtbar.
+  // --- 0c. „More"-Menue: oeffnet im Viewport, Sync-Rows schalten einzeln ---
+  // Alle Neben-Funktionen (inkl. Sync) liegen jetzt gebuendelt im More-Menue.
   const syncMenu = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     const btn = [...sr.querySelectorAll('.toolbar .icon-btn')].find((b) =>
-      b.title.includes('mirrored'),
+      b.title.startsWith('More'),
     );
     btn.click();
     await new Promise((r) => setTimeout(r, 100));
@@ -135,12 +134,10 @@ try {
     const inView =
       rect.top > 40 && rect.bottom < window.innerHeight && rect.left >= 0 && rect.height > 0;
     const rowFor = (label) =>
-      [...sr.querySelectorAll('[role="menuitemcheckbox"]')].find((n) =>
-        n.textContent.includes(label),
+      [...sr.querySelectorAll('[role="menuitemcheckbox"]')].find(
+        (n) => n.textContent.trim() === label,
       );
-    const labels = [...sr.querySelectorAll('[role="menuitemcheckbox"]')].map(
-      (n) => n.textContent,
-    );
+    const syncLabels = ['Scroll', 'Hover', 'Clicks & inputs'].filter((l) => rowFor(l));
     rowFor('Hover').click();
     await new Promise((r) => setTimeout(r, 100));
     const toggledOff = rowFor('Hover').getAttribute('aria-checked') === 'false';
@@ -149,18 +146,18 @@ try {
     const restored = rowFor('Hover').getAttribute('aria-checked') === 'true';
     sr.querySelector('.menu-backdrop')?.click();
     await new Promise((r) => setTimeout(r, 60));
-    return { inView, labels, toggledOff, restored, closed: !sr.querySelector('.menu') };
+    return { inView, syncLabels, toggledOff, restored, closed: !sr.querySelector('.menu') };
   });
   check(
-    'Sync-Submenue oeffnet am Button und schaltet einzeln',
+    'More-Menue: Sync-Rows schalten einzeln (im Viewport)',
     syncMenu != null &&
       syncMenu.inView &&
-      syncMenu.labels.length === 3 &&
+      syncMenu.syncLabels.length === 3 &&
       syncMenu.toggledOff &&
       syncMenu.restored &&
       syncMenu.closed,
     syncMenu
-      ? `imViewport: ${syncMenu.inView}, rows: ${syncMenu.labels.join('/')}, toggle: ${syncMenu.toggledOff}/${syncMenu.restored}`
+      ? `imViewport: ${syncMenu.inView}, sync: ${syncMenu.syncLabels.join('/')}, toggle: ${syncMenu.toggledOff}/${syncMenu.restored}`
       : 'Menue fehlt',
   );
 
@@ -177,6 +174,10 @@ try {
     }, index);
   const inFrame0 = async (x, y) => {
     const f = await frameRect(0);
+    return { x: f.left + x * f.scale, y: f.top + y * f.scale };
+  };
+  const inFrame1 = async (x, y) => {
+    const f = await frameRect(1);
     return { x: f.left + x * f.scale, y: f.top + y * f.scale };
   };
 
@@ -336,7 +337,7 @@ try {
     await new Promise((r) => setTimeout(r, 60));
     await page.evaluate((i) => {
       const sr = document.getElementById('inkspect-root').shadowRoot;
-      sr.querySelectorAll('.palette .icon-btn')[i].click();
+      sr.querySelectorAll('.palette:not(.fsbar) .icon-btn')[i].click();
     }, index);
   };
 
@@ -345,7 +346,7 @@ try {
   await new Promise((r) => setTimeout(r, 80));
   const paletteInfo = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    const el = sr.querySelector('.palette');
+    const el = sr.querySelector('.palette:not(.fsbar)');
     if (!el) return null;
     const rect = el.getBoundingClientRect();
     return { left: rect.left, top: rect.top };
@@ -359,7 +360,7 @@ try {
   await new Promise((r) => setTimeout(r, 60));
   const paletteClosed = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    return sr.querySelector('.palette') == null;
+    return sr.querySelector('.palette:not(.fsbar)') == null;
   });
   check(
     'Palette oeffnet per Rechtsklick neben der Maus',
@@ -380,7 +381,7 @@ try {
       new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 150 }),
     );
     await new Promise((r) => setTimeout(r, 80));
-    const el = sr.querySelector('.palette');
+    const el = sr.querySelector('.palette:not(.fsbar)');
     if (!el) return null;
     const p = el.getBoundingClientRect();
     const scale = rect.width / Number(iframe.width);
@@ -642,9 +643,9 @@ try {
     `hoverRects: ${hoverRects}, labels: ${elLabels.join(' | ')}`,
   );
 
-  // --- 8a. Element-Marker wird auf alle Viewports repliziert ---
-  // Derselbe Selektor wird im Laptop-Frame aufgeloest und dort als eigener
-  // Eintrag (eigene Bounding-Box) gespeichert — je Device eine Gruppe.
+  // --- 8a. Element-Marker wird NICHT auf andere Viewports gespiegelt ---
+  // Der Marker liegt nur auf dem Device, auf dem er gesetzt wurde (iPhone SE);
+  // im zweiten Frame darf kein Replikat und keine eigene Gruppe entstehen.
   const elSync = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     return {
@@ -655,9 +656,32 @@ try {
     };
   });
   check(
-    'Element-Marker auf alle Viewports gesynct',
-    elSync.items === 2 && elSync.groups.includes('Laptop'),
+    'Element-Marker nur auf dem gezeichneten Device (kein Sync)',
+    elSync.items === 1 && !elSync.groups.includes('Desktop HD'),
     `Eintraege: ${elSync.items}, Gruppen: ${elSync.groups.join(' | ')}`,
+  );
+
+  // Bewusst einen Marker auf dem zweiten Frame (Desktop HD) setzen — so bleibt
+  // die Multi-Device-Abdeckung (Screenshot je Device, 5 Eintraege) erhalten,
+  // ohne sich auf die entfernte Element-Spiegelung zu verlassen. Ein
+  // Element-Marker (rendert als Box, kein Pin-Kreis) laesst die Pin-Zaehlung
+  // spaeterer Tests unveraendert.
+  await pickTool(1); // Element-Picker
+  const lapSpot = await inFrame1(150, 90); // <input id="name"> im zweiten Frame
+  await page.mouse.move(lapSpot.x, lapSpot.y);
+  await new Promise((r) => setTimeout(r, 250));
+  await page.mouse.click(lapSpot.x, lapSpot.y);
+  await new Promise((r) => setTimeout(r, 300));
+  await page.keyboard.press('Escape'); // Notiz-Editor zu, Marker bleibt
+  await new Promise((r) => setTimeout(r, 200));
+  const lapGroups = await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    return [...sr.querySelectorAll('.fb-group__name')].map((n) => n.textContent);
+  });
+  check(
+    'Marker laesst sich auf dem zweiten Frame anlegen',
+    lapGroups.includes('Desktop HD'),
+    `Gruppen: ${lapGroups.join(' | ')}`,
   );
 
   // --- 8b. Freihand: kreuzende Striche verschmelzen, keine Notiz ---
@@ -1220,9 +1244,23 @@ try {
     `dateien: ${multiFiles.join(', ') || 'keine'}`,
   );
 
-  // --- 17. Zeilenfuellendes Grid: Karten spannen die volle Breite auf ---
-  // Jede Zeile wird proportional skaliert, bis sie das Grid fuellt; die
-  // Summe der Kartenbreiten einer Zeile muss nahe der Grid-Breite liegen.
+  // --- 17. „Fit"-Knopf: Karten spannen die volle Breite auf ---
+  // Der Zoom skaliert die Karten sonst direkt; „Fit" setzt ihn so, dass die
+  // Zeile das Grid fuellt. Die Summe der Kartenbreiten muss dann nahe der
+  // Grid-Breite liegen.
+  // „Fit" liegt jetzt im More-Menue: oeffnen, Eintrag klicken (schliesst das Menue).
+  await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    [...sr.querySelectorAll('.toolbar .icon-btn')].find((b) => b.title.startsWith('More'))?.click();
+  });
+  await new Promise((r) => setTimeout(r, 120));
+  await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    [...sr.querySelectorAll('.menu__item')]
+      .find((b) => b.textContent.trim() === 'Fit devices to width')
+      ?.click();
+  });
+  await new Promise((r) => setTimeout(r, 300));
   const rowFill = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     const grid = sr.querySelector('.grid');
@@ -1235,16 +1273,22 @@ try {
     return { gridWidth, used, cards: row.length };
   });
   check(
-    'Grid: Zeile fuellt die volle Breite',
+    'Fit-Knopf fuellt die Zeile auf die volle Breite',
     rowFill.cards >= 1 && Math.abs(rowFill.used - rowFill.gridWidth) < 24,
     `genutzt: ${Math.round(rowFill.used)} von ${Math.round(rowFill.gridWidth)} (${rowFill.cards} Karten)`,
   );
 
   // --- 18. Vollbild-Modus: Seite ueber das ganze Fenster, Bar + FAB ---
+  // Vollbild liegt jetzt im More-Menue: erst oeffnen, dann den Eintrag klicken.
   await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    [...sr.querySelectorAll('.toolbar .icon-btn')]
-      .find((b) => b.title.startsWith('Full window'))
+    [...sr.querySelectorAll('.toolbar .icon-btn')].find((b) => b.title.startsWith('More'))?.click();
+  });
+  await new Promise((r) => setTimeout(r, 120));
+  await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    [...sr.querySelectorAll('.menu__item')]
+      .find((b) => b.textContent.trim() === 'Full window mode')
       ?.click();
   });
   await page

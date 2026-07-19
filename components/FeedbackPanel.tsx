@@ -3,17 +3,17 @@ import type { DeviceInstance, DevicePreset } from '@/lib/devices';
 import type { Shape } from '@/lib/annotations';
 import { pinNumbers, TOOL_LABELS } from '@/lib/annotations';
 import type { FeedbackItem } from '@/lib/feedbackStore';
+import { feedbackToMarkdown } from '@/lib/exportMarkdown';
 import {
   IconCheck,
   IconClose,
   IconCopy,
   IconDots,
   IconDownload,
+  IconEditPen,
   IconEye,
   IconEyeOff,
   IconLink,
-  IconMessage,
-  IconPen,
   IconPlus,
   IconTrash,
 } from './icons';
@@ -54,6 +54,10 @@ interface Props {
    * `onProgress` meldet erledigte/gesamte Captures fuer die Anzeige.
    */
   onExportScreenshots: (onProgress?: (done: number, total: number) => void) => Promise<number>;
+  /** Oeffnet das Shortcuts-/Hilfe-Overlay (aus dem leeren Zustand heraus). */
+  onShowShortcuts: () => void;
+  /** Panel-Breite (ziehbar) in Shell-Pixeln. */
+  width: number;
   onClose: () => void;
 }
 
@@ -121,10 +125,13 @@ export function FeedbackPanel({
   onClearAll,
   onBuildShareLink,
   onExportScreenshots,
+  onShowShortcuts,
+  width,
   onClose,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [hideDone, setHideDone] = useState(false);
+  const [mdCopied, setMdCopied] = useState(false);
   /** Bereich mit Feedback fremder Domains ein-/ausklappen. */
   const [showOther, setShowOther] = useState(false);
 
@@ -183,6 +190,25 @@ export function FeedbackPanel({
     const timer = window.setTimeout(() => setShareCopied(false), 2500);
     return () => clearTimeout(timer);
   }, [shareCopied]);
+
+  useEffect(() => {
+    if (!mdCopied) return;
+    const timer = window.setTimeout(() => setMdCopied(false), 2500);
+    return () => clearTimeout(timer);
+  }, [mdCopied]);
+
+  // Gesamtes Domain-Feedback als Markdown-Checkliste in die Zwischenablage —
+  // zum Weiterreichen in ein Ticket-/Doku-Tool.
+  const copyMarkdown = () => {
+    const md = feedbackToMarkdown(items, presets);
+    if (!md) return;
+    void navigator.clipboard
+      .writeText(md)
+      .then(() => setMdCopied(true))
+      .catch(() => {
+        /* Clipboard verweigert — kein Fallback, Screenshot/Link bleiben */
+      });
+  };
 
   // Der Link codiert den Feedback-Stand — bei Aenderungen veraltet er.
   useEffect(() => {
@@ -244,7 +270,7 @@ export function FeedbackPanel({
   const openCount = items.filter((item) => !item.done).length;
 
   return (
-    <aside className="panel panel--right" aria-label="Feedback">
+    <aside className="panel panel--right" aria-label="Feedback" style={{ width }}>
       <div className="panel__head">
         <span className="panel__title">Feedback</span>
         {openCount > 0 && <span className="panel__count">{openCount}</span>}
@@ -287,6 +313,20 @@ export function FeedbackPanel({
                   </span>
                 </button>
                 <button
+                  className="menu__item"
+                  role="menuitem"
+                  disabled={items.length === 0}
+                  onClick={() => {
+                    copyMarkdown();
+                    setMenuOpen(false);
+                  }}
+                >
+                  <span className="menu__item-icon">
+                    <IconCopy size={15} />
+                  </span>
+                  <span className="menu__item-name">Copy as Markdown</span>
+                </button>
+                <button
                   className="menu__item menu__item--danger"
                   role="menuitem"
                   disabled={pageCount === 0}
@@ -316,12 +356,54 @@ export function FeedbackPanel({
 
       {items.length === 0 && (
         <div className="panel__empty">
-          <IconMessage size={28} />
+          <div className="panel__empty-art" aria-hidden="true">
+            <svg width="112" height="72" viewBox="0 0 112 72" fill="none">
+              <rect
+                x="1"
+                y="1"
+                width="70"
+                height="70"
+                rx="6"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                opacity="0.5"
+              />
+              <rect
+                x="80"
+                y="14"
+                width="31"
+                height="46"
+                rx="5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                opacity="0.5"
+              />
+              <circle cx="30" cy="30" r="9" fill="var(--accent)" />
+              <path
+                d="M30 26v8M26 30h8"
+                stroke="#fff"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+              <path
+                d="M44 52c4-9 7-12 10-9 3 3-3 9 1 9 3 0 6-9 12-13"
+                stroke="var(--accent)"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
           <p>
-            No feedback yet.
+            <strong>No feedback yet.</strong>
             <br />
-            Right-click a preview to open the tool palette, then mark elements, drop pins or draw on
-            a device.
+            Right-click a preview — or pick a tool from the bar below — to mark elements, drop
+            pins or draw on a device.
+          </p>
+          <p className="panel__empty-tip">
+            <button className="link-btn" onClick={onShowShortcuts}>
+              Show shortcuts
+            </button>
           </p>
         </div>
       )}
@@ -483,7 +565,9 @@ export function FeedbackPanel({
                                   >
                                     {primary.text}
                                   </span>
-                                  {meta && <span className="fb-item__meta">{meta}</span>}
+                                  <span className="fb-item__meta-row">
+                                    {meta && <span className="fb-item__meta">{meta}</span>}
+                                  </span>
                                 </>
                               )}
                             </div>
@@ -497,7 +581,7 @@ export function FeedbackPanel({
                                     startEdit(item);
                                   }}
                                 >
-                                  <IconPen size={12} />
+                                  <IconEditPen size={12} />
                                 </button>
                               )}
                               <button
@@ -659,6 +743,12 @@ export function FeedbackPanel({
 
           {shareError && (
             <div className="share-hint share-hint--error">The link could not be created.</div>
+          )}
+
+          {mdCopied && (
+            <div className="share-hint share-hint--ok">
+              Feedback copied as a Markdown checklist.
+            </div>
           )}
         </div>
       )}

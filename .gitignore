@@ -3,3 +3,8 @@ node_modules/
 .wxt/
 *.log
 .DS_Store
+
+# Lokale Agenten-/Tooling-Konfiguration
+.claude/
+.agents/
+skills-lock.json

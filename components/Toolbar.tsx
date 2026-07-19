@@ -1,20 +1,36 @@
-import { useEffect, useState } from 'react';
-import { isCustomPreset, SIZE_MAX, SIZE_MIN, type DevicePreset } from '@/lib/devices';
+import { useEffect, useState, type JSX } from 'react';
+import {
+  DEVICE_BUNDLES,
+  isCustomPreset,
+  SIZE_MAX,
+  SIZE_MIN,
+  type DevicePreset,
+  type Workspace,
+} from '@/lib/devices';
+import type { ThemePref } from '@/lib/settings';
 import {
   IconCheck,
   IconClose,
   IconCode,
+  IconDots,
   IconExpand,
+  IconFit,
   IconGlobe,
-  IconLink,
-  IconLinkOff,
+  IconHelp,
+  IconInspector,
+  IconLayers,
   IconMessage,
   IconMinus,
   IconMonitor,
+  IconMoon,
   IconPhone,
   IconPlus,
   IconReload,
+  IconSave,
+  IconSun,
   IconTablet,
+  IconThemeAuto,
+  IconTrash,
 } from './icons';
 
 /** Einzeln schaltbare Sync-Bereiche (Toolbar-Menue). */
@@ -36,21 +52,54 @@ interface Props {
   sync: SyncPrefs;
   feedbackOpen: boolean;
   feedbackCount: number;
+  /** Es ist ein Zeichenwerkzeug aktiv — der Feedback-Knopf leuchtet dann mit. */
+  annotating: boolean;
+  /** Der Schrift-Inspector ist aktiv (Hover zeigt Font-Infos). */
+  inspecting: boolean;
+  /** Aktuelles UI-Theme (System/Hell/Dunkel). */
+  theme: ThemePref;
+  /** Eigene gespeicherte Grid-Layouts (Device-Sets). */
+  workspaces: readonly Workspace[];
   onNavigate: (url: string) => void;
   onAddDevice: (presetId: string) => void;
+  /** Mehrere Presets auf einmal (Schnell-Set). */
+  onAddBundle: (presetIds: string[]) => void;
   /** Legt ein eigenes Preset an (persistiert) und stellt es ins Grid. */
   onAddCustomDevice: (name: string, width: number, height: number) => void;
   onRemoveCustomPreset: (presetId: string) => void;
+  /** Ersetzt das Grid durch ein gespeichertes Layout. */
+  onApplyWorkspace: (ws: Workspace) => void;
+  /** Speichert das aktuelle Grid als benanntes Layout. */
+  onSaveWorkspace: (name: string) => void;
+  onDeleteWorkspace: (id: string) => void;
   onZoom: (zoom: number) => void;
+  /** Auto-Fit ist an: der Zoom haelt alle Karten in einer Zeile. */
+  autoFit: boolean;
+  /** Schaltet Auto-Fit an/aus (an passt sofort ein). */
+  onToggleAutoFit: () => void;
+  /** Inkspect startet im Vollbild-Modus. */
+  startFullscreen: boolean;
+  onToggleStartFullscreen: () => void;
   onReload: () => void;
   onToggleEditor: () => void;
+  /** Schaltet den Schrift-Inspector an/aus. */
+  onToggleInspector: () => void;
   /** Schaltet einen Sync-Bereich um — 'all' fuer alles an/aus. */
   onToggleSync: (key: SyncKey) => void;
   onToggleFeedback: () => void;
+  onSetTheme: (theme: ThemePref) => void;
+  /** Oeffnet das Shortcuts-/Hilfe-Overlay. */
+  onHelp: () => void;
   /** Wechselt in den Vollbild-Modus (Seite ueber das ganze Fenster). */
   onFullscreen: () => void;
   onClose: () => void;
 }
+
+const THEME_ROWS: { key: ThemePref; label: string; icon: JSX.Element }[] = [
+  { key: 'system', label: 'System', icon: <IconThemeAuto size={15} /> },
+  { key: 'light', label: 'Light', icon: <IconSun size={15} /> },
+  { key: 'dark', label: 'Dark', icon: <IconMoon size={15} /> },
+];
 
 export function deviceIcon(width: number, size?: number) {
   if (width < 600) return <IconPhone size={size} />;
@@ -76,15 +125,30 @@ export function Toolbar({
   sync,
   feedbackOpen,
   feedbackCount,
+  annotating,
+  inspecting,
+  theme,
+  workspaces,
   onNavigate,
   onAddDevice,
+  onAddBundle,
   onAddCustomDevice,
   onRemoveCustomPreset,
+  onApplyWorkspace,
+  onSaveWorkspace,
+  onDeleteWorkspace,
   onZoom,
+  autoFit,
+  onToggleAutoFit,
+  startFullscreen,
+  onToggleStartFullscreen,
   onReload,
   onToggleEditor,
+  onToggleInspector,
   onToggleSync,
   onToggleFeedback,
+  onSetTheme,
+  onHelp,
   onFullscreen,
   onClose,
 }: Props) {
@@ -127,10 +191,18 @@ export function Toolbar({
   };
 
   const [menuOpen, setMenuOpen] = useState(false);
+  // Ein einziges „More"-Menue buendelt alle Neben-Funktionen (Seiten-Werkzeuge,
+  // Sync, Theme, Shortcuts) — die Toolbar bleibt dadurch aufgeraeumt.
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 
-  // Sync-Menue: der Button zeigt den Sammelzustand, die Rows schalten einzeln.
-  const [syncMenuOpen, setSyncMenuOpen] = useState(false);
-  const syncAny = sync.scroll || sync.hover || sync.input;
+  // Inline-Feld „aktuelles Grid als Set speichern".
+  const [wsName, setWsName] = useState('');
+  const submitWorkspace = () => {
+    if (!wsName.trim()) return;
+    onSaveWorkspace(wsName);
+    setWsName('');
+  };
+
   const syncAll = sync.scroll && sync.hover && sync.input;
 
   // Inline-Form fuer eigene Viewport-Groessen im Add-Device-Menue.
@@ -151,6 +223,24 @@ export function Toolbar({
     setCustomH('');
     setMenuOpen(false);
   };
+
+  // Live-Vorschau des Seitenverhaeltnisses waehrend der Eingabe: die groessere
+  // Kante wird auf 42px normiert, das Verhaeltnis gekuerzt angezeigt.
+  const customPreview = (() => {
+    const pw = Number(customW);
+    const ph = Number(customH);
+    if (!(pw > 0) || !(ph > 0)) return null;
+    const scale = 42 / Math.max(pw, ph);
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+    const g = gcd(pw, ph) || 1;
+    return {
+      pw,
+      ph,
+      w: Math.max(5, Math.round(pw * scale)),
+      h: Math.max(5, Math.round(ph * scale)),
+      ratio: `${pw / g} : ${ph / g}`,
+    };
+  })();
 
   const stepZoom = (dir: 1 | -1) => {
     const next = Math.round((zoom + dir * ZOOM_STEP) * 100) / 100;
@@ -193,109 +283,35 @@ export function Toolbar({
         </button>
       </form>
 
+      <span className="toolbar__sep" />
+
+      {/* Kernaktionen — beschriftet, damit auf einen Blick klar ist, was sie tun. */}
       <div className="toolbar__group">
         <button
-          className={`icon-btn${editorOpen ? ' icon-btn--active' : ''}`}
-          onClick={onToggleEditor}
-          aria-pressed={editorOpen}
-          title={editorOpen ? 'Hide CSS editor' : 'Show CSS editor'}
-        >
-          <IconCode />
-        </button>
-
-        <span className="toolbar__menu">
-          <button
-            className={`icon-btn${syncAny ? ' icon-btn--active' : ''}${syncMenuOpen ? ' icon-btn--active' : ''}`}
-            onClick={() => setSyncMenuOpen((v) => !v)}
-            aria-expanded={syncMenuOpen}
-            title={
-              syncAny
-                ? 'Sync across frames — click to choose what gets mirrored'
-                : 'Sync off — click to choose what gets mirrored'
-            }
-          >
-            {syncAny ? <IconLink /> : <IconLinkOff />}
-          </button>
-          {syncMenuOpen && (
-            <>
-              <div className="menu-backdrop" onClick={() => setSyncMenuOpen(false)} />
-              <div className="menu" role="menu">
-                <div className="menu__title">Sync across frames</div>
-                {SYNC_ROWS.map((row) => (
-                  <button
-                    key={row.key}
-                    className="menu__item"
-                    role="menuitemcheckbox"
-                    aria-checked={sync[row.key]}
-                    onClick={() => onToggleSync(row.key)}
-                  >
-                    <span className="menu__item-name">{row.label}</span>
-                    <span className="menu__check">
-                      {sync[row.key] && <IconCheck size={14} />}
-                    </span>
-                  </button>
-                ))}
-                <div className="menu__divider" />
-                <button className="menu__item" role="menuitem" onClick={() => onToggleSync('all')}>
-                  <span className="menu__item-name">{syncAll ? 'Turn all off' : 'Turn all on'}</span>
-                </button>
-              </div>
-            </>
-          )}
-        </span>
-
-        <button
-          className={`icon-btn toolbar__feedback${feedbackOpen ? ' icon-btn--active' : ''}`}
+          className={`toolbar__btn toolbar__feedback${feedbackOpen || annotating ? ' icon-btn--active' : ''}`}
           onClick={onToggleFeedback}
           aria-pressed={feedbackOpen}
-          title="Feedback panel"
+          title="Annotation tools and the feedback list (or right-click a preview)"
         >
-          <IconMessage />
-          {feedbackCount > 0 && <span className="toolbar__badge">{feedbackCount}</span>}
-        </button>
-
-        <button
-          className="icon-btn"
-          onClick={onFullscreen}
-          title="Full window mode — view the page at full size and give feedback"
-        >
-          <IconExpand />
+          <IconMessage size={16} />
+          Feedback
+          {feedbackCount > 0 && <span className="toolbar__count">{feedbackCount}</span>}
         </button>
       </div>
 
       <span className="toolbar__sep" />
 
-      <div className="zoomer" title="Zoom">
-        <button
-          className="icon-btn icon-btn--small"
-          onClick={() => stepZoom(-1)}
-          disabled={zoom <= ZOOM_MIN}
-          aria-label="Zoom out"
-        >
-          <IconMinus size={14} />
-        </button>
-        <span className="zoomer__value">{Math.round(zoom * 100)}%</span>
-        <button
-          className="icon-btn icon-btn--small"
-          onClick={() => stepZoom(1)}
-          disabled={zoom >= ZOOM_MAX}
-          aria-label="Zoom in"
-        >
-          <IconPlus size={14} />
-        </button>
-      </div>
-
-      <span className="toolbar__sep" />
-
+      {/* Grid: Devices hinzufuegen, einpassen, zoomen. */}
       <div className="toolbar__group">
         <div className="add-device">
           <button
-            className={`icon-btn${menuOpen ? ' icon-btn--active' : ''}`}
+            className={`toolbar__btn${menuOpen ? ' icon-btn--active' : ''}`}
             onClick={() => setMenuOpen((v) => !v)}
             aria-expanded={menuOpen}
             title="Add device"
           >
-            <IconPlus />
+            <IconPlus size={16} />
+            Devices
           </button>
 
           {menuOpen && (
@@ -303,8 +319,27 @@ export function Toolbar({
               {/* Transparenter Backdrop faengt Outside-Clicks — zuverlaessiger
                   als document-Listener quer durch den Shadow Tree. */}
               <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
-              <div className="menu" role="menu">
-                <div className="menu__title">Add device</div>
+              <div className="menu menu--wide" role="menu">
+                <div className="menu__title">Quick sets</div>
+                {DEVICE_BUNDLES.map((bundle) => (
+                  <button
+                    key={bundle.id}
+                    className="menu__item"
+                    role="menuitem"
+                    onClick={() => {
+                      onAddBundle(bundle.presetIds);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <span className="menu__item-icon">
+                      <IconLayers size={15} />
+                    </span>
+                    <span className="menu__item-name">{bundle.name}</span>
+                    <span className="menu__item-size">{bundle.presetIds.length}</span>
+                  </button>
+                ))}
+
+                <div className="menu__title menu__title--sep">Add device</div>
                 {presets.map((p: DevicePreset) => (
                   <div key={p.id} className="menu__row">
                     <button
@@ -332,6 +367,61 @@ export function Toolbar({
                     )}
                   </div>
                 ))}
+
+                <div className="menu__title menu__title--sep">Saved sets</div>
+                {workspaces.length === 0 && (
+                  <div className="menu__empty">Save the current grid as a reusable set.</div>
+                )}
+                {workspaces.map((ws) => (
+                  <div key={ws.id} className="menu__row">
+                    <button
+                      className="menu__item"
+                      role="menuitem"
+                      title="Replace the grid with this set"
+                      onClick={() => {
+                        onApplyWorkspace(ws);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <span className="menu__item-icon">
+                        <IconLayers size={15} />
+                      </span>
+                      <span className="menu__item-name">{ws.name}</span>
+                      <span className="menu__item-size">{ws.devices.length}</span>
+                    </button>
+                    <button
+                      className="icon-btn icon-btn--small icon-btn--danger menu__delete"
+                      title="Delete this set"
+                      onClick={() => onDeleteWorkspace(ws.id)}
+                    >
+                      <IconTrash size={12} />
+                    </button>
+                  </div>
+                ))}
+                <form
+                  className="menu__custom"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    submitWorkspace();
+                  }}
+                >
+                  <div className="menu__inline">
+                    <input
+                      placeholder="Save current grid as…"
+                      value={wsName}
+                      spellCheck={false}
+                      onChange={(e) => setWsName(e.target.value)}
+                    />
+                    <button
+                      type="submit"
+                      className="menu__inline-add"
+                      disabled={!wsName.trim()}
+                      title="Save current grid"
+                    >
+                      <IconSave size={13} />
+                    </button>
+                  </div>
+                </form>
 
                 <div className="menu__title menu__title--sep">Custom size</div>
                 <form
@@ -366,11 +456,190 @@ export function Toolbar({
                       <IconPlus size={13} />
                     </button>
                   </div>
+                  {customPreview && (
+                    <div className="menu__preview">
+                      <div className="menu__preview-frame">
+                        <span
+                          className="menu__preview-box"
+                          style={{ width: customPreview.w, height: customPreview.h }}
+                        />
+                      </div>
+                      <div className="menu__preview-meta">
+                        <strong>
+                          {customPreview.pw}×{customPreview.ph}
+                        </strong>
+                        <br />
+                        {customPreview.ratio}
+                      </div>
+                    </div>
+                  )}
                 </form>
               </div>
             </>
           )}
         </div>
+
+        <div className="zoomer" title="Zoom">
+          <button
+            className="icon-btn icon-btn--small"
+            onClick={() => stepZoom(-1)}
+            disabled={zoom <= ZOOM_MIN}
+            aria-label="Zoom out"
+          >
+            <IconMinus size={14} />
+          </button>
+          <span className="zoomer__value">{Math.round(zoom * 100)}%</span>
+          <button
+            className="icon-btn icon-btn--small"
+            onClick={() => stepZoom(1)}
+            disabled={zoom >= ZOOM_MAX}
+            aria-label="Zoom in"
+          >
+            <IconPlus size={14} />
+          </button>
+          <button
+            className={`icon-btn icon-btn--small${autoFit ? ' icon-btn--active' : ''}`}
+            onClick={onToggleAutoFit}
+            aria-pressed={autoFit}
+            aria-label="Auto zoom — keep devices fitted to width"
+            title={
+              autoFit
+                ? 'Auto zoom is on — devices stay fitted to width. Click to turn off.'
+                : 'Auto zoom is off — click to fit devices to width and keep them fitted.'
+            }
+          >
+            <IconFit size={14} />
+          </button>
+        </div>
+      </div>
+
+      <span className="toolbar__sep" />
+
+      {/* „More": alle Neben-Funktionen beschriftet an einem Ort — haelt die
+          Toolbar aufgeraeumt und macht die Bedeutung sofort klar. */}
+      <div className="toolbar__group">
+        <span className="toolbar__menu">
+          <button
+            className={`icon-btn${moreMenuOpen ? ' icon-btn--active' : ''}`}
+            onClick={() => setMoreMenuOpen((v) => !v)}
+            aria-expanded={moreMenuOpen}
+            title="More tools & settings"
+          >
+            <IconDots />
+          </button>
+          {moreMenuOpen && (
+            <>
+              <div className="menu-backdrop" onClick={() => setMoreMenuOpen(false)} />
+              <div className="menu menu--wide" role="menu">
+                <button
+                  className="menu__item"
+                  role="menuitemcheckbox"
+                  aria-checked={editorOpen}
+                  onClick={() => {
+                    onToggleEditor();
+                    setMoreMenuOpen(false);
+                  }}
+                >
+                  <span className="menu__item-icon">
+                    <IconCode size={15} />
+                  </span>
+                  <span className="menu__item-name">CSS editor</span>
+                  <span className="menu__check">{editorOpen && <IconCheck size={14} />}</span>
+                </button>
+                <button
+                  className="menu__item"
+                  role="menuitemcheckbox"
+                  aria-checked={inspecting}
+                  onClick={() => {
+                    onToggleInspector();
+                    setMoreMenuOpen(false);
+                  }}
+                >
+                  <span className="menu__item-icon">
+                    <IconInspector size={15} />
+                  </span>
+                  <span className="menu__item-name">Font inspector</span>
+                  <span className="menu__check">{inspecting && <IconCheck size={14} />}</span>
+                </button>
+                <button
+                  className="menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    onFullscreen();
+                    setMoreMenuOpen(false);
+                  }}
+                >
+                  <span className="menu__item-icon">
+                    <IconExpand size={15} />
+                  </span>
+                  <span className="menu__item-name">Full window mode</span>
+                </button>
+                <button
+                  className="menu__item"
+                  role="menuitemcheckbox"
+                  aria-checked={startFullscreen}
+                  title="Open Inkspect in full window mode from now on"
+                  onClick={onToggleStartFullscreen}
+                >
+                  <span className="menu__item-icon" />
+                  <span className="menu__item-name">Start in full window</span>
+                  <span className="menu__check">
+                    {startFullscreen && <IconCheck size={14} />}
+                  </span>
+                </button>
+                <div className="menu__title menu__title--sep">Sync across frames</div>
+                {SYNC_ROWS.map((row) => (
+                  <button
+                    key={row.key}
+                    className="menu__item"
+                    role="menuitemcheckbox"
+                    aria-checked={sync[row.key]}
+                    onClick={() => onToggleSync(row.key)}
+                  >
+                    <span className="menu__item-name">{row.label}</span>
+                    <span className="menu__check">{sync[row.key] && <IconCheck size={14} />}</span>
+                  </button>
+                ))}
+                <button className="menu__item" role="menuitem" onClick={() => onToggleSync('all')}>
+                  <span className="menu__item-name">{syncAll ? 'Turn all off' : 'Turn all on'}</span>
+                </button>
+
+                <div className="menu__title menu__title--sep">Theme</div>
+                {THEME_ROWS.map((row) => (
+                  <button
+                    key={row.key}
+                    className="menu__item"
+                    role="menuitemradio"
+                    aria-checked={theme === row.key}
+                    onClick={() => {
+                      onSetTheme(row.key);
+                      setMoreMenuOpen(false);
+                    }}
+                  >
+                    <span className="menu__item-icon">{row.icon}</span>
+                    <span className="menu__item-name">{row.label}</span>
+                    <span className="menu__check">{theme === row.key && <IconCheck size={14} />}</span>
+                  </button>
+                ))}
+
+                <div className="menu__divider" />
+                <button
+                  className="menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    onHelp();
+                    setMoreMenuOpen(false);
+                  }}
+                >
+                  <span className="menu__item-icon">
+                    <IconHelp size={15} />
+                  </span>
+                  <span className="menu__item-name">Keyboard shortcuts</span>
+                </button>
+              </div>
+            </>
+          )}
+        </span>
 
         <button className="icon-btn" onClick={onClose} title="Close Inkspect">
           <IconClose />

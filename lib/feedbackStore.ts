@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import type { Point, Shape } from './annotations';
+import { reportContextError } from './extensionContext';
 import { createLogger } from './log';
 
 const log = createLogger('feedback-store');
@@ -152,12 +153,10 @@ export function sanitizeItems(data: unknown): FeedbackItem[] {
 export function persist(operation: Promise<unknown>, what: string): void {
   operation.catch((e: unknown) => {
     // Nach einem Extension-Update/-Reload laeuft auf offenen Tabs noch das
-    // alte Content-Script — dessen storage-Zugriffe sterben mit diesem
-    // Fehler. Kein echter Defekt: die Seite muss einmal neu geladen werden.
-    if (e instanceof Error && e.message.includes('Extension context invalidated')) {
-      log.warn(`${what} uebersprungen — Extension wurde neu geladen. Seite neu laden (F5), um weiter zu speichern.`);
-      return;
-    }
+    // alte Content-Script — dessen storage-Zugriffe sterben mit "Extension
+    // context invalidated". Kein echter Defekt: zentral einmalig melden
+    // (die UI blendet dann den Reload-Hinweis ein), nicht pro Save spammen.
+    if (reportContextError(e)) return;
     log.error(`${what} fehlgeschlagen`, e);
   });
 }

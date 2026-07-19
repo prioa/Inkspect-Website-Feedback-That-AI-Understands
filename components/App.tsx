@@ -1,35 +1,48 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { browser } from 'wxt/browser';
 import { Toolbar, type SyncKey, type SyncPrefs } from './Toolbar';
 import { CssEditor } from './CssEditor';
 import { DeviceFrame } from './DeviceFrame';
 import { AnnotationPalette, FeedbackBar } from './AnnotationPalette';
 import { FeedbackPanel } from './FeedbackPanel';
-import { IconMessage } from './icons';
+import { ShortcutsOverlay } from './ShortcutsOverlay';
+import { IconClose, IconMessage, IconWarning } from './icons';
 import {
   createCustomPreset,
+  createWorkspace,
   defaultDevices,
   instantiate,
   isCustomPreset,
   loadCustomPresets,
   loadGridState,
+  loadWorkspaces,
   PRESETS,
   saveCustomPresets,
   saveGridState,
+  saveWorkspaces,
   viewport,
   type DeviceInstance,
   type DevicePreset,
+  type Workspace,
 } from '@/lib/devices';
+import {
+  DEFAULT_SETTINGS,
+  EDITOR_WIDTH_MAX,
+  EDITOR_WIDTH_MIN,
+  loadSettings,
+  PANEL_WIDTH_MAX,
+  PANEL_WIDTH_MIN,
+  saveSettings,
+  type ThemePref,
+} from '@/lib/settings';
 import { frameDocument, isFrameBlocked } from '@/lib/framing';
 import { ScrollSync } from '@/lib/scrollSync';
 import { InteractionSync } from '@/lib/interactionSync';
-import { findByShadowPath } from '@/lib/selector';
 import {
   ANNOTATION_COLORS,
   penOverlaps,
   shapeBounds,
   shapeFocusPoint,
-  shapeId,
   type PaletteTool,
   type Shape,
   type Tool,
@@ -47,6 +60,7 @@ import {
   sameOrigin,
   type FeedbackItem,
 } from '@/lib/feedbackStore';
+import { isContextInvalidated, onContextInvalidated } from '@/lib/extensionContext';
 import { buildShareUrl } from '@/lib/share';
 import { captureFullFrameShot, downloadBlob } from '@/lib/screenshot';
 import { applyOverride, clearOverride, collectSheets, type SheetSource } from '@/lib/stylesheets';
@@ -67,13 +81,16 @@ const EDIT_HIT_PAD = 8;
 const GRID_GAP = 20;
 /** Karten-Chrom um den Viewport: 2×10px Padding + 2×1px Rahmen. */
 const CARD_CHROME = 22;
+/** Breite des Grid-Scrollbalkens (muss zur ::-webkit-scrollbar-Regel passen). */
+const SCROLLBAR_W = 10;
 
 /**
- * Zeilenfuellender Zoom pro Device: Karten werden greedy in Zeilen gepackt
- * (Basisbreite = Viewport × Zoom) und jede Zeile dann proportional auf die
- * volle Grid-Breite skaliert. Ein Device, das allein schon zu breit ist,
- * wird auf Zeilenbreite verkleinert — mindestens ein Device pro Zeile.
- * Vergroessert wird hoechstens bis 100 %, sonst rastern die Frames unscharf.
+ * Zoom pro Device: Karten werden greedy in Zeilen gepackt (Basisbreite =
+ * Viewport × Zoom) und dann direkt mit `zoom` gerendert. Eine Zeile wird nur
+ * dann proportional verkleinert, wenn sie sonst ueber die Grid-Breite liefe —
+ * vergroessert wird nie ueber `zoom` hinaus. Ein Device, das allein schon zu
+ * breit ist, wird auf Zeilenbreite verkleinert (mindestens ein Device pro
+ * Zeile). Der „Fit"-Knopf setzt `zoom` so, dass eine Zeile die Breite fuellt.
  */
 function rowZooms(
   devices: DeviceInstance[],
@@ -94,7 +111,8 @@ function rowZooms(
     const base = row.reduce((sum, d) => sum + viewport(d).width * zoom, 0);
     // -1px pro Karte als Rundungsreserve, damit die Zeile nie umbricht.
     const factor = Math.max(0.05, (containerWidth - chrome - row.length) / base);
-    const capped = Math.min(factor, 1 / zoom);
+    // Nur verkleinern (factor < 1), nie ueber `zoom` hinaus strecken.
+    const capped = Math.min(factor, 1);
     for (const d of row) zooms.set(d.uid, zoom * capped);
     row = [];
     rowWidth = 0;
@@ -108,6 +126,46 @@ function rowZooms(
   }
   flush();
   return zooms;
+}
+
+/** Lesbarer Name eines font-weight-Werts fuer den Inspector-Tooltip. */
+const WEIGHT_NAMES: Record<string, string> = {
+  '100': 'Thin',
+  '200': 'Extra Light',
+  '300': 'Light',
+  '400': 'Regular',
+  '500': 'Medium',
+  '600': 'Semibold',
+  '700': 'Bold',
+  '800': 'Extrabold',
+  '900': 'Black',
+  normal: 'Regular',
+  bold: 'Bold',
+};
+function weightLabel(weight: string): string {
+  const name = WEIGHT_NAMES[weight];
+  if (!name) return weight;
+  return /^\d+$/.test(weight) ? `${name} ${weight}` : name;
+}
+
+/**
+ * Scrollt den Frame zum Marker: vertikal wird zentriert, horizontal aber NUR
+ * gescrollt, wenn der Marker sonst ausserhalb des sichtbaren Bereichs laege.
+ * Reines Zentrieren wuerde auf Seiten mit (oft ungewolltem) horizontalem
+ * Overflow einen stoerenden Seiten-Scroll erzwingen.
+ */
+function scrollFrameToTarget(win: Window, target: { x: number; y: number }): void {
+  const margin = 24;
+  let left = win.scrollX;
+  if (target.x < win.scrollX + margin) left = Math.max(0, target.x - margin);
+  else if (target.x > win.scrollX + win.innerWidth - margin) {
+    left = target.x - win.innerWidth + margin;
+  }
+  win.scrollTo({
+    left,
+    top: Math.max(0, target.y - win.innerHeight / 2),
+    behavior: 'smooth',
+  });
 }
 
 export function App({
@@ -174,6 +232,88 @@ export function App({
     return () => clearTimeout(timer);
   }, [devices, zoom]);
 
+  // Persistente UI-Vorlieben: Theme, Panel-Breiten, Onboarding. Werden einmal
+  // geladen und danach bei jeder Aenderung fortgeschrieben.
+  const [theme, setTheme] = useState<ThemePref>(DEFAULT_SETTINGS.theme);
+  const [editorWidth, setEditorWidth] = useState(DEFAULT_SETTINGS.editorWidth);
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_SETTINGS.panelWidth);
+  const [coachOpen, setCoachOpen] = useState(false);
+  // Auto-Fit: haelt den Zoom so, dass alle Karten in eine Zeile passen —
+  // nachgezogen bei Grid-Wechsel und jeder Breitenaenderung (Panel/Editor,
+  // Fenster). Jeder manuelle Zoom schaltet ihn ab.
+  const [autoFit, setAutoFit] = useState(DEFAULT_SETTINGS.autoFit);
+  /** Beim Oeffnen direkt ins Vollbild — nur beim Start ausgewertet. */
+  const [startFullscreen, setStartFullscreen] = useState(DEFAULT_SETTINGS.startFullscreen);
+  const settingsRestored = useRef(false);
+  // Breiten-Refs: der pointerup-Handler des Splitters persistiert den finalen
+  // Stand, ohne den Effekt an jedem Zwischenschritt neu aufzuhaengen.
+  const editorWidthRef = useRef(editorWidth);
+  editorWidthRef.current = editorWidth;
+  const panelWidthRef = useRef(panelWidth);
+  panelWidthRef.current = panelWidth;
+
+  useEffect(() => {
+    let alive = true;
+    void loadSettings().then((s) => {
+      if (!alive) return;
+      setTheme(s.theme);
+      setEditorWidth(s.editorWidth);
+      setPanelWidth(s.panelWidth);
+      setCoachOpen(!s.onboardingSeen);
+      setAutoFit(s.autoFit);
+      setStartFullscreen(s.startFullscreen);
+      if (s.startFullscreen) setFullscreen(true);
+      settingsRestored.current = true;
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // System-Dunkel-Praeferenz beobachten — nur relevant, wenn theme === 'system'
+  // (dann folgt die CodeMirror-Theme dem Systemwert).
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (!mq) return;
+    const onChange = () => setSystemDark(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  const darkUi = theme === 'dark' || (theme === 'system' && systemDark);
+
+  const changeTheme = useCallback((next: ThemePref) => {
+    setTheme(next);
+    void saveSettings({ theme: next });
+  }, []);
+
+  const coachOpenRef = useRef(coachOpen);
+  coachOpenRef.current = coachOpen;
+  const dismissCoach = useCallback(() => {
+    if (!coachOpenRef.current) return;
+    setCoachOpen(false);
+    void saveSettings({ onboardingSeen: true });
+  }, []);
+
+  // Eigene, benannte Grid-Layouts (Device-Sets).
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void loadWorkspaces().then((list) => {
+      if (alive) setWorkspaces(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Shortcuts-/Hilfe-Overlay.
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpOpenRef = useRef(helpOpen);
+  helpOpenRef.current = helpOpen;
+
   const [sheets, setSheets] = useState<SheetSource[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
@@ -183,6 +323,11 @@ export function App({
   const [bypassEnabled, setBypassEnabled] = useState(false);
   const [bypassPending, setBypassPending] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+  // Wird gesetzt, sobald der Extension-Kontext invalidiert ist (Update/Reload
+  // der Extension bei offener UI). Ab hier schlaegt jede Persistenz fehl —
+  // ein Reload-Banner ersetzt die frueher pro Save wiederholte Konsolen-Warnung.
+  const [contextLost, setContextLost] = useState(isContextInvalidated);
+  useEffect(() => onContextInvalidated(() => setContextLost(true)), []);
 
   const [editorOpen, setEditorOpen] = useState(false);
   // Sync-Bereiche einzeln schaltbar (Toolbar-Menue am Link-Icon).
@@ -197,10 +342,15 @@ export function App({
     });
   }, []);
   const [feedbackOpen, setFeedbackOpen] = useState(initialFeedbackOpen);
-
   // Vollbild-Modus: die Seite fuellt das ganze Fenster (ein Frame, Zoom 1),
   // unten mittig schwebt die Werkzeugleiste, rechts unten der Panel-Knopf.
   const [fullscreen, setFullscreen] = useState(false);
+  const fullscreenRef = useRef(fullscreen);
+  fullscreenRef.current = fullscreen;
+  // Im Vollbild schiebt sich das Panel nicht ungefragt ins Bild — stattdessen
+  // pulsiert der Feedback-Knopf. Der Zaehler startet die Animation neu.
+  const [fabPulse, setFabPulse] = useState(0);
+  const pulseFab = useCallback(() => setFabPulse((n) => n + 1), []);
   const [fsSize, setFsSize] = useState(() => ({
     w: window.innerWidth,
     h: window.innerHeight,
@@ -288,11 +438,49 @@ export function App({
 
   const toolRef = useRef<PaletteTool>(tool);
   toolRef.current = tool;
-  /** Der Einstieg in den Zeichenmodus oeffnet das Feedback-Panel gleich mit. */
-  const selectTool = useCallback((next: PaletteTool) => {
-    if (next !== 'interact' && toolRef.current === 'interact') setFeedbackOpen(true);
-    setTool(next);
+
+  // Inspector-Modus: ueber Elemente hovern zeigt Schriftgroesse, -art und
+  // -schnitt des Texts darunter. Schliesst sich mit dem Zeichenmodus aus —
+  // beide brauchen den Frame-Hover exklusiv.
+  const [inspecting, setInspecting] = useState(false);
+  const inspectingRef = useRef(inspecting);
+  inspectingRef.current = inspecting;
+  const [inspect, setInspect] = useState<{
+    x: number;
+    y: number;
+    family: string;
+    size: string;
+    weight: string;
+    style: string;
+    lineHeight: string;
+  } | null>(null);
+  // mousemove feuert dicht — Tooltip hoechstens einmal pro Frame aktualisieren.
+  const inspectRaf = useRef(0);
+  const inspectNext = useRef<typeof inspect>(null);
+  const toggleInspector = useCallback(() => {
+    setInspecting((on) => {
+      const next = !on;
+      if (next) setTool('interact'); // Overlays aus, Frames empfangen Hover
+      else setInspect(null);
+      return next;
+    });
   }, []);
+
+  /** Der Einstieg in den Zeichenmodus oeffnet das Feedback-Panel gleich mit. */
+  const selectTool = useCallback(
+    (next: PaletteTool) => {
+      if (next !== 'interact') setInspecting(false); // Zeichnen und Inspektor exklusiv
+      if (next !== 'interact' && toolRef.current === 'interact') {
+        // Im Vollbild wuerde das Panel die Seite verdecken, um die es gerade
+        // geht — dort nur der Knopf-Puls als Hinweis, wo die Liste wohnt.
+        if (fullscreenRef.current) pulseFab();
+        else setFeedbackOpen(true);
+        dismissCoach(); // erster Zeichenschritt: Erst-Hinweis ist erledigt
+      }
+      setTool(next);
+    },
+    [dismissCoach, pulseFab],
+  );
 
   // Die Werkzeug-Palette ist ein Kontextmenue: Rechtsklick (auf Grid,
   // Overlay oder in einer Vorschau) oeffnet sie neben der Maus.
@@ -344,6 +532,13 @@ export function App({
   const interactionSync = useRef(new InteractionSync());
   const collecting = useRef(false);
   const applyTimers = useRef(new Map<string, number>());
+
+  // Tastatur-Events aus einem Frame erreichen das Shell-Fenster nicht: der
+  // Fokus liegt im Frame-Dokument, und Key-Events queren keine Dokument-
+  // Grenze. Der Load-Handler haengt denselben Handler deshalb zusaetzlich in
+  // jedes Frame-Dokument — ueber eine Ref, weil er dort ausserhalb des
+  // Render-Zyklus laeuft.
+  const shortcutKeyRef = useRef<(e: KeyboardEvent) => void>(() => {});
 
   // Der Load-Handler laeuft ausserhalb des Render-Zyklus und wuerde sonst
   // veraltete Werte sehen.
@@ -416,6 +611,10 @@ export function App({
 
       scrollSync.current.attach(iframe);
       interactionSync.current.attach(iframe);
+
+      // Shortcuts auch dann, wenn der Fokus in der Preview liegt (Klick in
+      // den Frame). Der Listener stirbt mit dem Dokument.
+      doc.addEventListener('keydown', (e) => shortcutKeyRef.current(e), true);
       interactionSync.current.setTouch(iframe, touchUids.current.has(device.uid));
 
       // Rechtsklick in der Vorschau oeffnet die Werkzeug-Palette neben der
@@ -461,6 +660,44 @@ export function App({
             return;
           }
         }
+      });
+
+      // Inspector-Modus: Bewegung ueber dem Frame zeigt Schrift-Infos des
+      // Elements unter dem Cursor. Der Listener ist immer da, aber ausserhalb
+      // des Inspector-Modus ein No-op. Updates werden per rAF entprellt.
+      const win = doc.defaultView;
+      doc.addEventListener(
+        'mousemove',
+        (e) => {
+          if (!inspectingRef.current || !win) return;
+          const el = e.target as Element | null;
+          if (!el || el.nodeType !== 1) return;
+          const cs = win.getComputedStyle(el);
+          const z =
+            device.uid === FS_UID
+              ? 1
+              : (effZoomsRef.current.get(device.uid) ?? zoomRef.current);
+          const rect = iframe.getBoundingClientRect();
+          inspectNext.current = {
+            x: rect.left + e.clientX * z,
+            y: rect.top + e.clientY * z,
+            family: (cs.fontFamily.split(',')[0] ?? cs.fontFamily).replace(/["']/g, '').trim(),
+            size: cs.fontSize,
+            weight: cs.fontWeight,
+            style: cs.fontStyle,
+            lineHeight: cs.lineHeight,
+          };
+          if (!inspectRaf.current) {
+            inspectRaf.current = win.requestAnimationFrame(() => {
+              inspectRaf.current = 0;
+              if (inspectingRef.current) setInspect(inspectNext.current);
+            });
+          }
+        },
+        true,
+      );
+      doc.addEventListener('mouseleave', () => {
+        if (inspectingRef.current) setInspect(null);
       });
 
       // Feedback folgt der echten Seite — auch wenn in den Frames navigiert wird.
@@ -635,6 +872,182 @@ export function App({
     [presets],
   );
 
+  /** Mehrere Presets auf einmal ins Grid holen (Schnell-Set). */
+  // Grid komplett ersetzen (Quickset / gespeichertes Set). Existiert schon
+  // Feedback, erst per Modal bestaetigen — das Ersetzen leert das Grid.
+  const [confirmReplace, setConfirmReplace] = useState<{ apply: () => void } | null>(null);
+  const requestReplaceGrid = useCallback((instances: DeviceInstance[]) => {
+    if (instances.length === 0) return;
+    const run = () => setDevices(instances);
+    if (feedbackRef.current.length > 0) setConfirmReplace({ apply: run });
+    else run();
+  }, []);
+
+  /** Quickset anwenden: Grid auf genau diese Presets zuruecksetzen. */
+  const addDevices = useCallback(
+    (presetIds: string[]) => {
+      const instances = presetIds.flatMap((id) => {
+        const preset = presets.find((p) => p.id === id);
+        return preset ? [instantiate(preset)] : [];
+      });
+      requestReplaceGrid(instances);
+    },
+    [presets, requestReplaceGrid],
+  );
+
+  /** Aktuelles Grid als benanntes Layout speichern. */
+  const saveWorkspace = useCallback(
+    (name: string) => {
+      const ws = createWorkspace(
+        name,
+        devices.map((d) => ({ presetId: d.id, rotated: d.rotated })),
+      );
+      if (!ws) return;
+      setWorkspaces((current) => {
+        const next = [...current, ws];
+        persist(saveWorkspaces(next), 'Set speichern');
+        return next;
+      });
+    },
+    [devices],
+  );
+
+  /** Grid durch ein gespeichertes Layout ersetzen (mit Bestaetigung). */
+  const applyWorkspace = useCallback(
+    (ws: Workspace) => {
+      const instances = ws.devices.flatMap((d) => {
+        const preset = presets.find((p) => p.id === d.presetId);
+        return preset ? [{ ...instantiate(preset), rotated: !!d.rotated }] : [];
+      });
+      requestReplaceGrid(instances);
+    },
+    [presets, requestReplaceGrid],
+  );
+
+  const deleteWorkspace = useCallback((id: string) => {
+    setWorkspaces((current) => {
+      const next = current.filter((w) => w.id !== id);
+      persist(saveWorkspaces(next), 'Set loeschen');
+      return next;
+    });
+  }, []);
+
+  /** Zoom so setzen, dass alle Karten in eine Zeile passen (max. 100 %). */
+  const fitZoom = useCallback(() => {
+    if (devices.length === 0 || gridWidth <= 0) return;
+    const chrome = devices.length * CARD_CHROME + (devices.length - 1) * GRID_GAP;
+    const totalWidth = devices.reduce((sum, d) => sum + viewport(d).width, 0);
+    if (totalWidth <= 0) return;
+
+    // Der senkrechte Scrollbalken nimmt Breite weg, sobald die Karten hoeher
+    // als das Grid sind. Fehlt er im Moment des Klicks, muss er trotzdem
+    // eingeplant werden: sonst passt die Zeile rechnerisch, der Balken kommt
+    // mit der neuen Kartenhoehe dazu und schiebt sie doch um — genau der
+    // Grund, warum erst der zweite Klick sass.
+    const el = gridRef.current;
+    const hasScrollbar = el ? el.scrollHeight > el.clientHeight : false;
+    const avail = gridWidth - (hasScrollbar ? 0 : SCROLLBAR_W);
+
+    // Abrunden statt runden: ein aufgerundetes Prozent macht die Zeile breiter
+    // als das Grid — dann bricht sie um, statt zu passen.
+    let z = Math.min(1, Math.max(0.2, Math.floor(((avail - chrome) / totalWidth) * 100) / 100));
+    // Gegenprobe mit exakt der Packbedingung aus rowZooms: solange die Zeile
+    // rechnerisch ueberlaeuft, ein Prozent zurueck. Haelt den Knopf auch dann
+    // ehrlich, wenn das Karten-Chrom mal um ein Pixel danebenliegt.
+    while (z > 0.2 && totalWidth * z + chrome > avail) {
+      z = Math.round((z - 0.01) * 100) / 100;
+    }
+    setZoom(z);
+  }, [devices, gridWidth]);
+
+  // Auto-Fit: bei jedem Wechsel von Grid oder verfuegbarer Breite neu
+  // einpassen. `fitZoom` haengt genau an diesen beiden — der Effekt laeuft
+  // also, sobald der ResizeObserver die neue Breite gemeldet hat (Panel oder
+  // Editor auf/zu, Fenster skaliert) oder das Set ersetzt wurde. `zoom` ist
+  // bewusst keine Abhaengigkeit: sonst liefe der Effekt gegen sich selbst.
+  useEffect(() => {
+    if (!autoFit || devices.length === 0 || gridWidth <= 0) return;
+    fitZoom();
+  }, [autoFit, devices, gridWidth, fitZoom]);
+
+  const autoFitRef = useRef(autoFit);
+  autoFitRef.current = autoFit;
+
+  /** Manueller Zoom (Knoepfe, Cmd+Wheel) — schaltet die Automatik ab. */
+  const setZoomManual = useCallback((next: number) => {
+    if (autoFitRef.current) {
+      setAutoFit(false);
+      void saveSettings({ autoFit: false });
+    }
+    setZoom(next);
+  }, []);
+
+  const toggleStartFullscreen = useCallback(() => {
+    setStartFullscreen((on) => {
+      void saveSettings({ startFullscreen: !on });
+      return !on;
+    });
+  }, []);
+
+  /** Auto-Fit-Knopf: an -> sofort einpassen (der Effekt oben uebernimmt). */
+  const toggleAutoFit = useCallback(() => {
+    const next = !autoFitRef.current;
+    setAutoFit(next);
+    void saveSettings({ autoFit: next });
+  }, []);
+
+  // Panel-Splitter: Editor (links) und Feedback-Panel (rechts) per Ziehen
+  // breiter/schmaler. Waehrend des Zugs schluckt `body--resizing` die
+  // iframe-Pointer-Events; am Ende wird die finale Breite persistiert.
+  const [resizing, setResizing] = useState(false);
+  const startResize = useCallback(
+    (which: 'editor' | 'panel') => (e: ReactPointerEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = which === 'editor' ? editorWidthRef.current : panelWidthRef.current;
+      setResizing(true);
+      const onMove = (ev: PointerEvent) => {
+        // Das Panel liegt rechts — nach links ziehen vergroessert es.
+        const delta = which === 'editor' ? ev.clientX - startX : startX - ev.clientX;
+        const raw = startW + delta;
+        if (which === 'editor') {
+          setEditorWidth(Math.min(EDITOR_WIDTH_MAX, Math.max(EDITOR_WIDTH_MIN, raw)));
+        } else {
+          setPanelWidth(Math.min(PANEL_WIDTH_MAX, Math.max(PANEL_WIDTH_MIN, raw)));
+        }
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        setResizing(false);
+        void saveSettings({
+          editorWidth: editorWidthRef.current,
+          panelWidth: panelWidthRef.current,
+        });
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    },
+    [],
+  );
+
+  // Cmd/Ctrl+Wheel (inkl. Trackpad-Pinch) zoomt das Grid. Nativer Listener mit
+  // passive:false — React haengt wheel sonst passiv an, dann greift kein
+  // preventDefault.
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el || fullscreen) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const step = e.deltaY > 0 ? -0.05 : 0.05;
+      const next = Math.round((zoomRef.current + step) * 100) / 100;
+      setZoomManual(Math.min(1, Math.max(0.2, next)));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [fullscreen, setZoomManual]);
+
   /** Legt ein eigenes Preset an (persistiert) und stellt es direkt ins Grid. */
   const addCustomDevice = useCallback((name: string, width: number, height: number) => {
     const preset = createCustomPreset(name, width, height);
@@ -732,62 +1145,8 @@ export function App({
         }
       }
 
-      // Element-Marker werden auf alle Viewports gespiegelt: derselbe
-      // Selektor wird in jedem anderen Frame aufgeloest und dort mit dessen
-      // eigener Bounding-Box als Kopie gespeichert. `syncId` verknuepft die
-      // Kopien — Notiz-Aenderungen laufen darueber auf alle.
-      if (shape.tool === 'element' && shape.selector) {
-        const syncId = shape.id;
-        const batch: FeedbackItem[] = [
-          {
-            id: shape.id,
-            url: activeUrl,
-            deviceId: device.id,
-            shape: { ...shape, syncId },
-            createdAt: Date.now(),
-          },
-        ];
-        const covered = new Set([device.id]);
-        for (const [otherUid, iframe] of frames.current) {
-          if (otherUid === uid) continue;
-          const target =
-            otherUid === FS_UID ? fsDevice : devices.find((d) => d.uid === otherUid);
-          // Instanzen desselben Presets teilen sich den Eintrag ohnehin.
-          if (!target || covered.has(target.id)) continue;
-          const doc = frameDocument(iframe);
-          const win = doc?.defaultView;
-          if (!doc || !win) continue;
-          let el: Element | null = null;
-          try {
-            el = findByShadowPath(doc, shape.selector.split(' >>> '));
-          } catch {
-            el = null;
-          }
-          if (!el) continue;
-          covered.add(target.id);
-          const rect = el.getBoundingClientRect();
-          const cloneId = shapeId();
-          batch.push({
-            id: cloneId,
-            url: activeUrl,
-            deviceId: target.id,
-            shape: {
-              ...shape,
-              id: cloneId,
-              syncId,
-              x: rect.left + win.scrollX,
-              y: rect.top + win.scrollY,
-              w: rect.width,
-              h: rect.height,
-            },
-            createdAt: Date.now(),
-          });
-        }
-        setFeedback((current) => [...current, ...batch]);
-        persist(addItems(batch), 'Feedback speichern');
-        return;
-      }
-
+      // Alle Marker (auch Element-Picker) liegen nur auf dem Device, auf dem
+      // sie gesetzt wurden — kein Spiegeln auf andere Viewports mehr.
       const item: FeedbackItem = {
         id: shape.id,
         url: activeUrl,
@@ -962,11 +1321,7 @@ export function App({
           const target = shapeFocusPoint(item.shape);
           try {
             const win = iframe.contentWindow;
-            win?.scrollTo({
-              left: Math.max(0, target.x - win.innerWidth / 2),
-              top: Math.max(0, target.y - win.innerHeight / 2),
-              behavior: 'smooth',
-            });
+            if (win) scrollFrameToTarget(win, target);
           } catch {
             /* Frame nicht lesbar */
           }
@@ -997,11 +1352,7 @@ export function App({
         const target = shapeFocusPoint(item.shape);
         try {
           const win = iframe.contentWindow;
-          win?.scrollTo({
-            left: Math.max(0, target.x - win.innerWidth / 2),
-            top: Math.max(0, target.y - win.innerHeight / 2),
-            behavior: 'smooth',
-          });
+          if (win) scrollFrameToTarget(win, target);
         } catch {
           /* Frame nicht lesbar */
         }
@@ -1219,6 +1570,12 @@ export function App({
   useEffect(() => {
     const TOOL_KEYS: Tool[] = ['element', 'pin', 'pen', 'rect', 'ellipse', 'arrow', 'text'];
     const onKey = (e: KeyboardEvent) => {
+      // Ist das Hilfe-Overlay offen, gehoeren alle Tasten ihm: Esc schliesst
+      // es, alles andere wird geschluckt (kein Werkzeugwechsel im Hintergrund).
+      if (helpOpenRef.current) {
+        if (e.key === 'Escape') setHelpOpen(false);
+        return;
+      }
       // In Feldern getippte Tasten gehoeren dem Feld — auch Escape: der
       // Capture-Listener liefe sonst vor dem stopPropagation der Editoren
       // und wuerde beim Schliessen einer Notiz gleich den Modus beenden.
@@ -1243,16 +1600,28 @@ export function App({
         return;
       }
       if (typing) return;
+      // „?" (Shift+/) oeffnet das Shortcuts-Overlay.
+      if (e.key === '?') {
+        e.preventDefault();
+        setHelpOpen(true);
+        return;
+      }
       // Browser-Shortcuts (Cmd/Ctrl+1 = Tab-Wechsel, Alt+Ziffer) nicht kapern.
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // „I" schaltet den Schrift-Inspector.
+      if (e.key === 'i' || e.key === 'I') {
+        toggleInspector();
+        return;
+      }
       const idx = Number(e.key) - 1;
       const next = TOOL_KEYS[idx];
       if (next) selectTool(next);
     };
 
+    shortcutKeyRef.current = onKey;
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [annotating, undoShape, selectTool]);
+  }, [annotating, undoShape, selectTool, toggleInspector]);
 
   // Nur Feedback der aktuellen Domain im Hauptbereich — fremde Domains
   // bekommen im Panel einen eigenen, einklappbaren Bereich. Die Badges
@@ -1267,6 +1636,15 @@ export function App({
     [feedback, activeUrl],
   );
   const feedbackCount = domainFeedback.filter((item) => !item.done).length;
+
+  // Neue Markierung im Vollbild bei zugeklapptem Panel: der Knopf pulst, damit
+  // sichtbar ist, wo der Eintrag gelandet ist.
+  const lastCount = useRef(feedbackCount);
+  useEffect(() => {
+    const grew = feedbackCount > lastCount.current;
+    lastCount.current = feedbackCount;
+    if (grew && fullscreenRef.current && !feedbackOpen) pulseFab();
+  }, [feedbackCount, feedbackOpen, pulseFab]);
   const pageFeedbackCount = feedback.filter((item) => item.url === activeUrl).length;
 
   // Das Panel kennt das Vollbild-Pseudo-Device als eigene Gruppe.
@@ -1276,7 +1654,7 @@ export function App({
   );
 
   return (
-    <div className={`root${fullscreen ? ' root--fs' : ''}`}>
+    <div className={`root${fullscreen ? ' root--fs' : ''}`} data-theme={theme}>
       {!fullscreen && (
         <Toolbar
           src={activeUrl}
@@ -1286,15 +1664,37 @@ export function App({
           sync={syncPrefs}
           feedbackOpen={feedbackOpen}
           feedbackCount={feedbackCount}
+          annotating={annotating}
+          inspecting={inspecting}
+          theme={theme}
+          workspaces={workspaces}
           onNavigate={handleNavigate}
           onAddDevice={addDevice}
+          onAddBundle={addDevices}
           onAddCustomDevice={addCustomDevice}
           onRemoveCustomPreset={removeCustomPreset}
-          onZoom={setZoom}
+          onApplyWorkspace={applyWorkspace}
+          onSaveWorkspace={saveWorkspace}
+          onDeleteWorkspace={deleteWorkspace}
+          onZoom={setZoomManual}
+          autoFit={autoFit}
+          onToggleAutoFit={toggleAutoFit}
+          startFullscreen={startFullscreen}
+          onToggleStartFullscreen={toggleStartFullscreen}
           onReload={reloadFrames}
           onToggleEditor={() => setEditorOpen((v) => !v)}
+          onToggleInspector={toggleInspector}
           onToggleSync={toggleSync}
-          onToggleFeedback={() => setFeedbackOpen((v) => !v)}
+          onToggleFeedback={() => {
+            setFeedbackOpen((open) => {
+              // Zuklappen beendet auch den Zeichenmodus — sonst bliebe ein
+              // Werkzeug ohne sichtbare Werkzeugleiste scharf.
+              if (open) setTool('interact');
+              return !open;
+            });
+          }}
+          onSetTheme={changeTheme}
+          onHelp={() => setHelpOpen(true)}
           onFullscreen={() => setFullscreen(true)}
           onClose={() => void handleClose()}
         />
@@ -1303,6 +1703,18 @@ export function App({
       <div className={`loadbar${navigating ? ' loadbar--active' : ''}`} />
 
       {hint && <div className="hint">{hint}</div>}
+
+      {contextLost && (
+        <div className="banner">
+          <strong>Inkspect was updated or reloaded.</strong>
+          <span>
+            This tab is still running the old version, so changes can no longer be saved. Reload the
+            page to continue — your saved feedback is safe.
+          </span>
+          <span className="device__bar-spacer" />
+          <button onClick={() => location.reload()}>Reload page</button>
+        </div>
+      )}
 
       {blocked && !bypassEnabled && (
         <div className="banner">
@@ -1319,18 +1731,29 @@ export function App({
         </div>
       )}
 
-      <div className="body">
+      <div className={`body${resizing ? ' body--resizing' : ''}`}>
         {!fullscreen && editorOpen && (
-          <CssEditor
-            shadowRoot={shadowRoot}
-            sheets={sheets}
-            activeId={activeId}
-            overrides={overrides}
-            nonce={editorNonce}
-            onSelect={setActiveId}
-            onChange={handleChange}
-            onReset={handleReset}
-          />
+          <>
+            <CssEditor
+              shadowRoot={shadowRoot}
+              sheets={sheets}
+              activeId={activeId}
+              overrides={overrides}
+              nonce={editorNonce}
+              dark={darkUi}
+              width={editorWidth}
+              onSelect={setActiveId}
+              onChange={handleChange}
+              onReset={handleReset}
+            />
+            <div
+              className={`splitter${resizing ? ' splitter--active' : ''}`}
+              onPointerDown={startResize('editor')}
+              title="Drag to resize"
+              role="separator"
+              aria-orientation="vertical"
+            />
+          </>
         )}
 
         {fullscreen && (
@@ -1427,27 +1850,40 @@ export function App({
         )}
 
         {feedbackOpen && (
-          <FeedbackPanel
-            items={domainFeedback}
-            otherItems={otherDomainFeedback}
-            url={activeUrl}
-            presets={panelPresets}
-            devices={devices}
-            markersVisible={markersVisible}
-            onToggleMarkers={() => setMarkersVisible((v) => !v)}
-            highlight={panelHighlight}
-            onJump={focusDevice}
-            onJumpItem={focusItem}
-            onPreviewItem={previewItem}
-            onEditItem={editItemText}
-            onNavigate={handleNavigate}
-            onDelete={removeShape}
-            onToggleDone={toggleDone}
-            onClearAll={clearAllShapes}
-            onBuildShareLink={buildShareLink}
-            onExportScreenshots={exportScreenshots}
-            onClose={() => setFeedbackOpen(false)}
-          />
+          <>
+            {!fullscreen && (
+              <div
+                className={`splitter${resizing ? ' splitter--active' : ''}`}
+                onPointerDown={startResize('panel')}
+                title="Drag to resize"
+                role="separator"
+                aria-orientation="vertical"
+              />
+            )}
+            <FeedbackPanel
+              items={domainFeedback}
+              otherItems={otherDomainFeedback}
+              url={activeUrl}
+              presets={panelPresets}
+              devices={devices}
+              markersVisible={markersVisible}
+              width={panelWidth}
+              onToggleMarkers={() => setMarkersVisible((v) => !v)}
+              highlight={panelHighlight}
+              onJump={focusDevice}
+              onJumpItem={focusItem}
+              onPreviewItem={previewItem}
+              onEditItem={editItemText}
+              onNavigate={handleNavigate}
+              onDelete={removeShape}
+              onToggleDone={toggleDone}
+              onClearAll={clearAllShapes}
+              onBuildShareLink={buildShareLink}
+              onExportScreenshots={exportScreenshots}
+              onShowShortcuts={() => setHelpOpen(true)}
+              onClose={() => setFeedbackOpen(false)}
+            />
+          </>
         )}
       </div>
 
@@ -1464,8 +1900,11 @@ export function App({
             onExit={() => setFullscreen(false)}
           />
           <button
-            className="fs-fab"
-            title={feedbackOpen ? 'Hide feedback panel' : 'Show feedback panel'}
+            // Der Zaehler als key startet die Puls-Animation auch dann neu,
+            // wenn sie noch laeuft.
+            key={fabPulse}
+            className={`fs-fab${fabPulse > 0 && !feedbackOpen ? ' fs-fab--pulse' : ''}`}
+            title={feedbackOpen ? 'Hide feedback list' : 'Show feedback list'}
             aria-pressed={feedbackOpen}
             onClick={() => setFeedbackOpen((v) => !v)}
           >
@@ -1473,6 +1912,26 @@ export function App({
             {feedbackCount > 0 && <span className="fs-fab__badge">{feedbackCount}</span>}
           </button>
         </>
+      )}
+
+      {feedbackOpen && !fullscreen && (
+        <FeedbackBar
+          tool={tool}
+          color={color}
+          canUndo={pageFeedbackCount > 0}
+          onTool={selectTool}
+          onColor={setColor}
+          onUndo={undoShape}
+          onClear={clearAllShapes}
+          onExit={() => {
+            // Werkzeugleiste und Panel sind ein Zustand — das X beendet beides
+            // und schaltet zurueck ins Interagieren.
+            setFeedbackOpen(false);
+            setTool('interact');
+          }}
+          exitIcon={<IconClose />}
+          exitTitle="Close feedback tools"
+        />
       )}
 
       {paletteAt && (
@@ -1494,6 +1953,77 @@ export function App({
           onDismiss={closePalette}
           onMove={openPalette}
         />
+      )}
+
+      {coachOpen && !fullscreen && !helpOpen && (
+        <div className="coach" role="note">
+          <div>
+            <strong>New here?</strong> Right-click any preview — or hit Feedback up top — to mark
+            elements, drop pins and draw. Press <kbd>?</kbd> anytime for all shortcuts.
+          </div>
+          <div className="coach__actions">
+            <button className="coach__dismiss" onClick={dismissCoach}>
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
+      {inspecting && inspect && (
+        <div className="inspect-tip" style={{ left: inspect.x + 14, top: inspect.y + 16 }}>
+          <div className="inspect-tip__family">{inspect.family}</div>
+          <div className="inspect-tip__row">
+            <strong>{parseFloat(inspect.size)}px</strong>
+            <span className="inspect-tip__sep">·</span>
+            <span>{weightLabel(inspect.weight)}</span>
+            {inspect.style !== 'normal' && (
+              <>
+                <span className="inspect-tip__sep">·</span>
+                <span>{inspect.style === 'italic' ? 'Italic' : inspect.style}</span>
+              </>
+            )}
+          </div>
+          {inspect.lineHeight && inspect.lineHeight !== 'normal' && (
+            <div className="inspect-tip__meta">line-height {inspect.lineHeight}</div>
+          )}
+        </div>
+      )}
+
+      {helpOpen && <ShortcutsOverlay onClose={() => setHelpOpen(false)} />}
+
+      {confirmReplace && (
+        <div
+          className="overlay-backdrop"
+          onClick={() => setConfirmReplace(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Replace devices"
+        >
+          <div className="confirm" onClick={(e) => e.stopPropagation()}>
+            <div className="confirm__title">
+              <IconWarning size={18} />
+              Replace the current devices?
+            </div>
+            <p className="confirm__text">
+              Applying a set clears the grid and shows only its devices. Feedback you already added
+              stays saved — it reappears once a matching device is back on the grid.
+            </p>
+            <div className="confirm__actions">
+              <button className="confirm__btn" onClick={() => setConfirmReplace(null)}>
+                Cancel
+              </button>
+              <button
+                className="confirm__btn confirm__btn--primary"
+                onClick={() => {
+                  confirmReplace.apply();
+                  setConfirmReplace(null);
+                }}
+              >
+                Replace devices
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

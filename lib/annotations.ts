@@ -24,6 +24,15 @@ export interface ElementRef {
   anchorLabel?: string;
   /** Alle gekreuzten Elemente (Freihand), Selektoren in Relevanz-Reihenfolge. */
   anchors?: string[];
+  /**
+   * Doc-Koordinaten der linken oberen Ecke des Anker-Elements zum Zeichen-
+   * Zeitpunkt. Nach einem Reload wird der Anker neu aufgeloest; die Differenz
+   * zu dieser Ur-Position verschiebt die Markierung, sodass sie am Element
+   * klebt statt an einer absoluten Stelle (Accordion auf/zu, Menue offen).
+   * Fehlt bei Alt-Daten — dann bleibt die Markierung an ihrer Position.
+   */
+  anchorX?: number;
+  anchorY?: number;
 }
 
 /**

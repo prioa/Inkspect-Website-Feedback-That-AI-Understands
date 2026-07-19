@@ -24,7 +24,7 @@ export const PRESETS: readonly DevicePreset[] = [
   { id: 'desktop-hd', name: 'Desktop HD', width: 1920, height: 1080 },
 ];
 
-const DEFAULT_IDS = ['iphone-se', 'laptop'];
+const DEFAULT_IDS = ['iphone-se', 'desktop-hd'];
 
 let uidCounter = 0;
 export function instantiate(preset: DevicePreset): DeviceInstance {
@@ -117,4 +117,66 @@ export async function loadGridState(): Promise<GridState | null> {
 
 export async function saveGridState(state: GridState): Promise<void> {
   await browser.storage.local.set({ [GRID_KEY]: state });
+}
+
+/*
+ * Device-Sets: mit einem Klick mehrere Viewports ins Grid holen. Eingebaute
+ * Buendel (haeufige Kombinationen) plus eigene, benannte Layouts, die der
+ * Nutzer aus dem aktuellen Grid speichert.
+ */
+
+export interface DeviceBundle {
+  id: string;
+  name: string;
+  presetIds: string[];
+}
+
+/** Eingebaute Schnell-Sets — Referenzen auf die Standard-Presets oben. */
+export const DEVICE_BUNDLES: readonly DeviceBundle[] = [
+  { id: 'mobile-hd', name: 'iPhone SE · Desktop HD', presetIds: ['iphone-se', 'desktop-hd'] },
+  { id: 'responsive', name: 'Phone · Tablet · Desktop', presetIds: ['iphone-15', 'ipad-mini', 'desktop'] },
+  { id: 'phones', name: 'Phones', presetIds: ['iphone-se', 'iphone-15', 'pixel-8'] },
+  { id: 'full', name: 'Full range', presetIds: ['iphone-15', 'ipad-pro', 'laptop', 'desktop-hd'] },
+];
+
+/** Ein vom Nutzer gespeichertes Grid-Layout (Presets + Rotation, benannt). */
+export interface Workspace {
+  id: string;
+  name: string;
+  devices: { presetId: string; rotated: boolean }[];
+}
+
+const WORKSPACE_KEY = 'ink-workspaces-v1';
+
+export function createWorkspace(
+  name: string,
+  devices: { presetId: string; rotated: boolean }[],
+): Workspace | null {
+  const trimmed = name.trim();
+  if (!trimmed || devices.length === 0) return null;
+  return {
+    id: `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    name: trimmed,
+    devices: devices.map((d) => ({ presetId: d.presetId, rotated: !!d.rotated })),
+  };
+}
+
+function isWorkspace(value: unknown): value is Workspace {
+  const w = value as Partial<Workspace> | null;
+  return (
+    typeof w?.id === 'string' &&
+    typeof w.name === 'string' &&
+    Array.isArray(w.devices) &&
+    w.devices.every((d) => typeof (d as { presetId?: unknown })?.presetId === 'string')
+  );
+}
+
+export async function loadWorkspaces(): Promise<Workspace[]> {
+  const result = await browser.storage.local.get(WORKSPACE_KEY);
+  const list = (result as Record<string, unknown>)[WORKSPACE_KEY];
+  return Array.isArray(list) ? list.filter(isWorkspace) : [];
+}
+
+export async function saveWorkspaces(list: Workspace[]): Promise<void> {
+  await browser.storage.local.set({ [WORKSPACE_KEY]: list });
 }

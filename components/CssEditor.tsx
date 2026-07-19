@@ -13,6 +13,10 @@ interface Props {
   overrides: Record<string, string>;
   /** Aendert sich bei Reset und zwingt den Editor auf den Originaltext zurueck. */
   nonce: number;
+  /** UI ist im Dunkel-Modus — dann die oneDark-CodeMirror-Theme verwenden. */
+  dark: boolean;
+  /** Panel-Breite (ziehbar) in Shell-Pixeln. */
+  width: number;
   onSelect: (id: string) => void;
   onChange: (id: string, css: string) => void;
   onReset: (id: string) => void;
@@ -24,6 +28,8 @@ export function CssEditor({
   activeId,
   overrides,
   nonce,
+  dark,
+  width,
   onSelect,
   onChange,
   onReset,
@@ -68,7 +74,8 @@ export function CssEditor({
         extensions: [
           basicSetup,
           cssLanguage(),
-          oneDark,
+          // Im Light-Theme die helle CodeMirror-Standarddarstellung; sonst oneDark.
+          ...(dark ? [oneDark] : []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onChangeRef.current(id, update.state.doc.toString());
           }),
@@ -77,12 +84,13 @@ export function CssEditor({
       }),
     );
     // `overrides` absichtlich nicht in den Deps — sonst wuerde der Editor bei
-    // jedem Tastendruck neu aufgebaut und der Cursor springen.
+    // jedem Tastendruck neu aufgebaut und der Cursor springen. `dark` schon:
+    // ein Theme-Wechsel baut den Editor bewusst mit der aktuellen Farbe neu auf.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.id, active?.readable, active?.text, nonce]);
+  }, [active?.id, active?.readable, active?.text, nonce, dark]);
 
   return (
-    <div className="editor">
+    <div className="editor" style={{ width }}>
       <div className="editor__head">
         <select
           value={activeId ?? ''}

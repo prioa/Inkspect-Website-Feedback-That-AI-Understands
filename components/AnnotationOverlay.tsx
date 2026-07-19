@@ -125,6 +125,9 @@ export function AnnotationOverlay({
   const [draft, setDraft] = useState<Shape | null>(null);
   const [picked, setPicked] = useState<ElementTarget | null>(null);
 
+  const displayShapes = shapes;
+  const dimmed = dimmedIds;
+
   // Kein veralteter Hover-Rahmen, wenn Werkzeug/Modus wechseln.
   useEffect(() => {
     setPicked(null);
@@ -169,7 +172,7 @@ export function AnnotationOverlay({
   // im Interaktionsmodus keine Klicks, die zur Seite gehoeren. Die Blase
   // haengt an der Mausposition (Dokumentraum) und laeuft mit.
   const [hoverNote, setHoverNote] = useState<{ id: string; x: number; y: number } | null>(null);
-  const notedShapes = shapes.filter((s) => !dimmedIds?.has(s.id) && noteOf(s) != null);
+  const notedShapes = displayShapes.filter((s) => !dimmed?.has(s.id) && noteOf(s) != null);
   const notedRef = useRef(notedShapes);
   notedRef.current = notedShapes;
 
@@ -338,7 +341,14 @@ export function AnnotationOverlay({
     try {
       const el = deepElementFromPoint(win.document, x - win.scrollX, y - win.scrollY);
       if (!el || el.tagName === 'HTML') return {};
-      return { anchor: shadowPath(el).join(' >>> '), anchorLabel: elementLabel(el) };
+      const r = el.getBoundingClientRect();
+      return {
+        anchor: shadowPath(el).join(' >>> '),
+        anchorLabel: elementLabel(el),
+        // Ur-Position fuer die Reposition nach Layout-Aenderungen (Reload).
+        anchorX: r.left + win.scrollX,
+        anchorY: r.top + win.scrollY,
+      };
     } catch {
       return {}; // Frame nicht lesbar
     }
@@ -449,11 +459,16 @@ export function AnnotationOverlay({
    */
   const penAnchors = (points: Point[]): ElementRef => {
     const step = Math.max(1, Math.floor(points.length / 12));
-    const tally = new Map<string, { count: number; label: string }>();
+    const tally = new Map<string, { count: number; label: string; x?: number; y?: number }>();
     for (let i = 0; i < points.length; i += step) {
       const ref = anchorAt(points[i]!.x, points[i]!.y);
       if (!ref.anchor) continue;
-      const entry = tally.get(ref.anchor) ?? { count: 0, label: ref.anchorLabel ?? '' };
+      const entry = tally.get(ref.anchor) ?? {
+        count: 0,
+        label: ref.anchorLabel ?? '',
+        x: ref.anchorX,
+        y: ref.anchorY,
+      };
       entry.count += 1;
       tally.set(ref.anchor, entry);
     }
@@ -465,6 +480,8 @@ export function AnnotationOverlay({
       anchor: best[0],
       anchorLabel: best[1].label || undefined,
       anchors: concrete.length > 0 ? concrete.slice(0, 4).map(([selector]) => selector) : undefined,
+      anchorX: best[1].x,
+      anchorY: best[1].y,
     };
   };
 
@@ -497,12 +514,12 @@ export function AnnotationOverlay({
   const fontSize = 15 / zoom;
   const numbers = pinNumbers(shapes);
 
-  /** Flash-Rahmen um den per Panel angesprungenen Marker. */
-  const flashShape = flashShapeId ? shapes.find((s) => s.id === flashShapeId) : null;
+  /** Flash-Rahmen um den per Panel angesprungenen Marker (an verschobener Position). */
+  const flashShape = flashShapeId ? displayShapes.find((s) => s.id === flashShapeId) : null;
   const flashBox = flashShape ? shapeBounds(flashShape) : null;
 
   /** Ruhige Hervorhebung, solange der Panel-Eintrag gehovert wird. */
-  const hoverShape = hoverShapeId ? shapes.find((s) => s.id === hoverShapeId) : null;
+  const hoverShape = hoverShapeId ? displayShapes.find((s) => s.id === hoverShapeId) : null;
   const hoverBox = hoverShape ? shapeBounds(hoverShape) : null;
 
   /** Editor-Position in Overlay-Pixeln, an den Raendern eingeklemmt. */
@@ -541,8 +558,8 @@ export function AnnotationOverlay({
           </filter>
         </defs>
         <g transform={`translate(${-scroll.x}, ${-scroll.y})`}>
-          {shapes.map((s) =>
-            dimmedIds?.has(s.id) ? (
+          {displayShapes.map((s) =>
+            dimmed?.has(s.id) ? (
               <g key={`dim-${s.id}`} opacity={0.35}>
                 {renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id))}
               </g>
@@ -551,9 +568,9 @@ export function AnnotationOverlay({
             ),
           )}
           {showNotes &&
-            shapes
-              .filter((s) => !dimmedIds?.has(s.id))
-              .map((s) => renderNoteBubble(s, zoom))}
+            displayShapes
+              .filter((s) => !dimmed?.has(s.id))
+              .map((s) => renderNoteBubble(s, zoom, undefined, undefined, width))}
           {!showNotes &&
             hoverNote &&
             (() => {
@@ -745,6 +762,9 @@ function renderNoteBubble(
   zoom: number,
   at?: Point,
   view?: { x: number; y: number; w: number; h: number },
+  /** Nur-horizontales Einklemmen (Screenshot): Blase nicht ueber den rechten
+   *  Frame-Rand hinaus rendern, sonst schneidet der Capture sie ab. */
+  clampWidth?: number,
 ) {
   const source = noteOf(shape);
   if (!source) return null;
@@ -764,10 +784,16 @@ function renderNoteBubble(
   const h = lines.length * lineH + padY * 2;
 
   const note = { ...source, ...(at ?? {}) };
+  const edge = 4 / zoom;
   if (at && view) {
-    const edge = 4 / zoom;
+    // Interaktiv (Hover): in den sichtbaren Frame-Ausschnitt einklemmen.
     note.x = Math.max(view.x + edge, Math.min(note.x, view.x + view.w - w - edge));
     note.y = Math.max(view.y + edge, Math.min(note.y, view.y + view.h - h - edge));
+  } else if (clampWidth != null) {
+    // Screenshot: nur horizontal einklemmen (Dokument scrollt vertikal weiter,
+    // horizontal ist die Frame-Breite fest) — verhindert den rechten Abschnitt.
+    note.x = Math.max(edge, Math.min(note.x, clampWidth - w - edge));
+    note.y = Math.max(edge, note.y);
   }
 
   return (

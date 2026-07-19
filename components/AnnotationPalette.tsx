@@ -163,6 +163,8 @@ export function FeedbackBar({
   onUndo,
   onClear,
   onExit,
+  exitIcon,
+  exitTitle = 'Exit full window mode',
 }: {
   tool: PaletteTool;
   color: string;
@@ -171,8 +173,11 @@ export function FeedbackBar({
   onColor: (color: string) => void;
   onUndo: () => void;
   onClear: () => void;
-  /** Vollbild verlassen (zurueck zum Device-Grid). */
+  /** Letzter Knopf: Vollbild verlassen bzw. — angedockt — die Leiste schliessen. */
   onExit: () => void;
+  /** Icon des letzten Knopfs (Default: Vollbild-Collapse). */
+  exitIcon?: JSX.Element;
+  exitTitle?: string;
 }) {
   return (
     <div className="palette fsbar" role="toolbar" aria-label="Feedback tools">
@@ -233,8 +238,8 @@ export function FeedbackBar({
 
       <span className="palette__sep" />
 
-      <button className="icon-btn" title="Exit full window mode" onClick={onExit}>
-        <IconCollapse />
+      <button className="icon-btn" title={exitTitle} onClick={onExit}>
+        {exitIcon ?? <IconCollapse />}
       </button>
     </div>
   );
