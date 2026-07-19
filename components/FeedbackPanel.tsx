@@ -4,6 +4,7 @@ import type { Shape } from '@/lib/annotations';
 import { pinNumbers, TOOL_LABELS } from '@/lib/annotations';
 import type { FeedbackItem } from '@/lib/feedbackStore';
 import { feedbackToMarkdown } from '@/lib/exportMarkdown';
+import { encodeShare, SHARE_PARAM } from '@/lib/share';
 import {
   IconCheck,
   IconClose,
@@ -28,6 +29,12 @@ interface Props {
   /** Eingebaute + eigene Presets — bestimmt die Gruppierung. */
   presets: readonly DevicePreset[];
   devices: DeviceInstance[];
+  /**
+   * Preset-Ids der gerade sichtbaren Viewports (Grid-Devices bzw. im
+   * Vollbild nur der Vollbild-Frame). Alles andere betrifft eine Seite oder
+   * Groesse, die gerade nicht auf dem Schirm ist, und wird gedimmt.
+   */
+  activePresetIds: ReadonlySet<string>;
   /** Marker auf der Seite ein-/ausblenden (globaler Schalter im Panel-Kopf). */
   markersVisible: boolean;
   onToggleMarkers: () => void;
@@ -112,6 +119,7 @@ export function FeedbackPanel({
   url,
   presets,
   devices,
+  activePresetIds,
   markersVisible,
   onToggleMarkers,
   highlight,
@@ -200,11 +208,21 @@ export function FeedbackPanel({
   // Gesamtes Domain-Feedback als Markdown-Checkliste in die Zwischenablage —
   // zum Weiterreichen in ein Ticket-/Doku-Tool.
   const copyMarkdown = () => {
-    const md = feedbackToMarkdown(items, presets);
-    if (!md) return;
-    void navigator.clipboard
-      .writeText(md)
-      .then(() => setMdCopied(true))
+    if (items.length === 0) return;
+    // Der Payload haengt hinten dran, damit sich der Stand aus dem Text
+    // heraus wiederherstellen laesst — scheitert das Codieren, geht die
+    // Liste trotzdem raus.
+    void encodeShare(items)
+      .catch(() => undefined)
+      .then((payload) => {
+        const md = feedbackToMarkdown(
+          items,
+          presets,
+          payload && `#${SHARE_PARAM}=${payload}`,
+        );
+        if (!md) return;
+        return navigator.clipboard.writeText(md).then(() => setMdCopied(true));
+      })
       .catch(() => {
         /* Clipboard verweigert — kein Fallback, Screenshot/Link bleiben */
       });
@@ -451,11 +469,17 @@ export function FeedbackPanel({
 
               {groups.map(({ preset, items: groupItems, visible }) => {
                 const inGrid = devices.some((d) => d.id === preset.id);
+                // Andere Seite oder ein Viewport, der gerade nicht offen ist:
+                // gedimmt, damit auf einen Blick klar ist, was zum aktuellen
+                // Bild gehoert und was nicht.
+                const offContext = !isCurrent || !activePresetIds.has(preset.id);
                 const numbers = pinNumbers(groupItems.map((i) => i.shape));
                 return (
                   <section
                     key={preset.id}
-                    className={`fb-group${isCurrent && flashDevice === preset.id ? ' fb-group--flash' : ''}`}
+                    className={`fb-group${offContext ? ' fb-group--off' : ''}${
+                      isCurrent && flashDevice === preset.id ? ' fb-group--flash' : ''
+                    }`}
                     ref={(el) => {
                       if (!isCurrent) return;
                       if (el) groupRefs.current.set(preset.id, el);

@@ -115,6 +115,36 @@ export const IconArrow = ({ size }: IconProps) => (
   </Icon>
 );
 
+/** Griff zum Verschieben der Werkzeugleiste (sechs Punkte). */
+export const IconGrip = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
+/** Waagerechte Hilfslinie ueber die volle Breite — die Endkappen zeigen den Rand. */
+export const IconHLine = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M3 12h18" />
+    <path d="M3 8v8" />
+    <path d="M21 8v8" />
+  </Icon>
+);
+
+/** Senkrechte Hilfslinie ueber die volle Hoehe. */
+export const IconVLine = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M12 3v18" />
+    <path d="M8 3h8" />
+    <path d="M8 21h8" />
+  </Icon>
+);
+
 export const IconText = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M4 7V5h16v2" />

@@ -36,11 +36,19 @@ function fromBase64Url(encoded: string): Uint8Array {
   return bytes;
 }
 
-export async function buildShareUrl(url: string, items: FeedbackItem[]): Promise<string> {
+/**
+ * Nur der codierte Payload (deflate-raw + base64url) — Basis des Share-Links
+ * und des Anhangs im Markdown-Export.
+ */
+export async function encodeShare(items: FeedbackItem[]): Promise<string> {
   const payload: SharePayload = { v: 1, items };
   const raw = new TextEncoder().encode(JSON.stringify(payload));
   const packed = await pipe(raw, new CompressionStream('deflate-raw'));
-  return `${url}#${SHARE_PARAM}=${toBase64Url(packed)}`;
+  return toBase64Url(packed);
+}
+
+export async function buildShareUrl(url: string, items: FeedbackItem[]): Promise<string> {
+  return `${url}#${SHARE_PARAM}=${await encodeShare(items)}`;
 }
 
 /** Liefert den codierten Payload aus einem Hash, oder null. */

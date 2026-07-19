@@ -6,6 +6,7 @@ import { DeviceFrame } from './DeviceFrame';
 import { AnnotationPalette, FeedbackBar } from './AnnotationPalette';
 import { FeedbackPanel } from './FeedbackPanel';
 import { ShortcutsOverlay } from './ShortcutsOverlay';
+import { ConfirmDialog } from './ConfirmDialog';
 import { IconClose, IconMessage, IconWarning } from './icons';
 import {
   createCustomPreset,
@@ -34,14 +35,19 @@ import {
   PANEL_WIDTH_MIN,
   saveSettings,
   type ThemePref,
+  type ToolbarPlacement,
 } from '@/lib/settings';
 import { frameDocument, isFrameBlocked } from '@/lib/framing';
 import { ScrollSync } from '@/lib/scrollSync';
 import { InteractionSync } from '@/lib/interactionSync';
 import {
   ANNOTATION_COLORS,
+  DEFAULT_TOOL_ORDER,
+  hitsShape,
+  isMovableShape,
   penOverlaps,
   shapeBounds,
+  translateShape,
   shapeFocusPoint,
   type PaletteTool,
   type Shape,
@@ -51,6 +57,7 @@ import type { NoteEditRequest } from './AnnotationOverlay';
 import {
   addItems,
   clearUrl,
+  isMine,
   loadAll,
   normalizeUrl,
   persist,
@@ -60,7 +67,11 @@ import {
   sameOrigin,
   type FeedbackItem,
 } from '@/lib/feedbackStore';
-import { isContextInvalidated, onContextInvalidated } from '@/lib/extensionContext';
+import {
+  isContextInvalidated,
+  onContextInvalidated,
+  reportContextError,
+} from '@/lib/extensionContext';
 import { buildShareUrl } from '@/lib/share';
 import { captureFullFrameShot, downloadBlob } from '@/lib/screenshot';
 import { applyOverride, clearOverride, collectSheets, type SheetSource } from '@/lib/stylesheets';
@@ -168,6 +179,9 @@ function scrollFrameToTarget(win: Window, target: { x: number; y: number }): voi
   });
 }
 
+/** Angedockt (Grid-Modus) sitzt die Werkzeugleiste fest unten mittig. */
+const DOCKED_PLACEMENT: ToolbarPlacement = { dock: 'bottom', x: 0, y: 0 };
+
 export function App({
   shadowRoot,
   onClose,
@@ -206,7 +220,9 @@ export function App({
           setDevices(defaultDevices());
         }
       } catch (e) {
-        log.error('Layout laden fehlgeschlagen', e);
+        // Nach einem Extension-Reload sind die Storage-APIs weg — erwartet,
+        // die UI zeigt dafuer ihren Reload-Hinweis.
+        if (!reportContextError(e)) log.error('Layout laden fehlgeschlagen', e);
         if (alive) setDevices(defaultDevices());
       } finally {
         layoutRestored.current = true;
@@ -244,6 +260,18 @@ export function App({
   const [autoFit, setAutoFit] = useState(DEFAULT_SETTINGS.autoFit);
   /** Beim Oeffnen direkt ins Vollbild — nur beim Start ausgewertet. */
   const [startFullscreen, setStartFullscreen] = useState(DEFAULT_SETTINGS.startFullscreen);
+  /** Wie viele Feedback-Farben die Leiste anbietet (2 oder 4). */
+  const [paletteColorCount, setPaletteColorCount] = useState(DEFAULT_SETTINGS.paletteColorCount);
+  /**
+   * Platzierung der Werkzeugleiste im Vollbild — frei im Fenster oder an
+   * einem der beiden Snap-Punkte. Ausserhalb des Vollbilds sitzt sie fest
+   * unten (dort ist links das Grid).
+   */
+  const [toolbarPlacement, setToolbarPlacement] = useState<ToolbarPlacement>({
+    dock: DEFAULT_SETTINGS.toolbarDock,
+    x: DEFAULT_SETTINGS.toolbarX,
+    y: DEFAULT_SETTINGS.toolbarY,
+  });
   const settingsRestored = useRef(false);
   // Breiten-Refs: der pointerup-Handler des Splitters persistiert den finalen
   // Stand, ohne den Effekt an jedem Zwischenschritt neu aufzuhaengen.
@@ -262,6 +290,8 @@ export function App({
       setCoachOpen(!s.onboardingSeen);
       setAutoFit(s.autoFit);
       setStartFullscreen(s.startFullscreen);
+      setPaletteColorCount(s.paletteColorCount);
+      setToolbarPlacement({ dock: s.toolbarDock, x: s.toolbarX, y: s.toolbarY });
       if (s.startFullscreen) setFullscreen(true);
       settingsRestored.current = true;
     });
@@ -343,7 +373,7 @@ export function App({
   }, []);
   const [feedbackOpen, setFeedbackOpen] = useState(initialFeedbackOpen);
   // Vollbild-Modus: die Seite fuellt das ganze Fenster (ein Frame, Zoom 1),
-  // unten mittig schwebt die Werkzeugleiste, rechts unten der Panel-Knopf.
+  // links schwebt die Werkzeugleiste, rechts unten der Panel-Knopf.
   const [fullscreen, setFullscreen] = useState(false);
   const fullscreenRef = useRef(fullscreen);
   fullscreenRef.current = fullscreen;
@@ -351,6 +381,27 @@ export function App({
   // pulsiert der Feedback-Knopf. Der Zaehler startet die Animation neu.
   const [fabPulse, setFabPulse] = useState(0);
   const pulseFab = useCallback(() => setFabPulse((n) => n + 1), []);
+  /**
+   * Das Panel faehrt im Vollbild sichtbar in den Knopf zurueck, statt einfach
+   * zu verschwinden. Solange die Animation laeuft, bleibt es montiert.
+   */
+  const [panelClosing, setPanelClosing] = useState(false);
+  const closeTimer = useRef(0);
+  const closeFeedback = useCallback(() => {
+    if (!fullscreenRef.current) {
+      setFeedbackOpen(false);
+      return;
+    }
+    setPanelClosing(true);
+    clearTimeout(closeTimer.current);
+    closeTimer.current = window.setTimeout(() => {
+      setPanelClosing(false);
+      setFeedbackOpen(false);
+    }, 160);
+  }, []);
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
+  /** Einmal pro Session faehrt das Panel im Vollbild von selbst auf. */
+  const fsPanelShown = useRef(false);
   const [fsSize, setFsSize] = useState(() => ({
     w: window.innerWidth,
     h: window.innerHeight,
@@ -433,6 +484,26 @@ export function App({
   // welchem Device gezeichnet wird, ergibt sich aus dem Frame unterm Cursor.
   const [tool, setTool] = useState<PaletteTool>('interact');
   const [color, setColor] = useState<string>(ANNOTATION_COLORS[0]);
+  /** Angebotene Farben — die ersten n aus der Palette. */
+  const paletteColors = useMemo(
+    () => ANNOTATION_COLORS.slice(0, paletteColorCount),
+    [paletteColorCount],
+  );
+  // Nach dem Verkleinern der Palette kann die aktive Farbe rausgefallen sein.
+  useEffect(() => {
+    if (!paletteColors.includes(color as (typeof ANNOTATION_COLORS)[number])) {
+      setColor(paletteColors[0]!);
+    }
+  }, [paletteColors, color]);
+
+  const changePaletteColorCount = useCallback((count: number) => {
+    setPaletteColorCount(count);
+    void saveSettings({ paletteColorCount: count });
+  }, []);
+  const placeToolbar = useCallback((next: ToolbarPlacement) => {
+    setToolbarPlacement(next);
+    void saveSettings({ toolbarDock: next.dock, toolbarX: next.x, toolbarY: next.y });
+  }, []);
   const annotating = tool !== 'interact';
   const drawTool: Tool = tool === 'interact' ? 'element' : tool;
 
@@ -661,6 +732,55 @@ export function App({
           }
         }
       });
+
+      /**
+       * Marker im Interaktionsmodus verschieben: Klicks landen dann im Frame,
+       * nicht im Overlay. Gegriffen wird nur, wer die Kontur einer *eigenen*
+       * Markierung trifft — alles andere gehoert weiter der Seite (Links,
+       * Textauswahl). Waehrend des Zugs laeuft nur der UI-State mit;
+       * gespeichert wird beim Loslassen.
+       */
+      doc.addEventListener('mousedown', (e) => {
+        // Im Zeichenmodus liegt das Overlay davor und macht das selbst.
+        if (e.button !== 0 || toolRef.current !== 'interact' || !markersVisibleRef.current) return;
+        const page = feedbackRef.current.filter(
+          (item) => item.deviceId === device.id && item.url === activeUrlRef.current,
+        );
+        const grabbed = [...page]
+          .reverse()
+          .find(
+            (item) =>
+              isMovableShape(item.shape) &&
+              isMine(item) &&
+              hitsShape(item.shape, { x: e.pageX, y: e.pageY }, EDIT_HIT_PAD),
+          );
+        if (!grabbed) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        const shapeIdHit = grabbed.shape.id;
+        let last = { x: e.pageX, y: e.pageY };
+        let moved = false;
+
+        const onMove = (ev: MouseEvent) => {
+          const dx = ev.pageX - last.x;
+          const dy = ev.pageY - last.y;
+          if (!moved && Math.hypot(dx, dy) < 2) return;
+          moved = true;
+          last = { x: ev.pageX, y: ev.pageY };
+          nudgeShape(shapeIdHit, dx, dy);
+        };
+        const onUp = () => {
+          doc.removeEventListener('mousemove', onMove, true);
+          doc.removeEventListener('mouseup', onUp, true);
+          window.removeEventListener('mouseup', onUp, true);
+          if (moved) commitShape(shapeIdHit);
+        };
+        doc.addEventListener('mousemove', onMove, true);
+        doc.addEventListener('mouseup', onUp, true);
+        // Losgelassen ausserhalb des Frames: der Zug muss trotzdem enden.
+        window.addEventListener('mouseup', onUp, true);
+      }, true);
 
       // Inspector-Modus: Bewegung ueber dem Frame zeigt Schrift-Infos des
       // Elements unter dem Cursor. Der Listener ist immer da, aber ausserhalb
@@ -1221,6 +1341,60 @@ export function App({
     [feedback, applyItemText],
   );
 
+  /**
+   * Verschobene Markierung uebernehmen. Nur eigene Eintraege — importiertes
+   * Feedback bleibt, wo es der Ersteller gesetzt hat (das Overlay bietet
+   * fremde Marker erst gar nicht zum Ziehen an).
+   */
+  const moveShape = useCallback(
+    (_uid: string, shapeId: string, dx: number, dy: number) => {
+      const existing = feedback.find((item) => item.shape.id === shapeId);
+      if (!existing || !isMine(existing)) return;
+      const updated: FeedbackItem = { ...existing, shape: translateShape(existing.shape, dx, dy) };
+      setFeedback((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      persist(replaceItem(updated), 'Markierung verschieben');
+    },
+    [feedback],
+  );
+
+  /**
+   * Zwischenschritt eines Zugs: nur der UI-State wandert mit, gespeichert
+   * wird erst beim Loslassen (`commitShape`) — sonst schriebe jede
+   * Mausbewegung in den Store.
+   */
+  const nudgeShape = useCallback((shapeId: string, dx: number, dy: number) => {
+    setFeedback((current) =>
+      current.map((item) =>
+        item.shape.id === shapeId ? { ...item, shape: translateShape(item.shape, dx, dy) } : item,
+      ),
+    );
+  }, []);
+
+  /** Aktuellen Stand einer Markierung speichern (nach Zug oder Zahleneingabe). */
+  const commitShape = useCallback((shapeId: string) => {
+    const item = feedbackRef.current.find((i) => i.shape.id === shapeId);
+    if (item) persist(replaceItem(item), 'Markierung speichern');
+  }, []);
+
+  /**
+   * Abstand eines Linienpaars setzen. Die zweite Linie behaelt ihre Richtung
+   * (nach unten/rechts, solange keine andere gezogen wurde); `null` macht
+   * wieder eine einzelne Linie daraus. Nur UI-State — `commitShape` schreibt.
+   */
+  const setLineGap = useCallback((shapeId: string, gap: number | null) => {
+    setFeedback((current) =>
+      current.map((item) => {
+        const shape = item.shape;
+        if (item.shape.id !== shapeId || (shape.tool !== 'hline' && shape.tool !== 'vline')) {
+          return item;
+        }
+        const base = shape.tool === 'hline' ? shape.y : shape.x;
+        const sign = shape.to != null && shape.to < base ? -1 : 1;
+        return { ...item, shape: { ...shape, to: gap == null ? undefined : base + sign * gap } };
+      }),
+    );
+  }, []);
+
   // Notiz/Text eines Eintrags direkt im Panel aendern oder ergaenzen.
   const editItemText = useCallback(
     (itemId: string, text: string) => {
@@ -1231,10 +1405,24 @@ export function App({
     [feedback, applyItemText],
   );
 
+  /** „Alles loeschen" fragt erst nach — der Schritt ist nicht umkehrbar. */
+  const [confirmClear, setConfirmClear] = useState(false);
+  const askClearAll = useCallback(() => setConfirmClear(true), []);
+
   const clearAllShapes = useCallback(() => {
     setFeedback((current) => current.filter((item) => item.url !== activeUrl));
     persist(clearUrl(activeUrl), 'Feedback loeschen');
   }, [activeUrl]);
+
+  /**
+   * Preset-Ids der gerade sichtbaren Viewports — im Vollbild nur der
+   * Vollbild-Frame, sonst die Karten des Grids. Das Panel dimmt damit alles,
+   * was zu einer anderen Groesse gehoert.
+   */
+  const activePresetIds = useMemo(
+    () => new Set(fullscreen ? [FULLSCREEN_ID] : devices.map((d) => d.id)),
+    [fullscreen, devices],
+  );
 
   // Panel-Klick: zum Device springen — oder es ins Grid holen, falls entfernt.
   const focusDevice = useCallback(
@@ -1244,6 +1432,8 @@ export function App({
         setFullscreen(true);
         return;
       }
+      // Umgekehrt: Grid-Feedback braucht das Grid — Vollbild verlassen.
+      if (fullscreenRef.current) setFullscreen(false);
       const instance = devices.find((d) => d.id === presetId);
       if (!instance) {
         addDevice(presetId);
@@ -1295,6 +1485,8 @@ export function App({
 
   /** Marker auf den Frames global ein-/ausblenden (Auge im Panel-Kopf). */
   const [markersVisible, setMarkersVisible] = useState(true);
+  const markersVisibleRef = useRef(markersVisible);
+  markersVisibleRef.current = markersVisible;
 
   // Panel-Klick auf einen Eintrag: Device und Marker anfliegen, dann kurz
   // aufflashen — Device-Rahmen und Marker pulsieren, damit klar ist, um
@@ -1334,6 +1526,13 @@ export function App({
         }));
         return;
       }
+      // Eintrag eines Grid-Devices, waehrend das Vollbild laeuft: erst
+      // zurueck ins Grid, dann (nach dem Mount der Frames) anfliegen.
+      if (fullscreenRef.current) {
+        setFullscreen(false);
+        window.setTimeout(() => focusItemNowRef.current(item), 320);
+        return;
+      }
       const instance = devices.find((d) => d.id === item.deviceId);
       if (!instance) {
         addDevice(item.deviceId);
@@ -1367,6 +1566,10 @@ export function App({
     },
     [devices, addDevice, shadowRoot],
   );
+  // Ref-Spiegel: der verzoegerte Nachlauf nach dem Vollbild-Wechsel ruft die
+  // aktuelle Fassung auf (die Frames stehen dann bereits).
+  const focusItemNowRef = useRef(focusItemNow);
+  focusItemNowRef.current = focusItemNow;
 
   // Panel-Klick auf einen Eintrag: liegt er auf einer anderen Seite, erst
   // dorthin navigieren und nach dem Laden zum Marker springen — sonst direkt.
@@ -1566,9 +1769,9 @@ export function App({
   );
 
   // Shortcuts: Esc zurueck zum Interagieren, Cmd/Ctrl+Z Undo (nur im
-  // Zeichenmodus), 1-7 waehlt ein Werkzeug.
+  // Zeichenmodus), 1-9 waehlt ein Werkzeug — die Ziffern folgen der Leiste,
+  // „1" ist immer das erste Werkzeug darin.
   useEffect(() => {
-    const TOOL_KEYS: Tool[] = ['element', 'pin', 'pen', 'rect', 'ellipse', 'arrow', 'text'];
     const onKey = (e: KeyboardEvent) => {
       // Ist das Hilfe-Overlay offen, gehoeren alle Tasten ihm: Esc schliesst
       // es, alles andere wird geschluckt (kein Werkzeugwechsel im Hintergrund).
@@ -1586,11 +1789,10 @@ export function App({
         origin?.isContentEditable === true;
       if (e.key === 'Escape') {
         setPaletteAt(null);
-        if (!typing) {
-          // Erst den Zeichenmodus beenden; ein weiteres Esc verlaesst das Vollbild.
-          if (toolRef.current !== 'interact') selectTool('interact');
-          else setFullscreen(false);
-        }
+        // Esc beendet nur den Zeichenmodus. Das Vollbild bleibt — es zu
+        // verlassen ist ein Moduswechsel, der ueber den Knopf in der Leiste
+        // laeuft, nicht ueber eine Taste, die man beim Zeichnen staendig drueckt.
+        if (!typing && toolRef.current !== 'interact') selectTool('interact');
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
@@ -1614,7 +1816,7 @@ export function App({
         return;
       }
       const idx = Number(e.key) - 1;
-      const next = TOOL_KEYS[idx];
+      const next = DEFAULT_TOOL_ORDER[idx];
       if (next) selectTool(next);
     };
 
@@ -1637,13 +1839,20 @@ export function App({
   );
   const feedbackCount = domainFeedback.filter((item) => !item.done).length;
 
-  // Neue Markierung im Vollbild bei zugeklapptem Panel: der Knopf pulst, damit
-  // sichtbar ist, wo der Eintrag gelandet ist.
+  // Neue Markierung im Vollbild bei zugeklapptem Panel: beim allerersten Mal
+  // faehrt die Liste auf (dann sieht man, wo die Eintraege landen), danach
+  // pulst nur noch der Knopf.
   const lastCount = useRef(feedbackCount);
   useEffect(() => {
     const grew = feedbackCount > lastCount.current;
     lastCount.current = feedbackCount;
-    if (grew && fullscreenRef.current && !feedbackOpen) pulseFab();
+    if (!grew || !fullscreenRef.current || feedbackOpen) return;
+    if (fsPanelShown.current) {
+      pulseFab();
+    } else {
+      fsPanelShown.current = true;
+      setFeedbackOpen(true);
+    }
   }, [feedbackCount, feedbackOpen, pulseFab]);
   const pageFeedbackCount = feedback.filter((item) => item.url === activeUrl).length;
 
@@ -1654,7 +1863,10 @@ export function App({
   );
 
   return (
-    <div className={`root${fullscreen ? ' root--fs' : ''}`} data-theme={theme}>
+    <div
+      className={`root${fullscreen ? ' root--fs' : ''}${panelClosing ? ' root--panel-closing' : ''}`}
+      data-theme={theme}
+    >
       {!fullscreen && (
         <Toolbar
           src={activeUrl}
@@ -1680,6 +1892,8 @@ export function App({
           autoFit={autoFit}
           onToggleAutoFit={toggleAutoFit}
           startFullscreen={startFullscreen}
+          paletteColorCount={paletteColorCount}
+          onSetPaletteColorCount={changePaletteColorCount}
           onToggleStartFullscreen={toggleStartFullscreen}
           onReload={reloadFrames}
           onToggleEditor={() => setEditorOpen((v) => !v)}
@@ -1774,6 +1988,13 @@ export function App({
                     .map((i) => i.shape.id),
                 )
               }
+              lockedIds={
+                new Set(
+                  itemsFor(FULLSCREEN_ID)
+                    .filter((i) => !isMine(i))
+                    .map((i) => i.shape.id),
+                )
+              }
               tool={drawTool}
               color={color}
               showNotes={showNotes}
@@ -1791,6 +2012,9 @@ export function App({
               onBadgeClick={showDeviceFeedback}
               onAddShape={addShape}
               onSetShapeNote={setShapeNote}
+              onMoveShape={moveShape}
+              onSetLineGap={setLineGap}
+              onCommitShape={commitShape}
               onDragBegin={() => {}}
               onDragHover={() => {}}
               onDragEnd={() => {}}
@@ -1823,6 +2047,13 @@ export function App({
                     .map((i) => i.shape.id),
                 )
               }
+              lockedIds={
+                new Set(
+                  itemsFor(device.id)
+                    .filter((i) => !isMine(i))
+                    .map((i) => i.shape.id),
+                )
+              }
               tool={drawTool}
               color={color}
               showNotes={showNotes}
@@ -1841,6 +2072,9 @@ export function App({
               onBadgeClick={showDeviceFeedback}
               onAddShape={addShape}
               onSetShapeNote={setShapeNote}
+              onMoveShape={moveShape}
+              onSetLineGap={setLineGap}
+              onCommitShape={commitShape}
               onDragBegin={setDragUid}
               onDragHover={handleDragHover}
               onDragEnd={() => setDragUid(null)}
@@ -1866,6 +2100,7 @@ export function App({
               url={activeUrl}
               presets={panelPresets}
               devices={devices}
+              activePresetIds={activePresetIds}
               markersVisible={markersVisible}
               width={panelWidth}
               onToggleMarkers={() => setMarkersVisible((v) => !v)}
@@ -1877,11 +2112,11 @@ export function App({
               onNavigate={handleNavigate}
               onDelete={removeShape}
               onToggleDone={toggleDone}
-              onClearAll={clearAllShapes}
+              onClearAll={askClearAll}
               onBuildShareLink={buildShareLink}
               onExportScreenshots={exportScreenshots}
               onShowShortcuts={() => setHelpOpen(true)}
-              onClose={() => setFeedbackOpen(false)}
+              onClose={closeFeedback}
             />
           </>
         )}
@@ -1892,11 +2127,15 @@ export function App({
           <FeedbackBar
             tool={tool}
             color={color}
+            colors={paletteColors}
+            order={DEFAULT_TOOL_ORDER}
+            placement={toolbarPlacement}
+            onPlace={placeToolbar}
             canUndo={pageFeedbackCount > 0}
             onTool={selectTool}
             onColor={setColor}
             onUndo={undoShape}
-            onClear={clearAllShapes}
+            onClear={askClearAll}
             onExit={() => setFullscreen(false)}
           />
           <button
@@ -1906,7 +2145,7 @@ export function App({
             className={`fs-fab${fabPulse > 0 && !feedbackOpen ? ' fs-fab--pulse' : ''}`}
             title={feedbackOpen ? 'Hide feedback list' : 'Show feedback list'}
             aria-pressed={feedbackOpen}
-            onClick={() => setFeedbackOpen((v) => !v)}
+            onClick={() => (feedbackOpen ? closeFeedback() : setFeedbackOpen(true))}
           >
             <IconMessage size={22} />
             {feedbackCount > 0 && <span className="fs-fab__badge">{feedbackCount}</span>}
@@ -1918,11 +2157,16 @@ export function App({
         <FeedbackBar
           tool={tool}
           color={color}
+          colors={paletteColors}
+          order={DEFAULT_TOOL_ORDER}
+          placement={DOCKED_PLACEMENT}
+          movable={false}
+          onPlace={() => {}}
           canUndo={pageFeedbackCount > 0}
           onTool={selectTool}
           onColor={setColor}
           onUndo={undoShape}
-          onClear={clearAllShapes}
+          onClear={askClearAll}
           onExit={() => {
             // Werkzeugleiste und Panel sind ein Zustand — das X beendet beides
             // und schaltet zurueck ins Interagieren.
@@ -1939,6 +2183,8 @@ export function App({
           at={paletteAt}
           tool={tool}
           color={color}
+          colors={paletteColors}
+          order={DEFAULT_TOOL_ORDER}
           canUndo={pageFeedbackCount > 0}
           onTool={(next) => {
             selectTool(next);
@@ -1989,7 +2235,22 @@ export function App({
         </div>
       )}
 
-      {helpOpen && <ShortcutsOverlay onClose={() => setHelpOpen(false)} />}
+      {helpOpen && <ShortcutsOverlay order={DEFAULT_TOOL_ORDER} onClose={() => setHelpOpen(false)} />}
+
+      {confirmClear && (
+        <ConfirmDialog
+          title="Delete all markings?"
+          message={`This removes ${pageFeedbackCount} marking${
+            pageFeedbackCount === 1 ? '' : 's'
+          } on this page — including notes. This cannot be undone.`}
+          confirmLabel="Delete all"
+          onConfirm={() => {
+            setConfirmClear(false);
+            clearAllShapes();
+          }}
+          onCancel={() => setConfirmClear(false)}
+        />
+      )}
 
       {confirmReplace && (
         <div

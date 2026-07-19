@@ -1279,16 +1279,11 @@ try {
   );
 
   // --- 18. Vollbild-Modus: Seite ueber das ganze Fenster, Bar + FAB ---
-  // Vollbild liegt jetzt im More-Menue: erst oeffnen, dann den Eintrag klicken.
+  // Vollbild hat einen festen Knopf in der Toolbar.
   await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    [...sr.querySelectorAll('.toolbar .icon-btn')].find((b) => b.title.startsWith('More'))?.click();
-  });
-  await new Promise((r) => setTimeout(r, 120));
-  await page.evaluate(() => {
-    const sr = document.getElementById('inkspect-root').shadowRoot;
-    [...sr.querySelectorAll('.menu__item')]
-      .find((b) => b.textContent.trim() === 'Full window mode')
+    [...sr.querySelectorAll('.toolbar .icon-btn')]
+      .find((b) => b.title.startsWith('Full window mode'))
       ?.click();
   });
   await page

@@ -1,7 +1,7 @@
 import type { DevicePreset } from './devices';
 import type { FeedbackItem } from './feedbackStore';
 import type { Shape } from './annotations';
-import { TOOL_LABELS } from './annotations';
+import { lineGap, shapeFocusPoint, TOOL_LABELS } from './annotations';
 
 /** Freitext/Notiz eines Markers, sonst null. */
 function noteOf(shape: Shape): string | null {
@@ -17,6 +17,35 @@ function lineOf(shape: Shape): string {
     return note ? `${note} — \`${label}\`` : `\`${label}\``;
   }
   return note ? `${note} _(${TOOL_LABELS[shape.tool]})_` : TOOL_LABELS[shape.tool];
+}
+
+/**
+ * Verortung eines Markers im Quellcode: CSS-Pfad des markierten bzw. des
+ * darunterliegenden Elements. Shadow-DOM-Grenzen stehen als ' >>> ' im Pfad.
+ * Freihand kreuzt oft mehrere Elemente — die kommen als Zusatzzeile mit.
+ */
+function refLinesOf(shape: Shape): string[] {
+  const out: string[] = [];
+  const selector = shape.tool === 'element' ? shape.selector : shape.anchor;
+  if (selector) out.push(`  - selector: \`${selector}\``);
+
+  const crossed = shape.tool === 'element' ? undefined : shape.anchors;
+  const extra = crossed?.filter((sel) => sel !== selector) ?? [];
+  if (extra.length > 0) {
+    out.push(`  - also crosses: ${extra.map((sel) => `\`${sel}\``).join(', ')}`);
+  }
+
+  // Linienpaare messen einen Abstand — der ist die eigentliche Aussage.
+  if (shape.tool === 'hline' || shape.tool === 'vline') {
+    const gap = lineGap(shape);
+    if (gap != null) out.push(`  - spacing: ${Math.round(gap)} px`);
+  }
+
+  // Position immer mitgeben: ohne aufloesbaren Selektor ist sie der einzige
+  // Anhaltspunkt, wo auf der Seite die Markierung sitzt.
+  const p = shapeFocusPoint(shape);
+  out.push(`  - position: ${Math.round(p.x)}, ${Math.round(p.y)} (document px)`);
+  return out;
 }
 
 function pathOf(url: string): string {
@@ -37,13 +66,23 @@ function hostOf(url: string): string {
 }
 
 /**
- * Baut aus den Feedback-Eintraegen einer Domain eine Markdown-Liste:
- * nach Seite gruppiert, darin nach Device, jeder Eintrag als GFM-Checkbox
- * (abgehakt = erledigt). Ideal, um Feedback in ein Ticket-Tool zu kippen.
+ * Baut aus den Feedback-Eintraegen einer Domain eine Markdown-Liste: nach
+ * Seite gruppiert, darin nach Device (mit Viewport-Groesse), jeder Eintrag
+ * als GFM-Checkbox (abgehakt = erledigt) samt CSS-Pfad und Position. Damit
+ * laesst sich das Feedback in ein Ticket-Tool kippen — oder einer KI
+ * vorlegen, die die Stelle im Quellcode finden soll.
  */
 export function feedbackToMarkdown(
   items: FeedbackItem[],
   presets: readonly DevicePreset[],
+  /**
+   * Fertiges Share-Fragment (`#ink-feedback=…`, deflate-raw + base64url).
+   * Haengt als zusammenklappbarer Block ans Ende: an eine Seiten-URL
+   * gehaengt stellt es exakt diesen Stand wieder her — der Text darueber ist
+   * fuer Menschen und KI, dieser Block fuer die Extension. Kommt fertig vom
+   * Aufrufer, damit dieses Modul nicht am Store haengt.
+   */
+  shareHash?: string,
 ): string {
   if (items.length === 0) return '';
 
@@ -71,12 +110,30 @@ export function feedbackToMarkdown(
     }
 
     for (const [deviceId, deviceItems] of byDevice) {
-      lines.push(`### ${presetName.get(deviceId) ?? deviceId}`);
+      const preset = presets.find((p) => p.id === deviceId);
+      const size = preset && preset.width > 0 ? ` (${preset.width}×${preset.height})` : '';
+      lines.push(`### ${presetName.get(deviceId) ?? deviceId}${size}`);
       for (const item of deviceItems) {
         lines.push(`- [${item.done ? 'x' : ' '}] ${lineOf(item.shape)}`);
+        lines.push(...refLinesOf(item.shape));
       }
       lines.push('');
     }
+  }
+
+  if (shareHash) {
+    lines.push(
+      '---',
+      '',
+      '<details>',
+      `<summary>Inkspect payload — append this to a ${host} page URL to restore these markings</summary>`,
+      '',
+      '```',
+      shareHash,
+      '```',
+      '',
+      '</details>',
+    );
   }
 
   return lines.join('\n').trimEnd() + '\n';

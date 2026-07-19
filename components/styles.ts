@@ -529,6 +529,11 @@ input::placeholder { color: var(--text-2); }
 }
 .fb-page--other .fb-group__head { cursor: pointer; }
 
+/* Feedback zu einer Seite oder Groesse, die gerade nicht offen ist: gedimmt.
+   Beim Ueberfahren wieder voll lesbar — der Klick fuehrt ja dorthin. */
+.fb-group--off { opacity: .45; transition: opacity .14s ease; }
+.fb-group--off:hover { opacity: 1; }
+
 .fb-group { margin-bottom: 12px; }
 .fb-group__head {
   display: flex;
@@ -869,6 +874,9 @@ input::placeholder { color: var(--text-2); }
   touch-action: none;
 }
 .anno--pick .anno__svg { cursor: pointer; }
+/* Eigene Markierung unterm Cursor: sie laesst sich an ihrer Kontur ziehen. */
+.anno--grab .anno__svg { cursor: grab; }
+.anno--grabbing .anno__svg { cursor: grabbing; }
 /* Doppelter Puls um den per Panel-Klick angesprungenen Marker. */
 .anno__flash { animation: ink-anno-flash 1.8s ease-out forwards; }
 @keyframes ink-anno-flash {
@@ -918,6 +926,23 @@ input::placeholder { color: var(--text-2); }
   padding: 6px 8px;
 }
 .anno__note-field:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+/* Zusatzfeld im Notiz-Editor (Abstand eines Linienpaars). */
+.anno__note-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px 6px;
+  color: var(--text-1);
+  font-size: 12px;
+}
+.anno__note-num {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px;
+  font: inherit;
+}
+.anno__note-unit { color: var(--text-2); }
+
 .anno__note-hint {
   padding: 5px 2px 1px;
   color: var(--text-2);
@@ -1008,17 +1033,155 @@ input::placeholder { color: var(--text-2); }
   from { opacity: 0; transform: scale(.2); }
   to { opacity: 1; transform: scale(1); }
 }
+/* Weggeklickt legt sich das Panel sichtbar zurueck hinter den Knopf. */
+.root--fs.root--panel-closing .panel--right {
+  animation: fs-panel-out .16s ease-in forwards;
+  pointer-events: none;
+}
+@keyframes fs-panel-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(.2); }
+}
 
-/* Fixe Werkzeugleiste unten mittig. */
+/* Werkzeugleiste: frei im Fenster ('free'), an der linken Kante als
+   Photoshop-Toolbox ('left') oder waagerecht unten ('bottom'). Der Wechsel
+   wird animiert — Form und Position fahren ineinander. */
 .fsbar {
+  animation: none;
+  z-index: 45;
+  scrollbar-width: none;
+  transition:
+    left .22s cubic-bezier(.2, .8, .25, 1),
+    top .22s cubic-bezier(.2, .8, .25, 1),
+    transform .22s cubic-bezier(.2, .8, .25, 1),
+    box-shadow .18s ease,
+    border-radius .18s ease,
+    padding .18s ease;
+}
+.fsbar::-webkit-scrollbar { display: none; }
+.fsbar .icon-btn { transition: background .12s ease, color .12s ease, transform .18s ease; }
+
+.fsbar--free {
+  top: auto;
+  bottom: auto;
+  right: auto;
+  transform: none;
+  flex-direction: column;
+  max-height: calc(100vh - 28px);
+  overflow-y: auto;
+}
+.fsbar--left {
+  top: 50%;
+  bottom: auto;
+  left: 14px;
+  right: auto;
+  transform: translateY(-50%);
+  transform-origin: left center;
+  flex-direction: column;
+  max-height: calc(100vh - 28px);
+  overflow-y: auto;
+}
+.fsbar--bottom {
   top: auto;
   bottom: 18px;
   left: 50%;
+  right: auto;
   transform: translateX(-50%);
   transform-origin: center bottom;
-  animation: none;
-  z-index: 45;
+  flex-direction: row;
+  max-width: calc(100vw - 28px);
+  overflow-x: auto;
 }
+/* Am Zeiger: angehoben, ohne Positions-Transition (die wuerde nachlaufen). */
+.fsbar--dragging {
+  transform: scale(1.04);
+  transition: box-shadow .18s ease, transform .18s ease;
+  cursor: grabbing;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, .55), 0 0 0 2px var(--accent);
+}
+
+/* Trenner liegen quer zur Leisten-Achse und laufen ueber die volle
+   Knopfbreite — kuerzer wirkten sie wie ein Fehler im Raster. */
+.fsbar .palette__sep { align-self: stretch; }
+.fsbar--left .palette__sep,
+.fsbar--free .palette__sep { width: auto; height: 1px; margin: 6px 2px; }
+.fsbar--bottom .palette__sep { width: 1px; height: auto; margin: 2px 6px; }
+
+.fsbar__grip {
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  cursor: grab;
+  padding: 2px;
+  border-radius: 6px;
+  flex: 0 0 auto;
+  touch-action: none;
+}
+.fsbar__grip:hover { color: var(--text-0); background: var(--bg-3); }
+.fsbar--bottom .fsbar__grip svg { transform: rotate(90deg); }
+
+/* Farben folgen der Leisten-Achse — senkrecht untereinander spart Breite.
+   Mehr Luft als zwischen den Knoepfen: die Punkte sind kleiner und liefen
+   sonst zu einer Kette zusammen. */
+.fsbar__swatches {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 0 0 auto;
+}
+.fsbar--left .fsbar__swatches,
+.fsbar--free .fsbar__swatches { flex-direction: column; padding: 5px 0; }
+.fsbar--bottom .fsbar__swatches { flex-direction: row; padding: 0 5px; }
+.fsbar .swatch { margin: 0; }
+
+/* Klick-Schild waehrend des Zugs: faengt alles ab, was sonst im iframe der
+   Seite landen wuerde (dort kaemen die pointermove-Events nie an). */
+.fsbar-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 43;
+  cursor: grabbing;
+}
+
+/* Snap-Punkte, nur waehrend des Zugs sichtbar. */
+.fsbar-snap {
+  position: fixed;
+  z-index: 44;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  border: 1px dashed var(--accent);
+  opacity: .45;
+  pointer-events: none;
+  transition: opacity .16s ease, transform .16s ease, background .16s ease;
+  animation: ink-fade-in .16s ease-out;
+}
+.fsbar-snap--left { left: 14px; top: 50%; width: 46px; height: 210px; transform: translateY(-50%); }
+.fsbar-snap--bottom { bottom: 18px; left: 50%; width: 320px; height: 46px; transform: translateX(-50%); }
+.fsbar-snap--on { opacity: 1; background: var(--accent-dim); }
+.fsbar-snap--left.fsbar-snap--on { transform: translateY(-50%) scale(1.06); }
+.fsbar-snap--bottom.fsbar-snap--on { transform: translateX(-50%) scale(1.06); }
+
+/* Name des ueberfahrenen Knopfs — schwebt neben der Leiste ueber der Seite. */
+.fsbar__hint {
+  position: fixed;
+  z-index: 46;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-l);
+  color: var(--text-0);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: ink-hint-in .12s ease-out;
+}
+.fsbar__hint--side { transform: translateY(-50%); }
+.fsbar__hint--above { transform: translate(-50%, -100%); }
+@keyframes ink-hint-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* Feedback-Knopf unten rechts. */
 .fs-fab {
@@ -1082,6 +1245,10 @@ input::placeholder { color: var(--text-2); }
   .root[data-theme="system"] {${LIGHT_VARS}}
 }
 
+/* Farbvorschau in der Einstellungszeile. */
+.menu__swatches { display: flex; gap: 2px; }
+.menu__swatches i { width: 6px; height: 12px; border-radius: 2px; }
+
 /* ---------- Reduzierte Bewegung ---------- */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1093,8 +1260,13 @@ input::placeholder { color: var(--text-2); }
   .anno__bubble,
   .palette,
   .fs-fab--pulse,
+  .fsbar,
+  .fsbar-snap,
+  .fsbar__hint,
   .root--fs .panel--right,
+  .root--fs.root--panel-closing .panel--right,
   .overlay-backdrop { animation: none !important; }
+  .fsbar { transition: none !important; }
 }
 
 /* ---------- Panel-Splitter (Groesse ziehen) ---------- */
@@ -1262,6 +1434,16 @@ input::placeholder { color: var(--text-2); }
 }
 .sheet__title { flex: 1 1 auto; font-size: 15px; font-weight: 700; }
 .sheet__body { padding: 6px 18px 18px; overflow-y: auto; }
+.sheet--confirm { width: min(420px, 100%); }
+.confirm__text { margin: 10px 0 18px; color: var(--text-1); }
+.confirm__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.btn--danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  font-weight: 600;
+}
+.btn--danger:hover:not(:disabled) { background: var(--danger); filter: brightness(1.08); }
 .sheet__cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
 @media (max-width: 520px) { .sheet__cols { grid-template-columns: 1fr; } }
 .sheet__section-title {

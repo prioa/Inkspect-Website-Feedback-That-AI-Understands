@@ -23,6 +23,8 @@ interface Props {
   shapes: Shape[];
   /** Shape-Ids erledigter Eintraege — gedimmt gerendert. */
   dimmedIds: Set<string>;
+  /** Fremde (importierte) Markierungen — nicht verschiebbar. */
+  lockedIds?: Set<string>;
   tool: Tool;
   color: string;
   /** Notizen im Overlay einblenden (Screenshot-Export). */
@@ -54,6 +56,12 @@ interface Props {
   /** Klick auf den Feedback-Zaehler: Panel oeffnen und Gruppe hervorheben. */
   onBadgeClick: (presetId: string) => void;
   onAddShape: (uid: string, shape: Shape) => void;
+  /** Markierung verschoben (Versatz im Dokumentraum). */
+  onMoveShape?: (uid: string, shapeId: string, dx: number, dy: number) => void;
+  /** Abstand eines Linienpaars gesetzt (nur UI-State). */
+  onSetLineGap?: (shapeId: string, gap: number | null) => void;
+  /** Stand einer Markierung speichern (nach dem Tippen/Ziehen). */
+  onCommitShape?: (shapeId: string) => void;
   onSetShapeNote: (uid: string, shapeId: string, note: string) => void;
   /** Drag&Drop-Sortierung: Start, Live-Umsortieren beim Drueberziehen, Ende. */
   onDragBegin: (uid: string) => void;
@@ -73,6 +81,7 @@ export function DeviceFrame({
   annotating,
   shapes,
   dimmedIds,
+  lockedIds,
   tool,
   color,
   showNotes,
@@ -91,6 +100,9 @@ export function DeviceFrame({
   onRemove,
   onBadgeClick,
   onAddShape,
+  onMoveShape,
+  onSetLineGap,
+  onCommitShape,
   onSetShapeNote,
   onDragBegin,
   onDragHover,
@@ -277,6 +289,7 @@ export function DeviceFrame({
           active={annotating}
           shapes={visibleShapes}
           dimmedIds={dimmedIds}
+          lockedIds={lockedIds}
           tool={tool}
           color={color}
           showNotes={showNotes}
@@ -288,6 +301,11 @@ export function DeviceFrame({
           loadCount={loadCount}
           onAdd={(shape) => onAddShape(device.uid, shape)}
           onSetNote={(shapeId, note) => onSetShapeNote(device.uid, shapeId, note)}
+          onMoveShape={
+            onMoveShape && ((shapeId, dx, dy) => onMoveShape(device.uid, shapeId, dx, dy))
+          }
+          onSetLineGap={onSetLineGap}
+          onCommitShape={onCommitShape}
         />
       </div>
     </div>

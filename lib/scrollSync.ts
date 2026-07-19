@@ -22,6 +22,14 @@ export class ScrollSync {
 
   private readonly detachers = new Map<HTMLIFrameElement, () => void>();
   private syncing = false;
+  /**
+   * Zuletzt *programmatisch* gesetzte Position je Element. Das Setzen loest
+   * im Zielframe ein eigenes 'scroll' aus — das kommt aber erst im naechsten
+   * Frame an, also oft nach dem rAF-Guard unten. Ohne diese Quittung wuerde
+   * das Echo zurueckpropagieren und die Frames pendeln sichtbar hin und her
+   * (die Zielposition rundet je Frame minimal anders).
+   */
+  private readonly echo = new WeakMap<Element, { top: number; left: number }>();
 
   attach(iframe: HTMLIFrameElement): void {
     this.detach(iframe);
@@ -45,15 +53,41 @@ export class ScrollSync {
     this.detachers.clear();
   }
 
+  /**
+   * Position setzen und quittieren. Steht das Ziel schon dort, passiert
+   * nichts — das spart das ganze Echo.
+   */
+  private applyScroll(el: Element, top: number, left: number): void {
+    if (Math.abs(el.scrollTop - top) < 1 && Math.abs(el.scrollLeft - left) < 1) return;
+    this.echo.set(el, { top, left });
+    el.scrollTop = top;
+    el.scrollLeft = left;
+  }
+
+  /** Stammt dieses 'scroll' aus unserem eigenen Setzen? Dann nicht weiterreichen. */
+  private isEcho(el: Element): boolean {
+    const expected = this.echo.get(el);
+    if (!expected) return false;
+    const hit =
+      Math.abs(el.scrollTop - expected.top) < 2 && Math.abs(el.scrollLeft - expected.left) < 2;
+    if (hit) this.echo.delete(el);
+    return hit;
+  }
+
   private propagate(source: HTMLIFrameElement, e: Event): void {
     // Das Setzen von scrollTop loest in den Zielframes erneut 'scroll' aus.
     // Ohne dieses Flag schaukeln sich die Frames gegenseitig auf.
     if (!this.enabled || this.syncing) return;
-    this.syncing = true;
 
     const target = e.target as Node | null;
-    if (target && target.nodeType === Node.ELEMENT_NODE) {
-      this.syncElement(source, target as Element);
+    const element = target && target.nodeType === Node.ELEMENT_NODE ? (target as Element) : null;
+    const scrolled = element ?? frameDocument(source)?.scrollingElement ?? null;
+    if (scrolled && this.isEcho(scrolled)) return;
+
+    this.syncing = true;
+
+    if (element) {
+      this.syncElement(source, element);
     } else {
       this.syncDocument(source);
     }
@@ -74,8 +108,11 @@ export class ScrollSync {
       if (target === source) continue;
       const el = frameDocument(target)?.scrollingElement;
       if (!el) continue;
-      el.scrollTop = ry * (el.scrollHeight - el.clientHeight);
-      el.scrollLeft = rx * (el.scrollWidth - el.clientWidth);
+      this.applyScroll(
+        el,
+        ry * (el.scrollHeight - el.clientHeight),
+        rx * (el.scrollWidth - el.clientWidth),
+      );
     }
   }
 
@@ -91,8 +128,11 @@ export class ScrollSync {
       const doc = frameDocument(target);
       const other = doc ? findIn(doc, path) : null;
       if (!other) continue;
-      other.scrollTop = ry * (other.scrollHeight - other.clientHeight);
-      other.scrollLeft = rx * (other.scrollWidth - other.clientWidth);
+      this.applyScroll(
+        other,
+        ry * (other.scrollHeight - other.clientHeight),
+        rx * (other.scrollWidth - other.clientWidth),
+      );
     }
   }
 }

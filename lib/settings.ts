@@ -1,4 +1,4 @@
-import { browser } from 'wxt/browser';
+import { storageLocal } from './storage';
 import { reportContextError } from './extensionContext';
 import { createLogger } from './log';
 
@@ -25,6 +25,29 @@ export interface UiSettings {
   autoFit: boolean;
   /** Inkspect direkt im Vollbild-Modus oeffnen. */
   startFullscreen: boolean;
+  /** Wie viele der Feedback-Farben die Werkzeugleiste anbietet (2 oder 4). */
+  paletteColorCount: number;
+  /**
+   * Platzierung der Werkzeugleiste im Vollbild-Modus: an einer Kante
+   * eingerastet oder frei im Fenster (dann zaehlen `toolbarX`/`toolbarY`).
+   */
+  toolbarDock: ToolbarDock;
+  /** Freie Position (linke obere Ecke der Leiste, Fenster-Koordinaten). */
+  toolbarX: number;
+  toolbarY: number;
+}
+
+/**
+ * Die Werkzeugleiste haengt im Vollbild frei im Fenster ('free') oder rastet
+ * an einem der beiden Snap-Punkte ein: linke Kante bzw. unterer Rand.
+ */
+export type ToolbarDock = 'left' | 'bottom' | 'free';
+
+/** Platzierung der Leiste — 'free' nutzt zusaetzlich x/y. */
+export interface ToolbarPlacement {
+  dock: ToolbarDock;
+  x: number;
+  y: number;
 }
 
 export const EDITOR_WIDTH_MIN = 280;
@@ -39,6 +62,10 @@ export const DEFAULT_SETTINGS: UiSettings = {
   onboardingSeen: false,
   autoFit: true,
   startFullscreen: false,
+  paletteColorCount: 2,
+  toolbarDock: 'left',
+  toolbarX: 14,
+  toolbarY: 80,
 };
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
@@ -49,7 +76,7 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
 
 export async function loadSettings(): Promise<UiSettings> {
   try {
-    const result = await browser.storage.local.get(KEY);
+    const result = await storageLocal().get(KEY);
     const raw = (result as Record<string, unknown>)[KEY] as Partial<UiSettings> | undefined;
     if (!raw) return { ...DEFAULT_SETTINGS };
     return {
@@ -60,9 +87,15 @@ export async function loadSettings(): Promise<UiSettings> {
       // Vorbelegt an: alte Staende ohne das Feld bekommen die Automatik.
       autoFit: raw.autoFit !== false,
       startFullscreen: raw.startFullscreen === true,
+      // Nur 2 oder 4 — alles andere (auch Alt-Staende) faellt auf 2 zurueck.
+      paletteColorCount: raw.paletteColorCount === 4 ? 4 : DEFAULT_SETTINGS.paletteColorCount,
+      toolbarDock:
+        raw.toolbarDock === 'bottom' || raw.toolbarDock === 'free' ? raw.toolbarDock : 'left',
+      toolbarX: clamp(raw.toolbarX, 0, 10000, DEFAULT_SETTINGS.toolbarX),
+      toolbarY: clamp(raw.toolbarY, 0, 10000, DEFAULT_SETTINGS.toolbarY),
     };
   } catch (e) {
-    log.error('Settings laden fehlgeschlagen', e);
+    if (!reportContextError(e)) log.error('Settings laden fehlgeschlagen', e);
     return { ...DEFAULT_SETTINGS };
   }
 }
@@ -75,7 +108,7 @@ export async function loadSettings(): Promise<UiSettings> {
 export async function saveSettings(patch: Partial<UiSettings>): Promise<void> {
   try {
     const current = await loadSettings();
-    await browser.storage.local.set({ [KEY]: { ...current, ...patch } });
+    await storageLocal().set({ [KEY]: { ...current, ...patch } });
   } catch (e) {
     // Callers feuern das fire-and-forget (void saveSettings(...)). Nach einem
     // Extension-Reload stirbt der storage-Zugriff — zentral melden statt als

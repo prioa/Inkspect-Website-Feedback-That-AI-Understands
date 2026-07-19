@@ -1,4 +1,4 @@
-import { browser } from 'wxt/browser';
+import { storageLocal } from './storage';
 import type { Point, Shape } from './annotations';
 import { reportContextError } from './extensionContext';
 import { createLogger } from './log';
@@ -6,7 +6,7 @@ import { createLogger } from './log';
 const log = createLogger('feedback-store');
 
 /**
- * Persistenz fuer Feedback-Marker in browser.storage.local.
+ * Persistenz fuer Feedback-Marker in storageLocal().
  *
  * Jeder Marker ist an eine normalisierte URL (Landingpage) und ein
  * Device-Preset gebunden — angezeigt wird er nur auf genau dieser Seite.
@@ -24,6 +24,18 @@ export interface FeedbackItem {
   createdAt: number;
   /** Abgehakt (Review-Workflow) — erledigte Marker werden gedimmt dargestellt. */
   done?: boolean;
+  /**
+   * Hier angelegt (nicht aus einem geteilten Link importiert). Nur eigene
+   * Marker lassen sich verschieben — fremdes Feedback bleibt, wo es der
+   * Ersteller gesetzt hat. Fehlt das Feld (Alt-Daten), gilt der Eintrag als
+   * eigener: vor dem Teilen-Feature konnte nichts Fremdes im Store liegen.
+   */
+  mine?: boolean;
+}
+
+/** Eigener Eintrag? Alt-Daten ohne Flag zaehlen als eigene. */
+export function isMine(item: FeedbackItem): boolean {
+  return item.mine !== false;
 }
 
 const KEY = 'ink-feedback-v1';
@@ -73,13 +85,13 @@ function migrateItems(items: FeedbackItem[]): FeedbackItem[] {
 }
 
 async function readAll(): Promise<FeedbackItem[]> {
-  const result = await browser.storage.local.get(KEY);
+  const result = await storageLocal().get(KEY);
   const list = (result as Record<string, unknown>)[KEY];
   return Array.isArray(list) ? migrateItems(list as FeedbackItem[]) : [];
 }
 
 async function writeAll(items: FeedbackItem[]): Promise<void> {
-  await browser.storage.local.set({ [KEY]: items });
+  await storageLocal().set({ [KEY]: items });
 }
 
 // Schreiboperationen sind Read-Modify-Write-Zyklen auf demselben Key —
@@ -146,7 +158,8 @@ export function sanitizeItems(data: unknown): FeedbackItem[] {
       typeof (i.shape as Shape).tool === 'string'
     );
   });
-  return migrateItems(valid);
+  // Importiertes Feedback stammt per Definition von jemand anderem.
+  return migrateItems(valid).map((item) => ({ ...item, mine: false }));
 }
 
 /** Fire-and-forget-Wrapper: UI-State ist fuehrend, Persistenz folgt. */

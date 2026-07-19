@@ -27,11 +27,12 @@ The current page in multiple viewports side by side. Scrolling, clicks, inputs, 
 
 ### ✏️ Feedback tools
 
-Right-click any preview to open the tool palette: element picker (highlights DOM elements with a box-model overlay, a click captures them with a readable label), comment pins, freehand, rectangles, ellipses, arrows and text — every marking with an optional note (double-click a marker to edit it later). Markings stick to the content (document coordinates) and are bound to page + device — each marking lives only on the viewport it was drawn on.
+Right-click any preview to open the tool palette: element picker (highlights DOM elements with a box-model overlay, a click captures them with a readable label), comment pins, freehand, rectangles, ellipses, arrows, full-width/full-height guide lines and text — every marking with an optional note (double-click a marker to edit it later). Markings stick to the content (document coordinates) and are bound to page + device — each marking lives only on the viewport it was drawn on.
 
-- Keyboard: `1`–`7` picks a tool, `Esc` returns to interact mode, `Cmd/Ctrl+Z` undoes while drawing
+- Keyboard: `1`–`9` picks a tool, `Esc` returns to interact mode, `Cmd/Ctrl+Z` undoes while drawing
+- Drag a marking of your own by its outline to reposition it; imported (shared) feedback stays where its author put it
 - The feedback panel groups entries per page and per device; entries can be checked off (done markers render dimmed, badges count open items) and feedback from other domains is kept in its own collapsible section
-- **Full window mode** shows the page at full size with a floating feedback bar — for giving feedback without the device grid
+- **Full window mode** shows the page at full size with a floating feedback bar — drag it anywhere by its grip, it snaps to the left edge (vertical toolbox) or the bottom
 
 ![Feedback tools](store/screenshot-2-feedback-1280x800.jpg)
 

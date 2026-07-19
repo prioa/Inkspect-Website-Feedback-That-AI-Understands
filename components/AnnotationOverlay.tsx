@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { ElementRef, Point, Shape, Tool } from '@/lib/annotations';
-import { elementLabel, pinNumbers, shapeBounds, shapeId } from '@/lib/annotations';
+import {
+  LINE_REACH,
+  elementLabel,
+  hitsShape,
+  isMovableShape,
+  lineGap,
+  pinNumbers,
+  shapeBounds,
+  shapeId,
+  translateShape,
+} from '@/lib/annotations';
 import { shadowPath } from '@/lib/selector';
 
 interface Props {
@@ -14,6 +24,11 @@ interface Props {
   shapes: Shape[];
   /** Shape-Ids erledigter Eintraege — gedimmt gerendert, ohne Notiz-Bubble. */
   dimmedIds?: Set<string>;
+  /**
+   * Shape-Ids fremder (importierter) Markierungen — die lassen sich nicht
+   * verschieben, nur eigene.
+   */
+  lockedIds?: Set<string>;
   tool: Tool;
   color: string;
   frameEl: HTMLIFrameElement | null;
@@ -35,6 +50,16 @@ interface Props {
   editRequest?: NoteEditRequest | null;
   onAdd: (shape: Shape) => void;
   onSetNote: (shapeId: string, note: string) => void;
+  /** Verschobene Markierung uebernehmen (Dokumentraum-Versatz). */
+  onMoveShape?: (shapeId: string, dx: number, dy: number) => void;
+  /**
+   * Abstand eines Linienpaars setzen (null = einzelne Linie). Laeuft nur in
+   * den UI-State; gespeichert wird ueber `onCommitShape`, wenn das Feld den
+   * Fokus verliert — sonst schriebe jeder Tastendruck in den Store.
+   */
+  onSetLineGap?: (shapeId: string, gap: number | null) => void;
+  /** Aktuellen Stand einer Markierung speichern. */
+  onCommitShape?: (shapeId: string) => void;
 }
 
 /** Von der App gemeldeter Editier-Wunsch (Doppelklick im Frame). */
@@ -108,6 +133,7 @@ export function AnnotationOverlay({
   active,
   shapes,
   dimmedIds,
+  lockedIds,
   tool,
   color,
   frameEl,
@@ -119,11 +145,32 @@ export function AnnotationOverlay({
   editRequest = null,
   onAdd,
   onSetNote,
+  onMoveShape,
+  onSetLineGap,
+  onCommitShape,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [scroll, setScroll] = useState<Point>({ x: 0, y: 0 });
   const [draft, setDraft] = useState<Shape | null>(null);
   const [picked, setPicked] = useState<ElementTarget | null>(null);
+  /**
+   * Cursorposition (Dokumentraum) fuer die Linien-Vorschau: sobald das
+   * Werkzeug gewaehlt ist, laeuft die Linie halbtransparent mit, der Klick
+   * setzt sie dann genau dort ab.
+   */
+  const [lineGhost, setLineGhost] = useState<Point | null>(null);
+  /**
+   * Markierung, die gerade an der Maus haengt. Verschoben wird sie erst beim
+   * Loslassen im Store — waehrend des Zugs zeigt das Overlay den Versatz.
+   */
+  /** Eigene Markierung unterm Cursor — Cursor wird zum Greifer. */
+  const [grabbable, setGrabbable] = useState(false);
+  const [movingShape, setMovingShape] = useState<{
+    id: string;
+    dx: number;
+    dy: number;
+    from: Point;
+  } | null>(null);
 
   const displayShapes = shapes;
   const dimmed = dimmedIds;
@@ -131,6 +178,7 @@ export function AnnotationOverlay({
   // Kein veralteter Hover-Rahmen, wenn Werkzeug/Modus wechseln.
   useEffect(() => {
     setPicked(null);
+    setLineGhost(null);
   }, [tool, active]);
 
   // Ref-Spiegel der Drafts: Commit wird von pointerdown *und* blur aufgerufen —
@@ -142,6 +190,8 @@ export function AnnotationOverlay({
     setTextDraftState(value);
   };
 
+  /** Rahmen des Notiz-Editors — Fokuswechsel *innerhalb* schliessen ihn nicht. */
+  const noteBoxRef = useRef<HTMLDivElement | null>(null);
   const [noteDraft, setNoteDraftState] = useState<NoteDraft | null>(null);
   const noteDraftRef = useRef<NoteDraft | null>(null);
   const setNoteDraft = (value: NoteDraft | null) => {
@@ -396,6 +446,20 @@ export function AnnotationOverlay({
 
     const p = toDoc(e);
 
+    // Kontur einer eigenen Markierung angefasst? Dann wird verschoben statt
+    // gezeichnet — hinterste zuerst, die liegen im Overlay obenauf.
+    if (onMoveShape) {
+      const grabbed = [...displayShapes]
+        .reverse()
+        .find((s) => isMovableShape(s) && !lockedIds?.has(s.id) && hitsShape(s, p, 8 / zoom));
+      if (grabbed) {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setMovingShape({ id: grabbed.id, dx: 0, dy: 0, from: p });
+        setHoverNote(null);
+        return;
+      }
+    }
+
     if (tool === 'element') {
       // Uebernimmt das gerade gehighlightete Element als Markierung.
       const target = pickAt(e);
@@ -424,16 +488,35 @@ export function AnnotationOverlay({
     e.currentTarget.setPointerCapture(e.pointerId);
     if (tool === 'pen') {
       setDraft({ id: shapeId(), tool: 'pen', color, strokes: [[p]] });
+    } else if (tool === 'hline' || tool === 'vline') {
+      // Hilfslinie: beim Druecken schon sichtbar, Ziehen schiebt sie noch.
+      setDraft({ id: shapeId(), tool, color, x: p.x, y: p.y });
     } else {
       setDraft({ id: shapeId(), tool, color, x1: p.x, y1: p.y, x2: p.x, y2: p.y });
     }
   };
 
   const handleMove = (e: ReactPointerEvent) => {
+    if (movingShape) {
+      const p = toDoc(e);
+      setMovingShape({ ...movingShape, dx: p.x - movingShape.from.x, dy: p.y - movingShape.from.y });
+      return;
+    }
     // Auch im Zeichenmodus: Notiz beim Ueberfahren eines Markers zeigen.
     if (!draft) {
       const p = toDoc(e);
       updateHover(p.x, p.y);
+      setGrabbable(
+        active &&
+          onMoveShape != null &&
+          displayShapes.some(
+            (s) => isMovableShape(s) && !lockedIds?.has(s.id) && hitsShape(s, p, 8 / zoom),
+          ),
+      );
+    }
+    // Linien-Werkzeuge: Vorschau der Linie unterm Cursor.
+    if (active && (tool === 'hline' || tool === 'vline') && !draft) {
+      setLineGhost(toDoc(e));
     }
     // Element-Picker: Live-Highlight des Elements unterm Cursor.
     if (active && tool === 'element' && !draft) {
@@ -449,6 +532,14 @@ export function AnnotationOverlay({
       setDraft({ ...draft, strokes: [...draft.strokes.slice(0, -1), [...stroke, p]] });
     } else if (draft.tool === 'rect' || draft.tool === 'ellipse' || draft.tool === 'arrow') {
       setDraft({ ...draft, x2: p.x, y2: p.y });
+    } else if (draft.tool === 'hline' || draft.tool === 'vline') {
+      // Erste Linie bleibt am Startpunkt; das Ziehen spannt die zweite auf
+      // und misst damit den Abstand. Unterhalb der Mindeststrecke bleibt es
+      // eine einzelne Linie, die dem Cursor folgt.
+      const axis = draft.tool === 'hline' ? p.y : p.x;
+      const start = draft.tool === 'hline' ? draft.y : draft.x;
+      const spread = Math.abs(axis - start) >= MIN_DRAG / zoom;
+      setDraft(spread ? { ...draft, to: axis } : { ...draft, x: p.x, y: p.y, to: undefined });
     }
   };
 
@@ -490,6 +581,12 @@ export function AnnotationOverlay({
   // Als DOM-Bezug dienen die gekreuzten Elemente, beim Pfeil das Element
   // unter der Spitze.
   const handleUp = () => {
+    if (movingShape) {
+      const { id, dx, dy } = movingShape;
+      setMovingShape(null);
+      if (Math.hypot(dx, dy) >= MIN_DRAG / zoom) onMoveShape?.(id, dx, dy);
+      return;
+    }
     if (!draft) return;
     setDraft(null);
 
@@ -507,6 +604,10 @@ export function AnnotationOverlay({
         onAdd({ ...draft, ...ref });
         setNoteDraft({ shapeId: draft.id, x: draft.x2, y: draft.y2, value: '' });
       }
+    } else if (draft.tool === 'hline' || draft.tool === 'vline') {
+      // Ohne Mindeststrecke — ein Klick setzt die Linie bereits.
+      onAdd({ ...draft, ...anchorAt(draft.x, draft.y) });
+      setNoteDraft({ shapeId: draft.id, x: draft.x, y: draft.y, value: '' });
     }
   };
 
@@ -529,7 +630,11 @@ export function AnnotationOverlay({
   });
 
   return (
-    <div className={`anno${active ? ' anno--active' : ''}${active && tool === 'element' ? ' anno--pick' : ''}`}>
+    <div
+      className={`anno${active ? ' anno--active' : ''}${
+        active && tool === 'element' ? ' anno--pick' : ''
+      }${grabbable && !movingShape ? ' anno--grab' : ''}${movingShape ? ' anno--grabbing' : ''}`}
+    >
       <svg
         ref={svgRef}
         className="anno__svg"
@@ -537,9 +642,14 @@ export function AnnotationOverlay({
         onPointerDown={handleDown}
         onPointerMove={handleMove}
         onPointerUp={handleUp}
-        onPointerCancel={() => setDraft(null)}
+        onPointerCancel={() => {
+          setDraft(null);
+          setMovingShape(null);
+        }}
         onPointerLeave={() => {
           setPicked(null);
+          setLineGhost(null);
+          setGrabbable(false);
           setHoverNote(null);
         }}
       >
@@ -558,15 +668,19 @@ export function AnnotationOverlay({
           </filter>
         </defs>
         <g transform={`translate(${-scroll.x}, ${-scroll.y})`}>
-          {displayShapes.map((s) =>
-            dimmed?.has(s.id) ? (
+          {displayShapes.map((sh) => {
+            const s =
+              movingShape?.id === sh.id
+                ? translateShape(sh, movingShape.dx, movingShape.dy)
+                : sh;
+            return dimmed?.has(s.id) ? (
               <g key={`dim-${s.id}`} opacity={0.35}>
                 {renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id))}
               </g>
             ) : (
               renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id))
-            ),
-          )}
+            );
+          })}
           {showNotes &&
             displayShapes
               .filter((s) => !dimmed?.has(s.id))
@@ -585,6 +699,16 @@ export function AnnotationOverlay({
                 { x: scroll.x, y: scroll.y, w: width, h: height },
               );
             })()}
+          {active && !draft && lineGhost && (tool === 'hline' || tool === 'vline') && (
+            <g opacity={0.55}>
+              {renderShape(
+                { id: 'line-ghost', tool, color, x: lineGhost.x, y: lineGhost.y },
+                strokeWidth,
+                fontSize,
+                zoom,
+              )}
+            </g>
+          )}
           {draft && renderShape(draft, strokeWidth, fontSize, zoom)}
           {hoverBox && (
             <rect
@@ -672,7 +796,50 @@ export function AnnotationOverlay({
       )}
 
       {noteDraft && (
-        <div className="anno__note" style={clampEditor(noteDraft.x, noteDraft.y, 230, 92)}>
+        <div
+          ref={noteBoxRef}
+          className="anno__note"
+          style={clampEditor(noteDraft.x, noteDraft.y, 230, 92)}
+        >
+          {(() => {
+            // Bei Hilfslinien laesst sich der Abstand hier auch tippen —
+            // gezogene Werte sind selten exakt, ein Sollwert („24 px") schon.
+            const shape = shapes.find((s) => s.id === noteDraft.shapeId);
+            if (!shape || (shape.tool !== 'hline' && shape.tool !== 'vline')) return null;
+            if (!onSetLineGap) return null;
+            const gap = lineGap(shape);
+            return (
+              <label className="anno__note-row">
+                <span>{shape.tool === 'hline' ? 'Height' : 'Width'}</span>
+                <input
+                  className="anno__note-num"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={gap == null ? '' : Math.round(gap)}
+                  placeholder="—"
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    onSetLineGap(
+                      shape.id,
+                      e.target.value === '' || !Number.isFinite(value) || value <= 0 ? null : value,
+                    );
+                  }}
+                  onKeyDown={(e) => {
+                    // Wie im Notizfeld: die Tasten gehoeren dem Editor.
+                    e.stopPropagation();
+                    if (e.key === 'Enter') commitNote();
+                  }}
+                  onBlur={(e) => {
+                    onCommitShape?.(shape.id);
+                    if (noteBoxRef.current?.contains(e.relatedTarget as Node | null)) return;
+                    commitNote();
+                  }}
+                />
+                <span className="anno__note-unit">px</span>
+              </label>
+            );
+          })()}
           <textarea
             className="anno__note-field"
             value={noteDraft.value}
@@ -692,7 +859,12 @@ export function AnnotationOverlay({
                 setNoteDraft(null); // Marker bleibt, Notiz verworfen
               }
             }}
-            onBlur={commitNote}
+            onBlur={(e) => {
+              // Sprung ins Abstandsfeld daneben ist kein Verlassen des
+              // Editors — sonst schliesst er sich beim ersten Klick dorthin.
+              if (noteBoxRef.current?.contains(e.relatedTarget as Node | null)) return;
+              commitNote();
+            }}
           />
           <div className="anno__note-hint">Enter saves · Esc skips the note</div>
         </div>
@@ -742,6 +914,10 @@ function noteOf(shape: Shape): { text: string; x: number; y: number } | null {
         : null;
     case 'arrow':
       return shape.note ? { text: shape.note, x: shape.x2 + 8, y: shape.y2 + 6 } : null;
+    case 'hline':
+      return shape.note ? { text: shape.note, x: shape.x + 8, y: shape.y + 8 } : null;
+    case 'vline':
+      return shape.note ? { text: shape.note, x: shape.x + 8, y: shape.y + 8 } : null;
     case 'pen': {
       if (!shape.note) return null;
       const b = shapeBounds(shape);
@@ -934,6 +1110,75 @@ function renderBoxModel(t: ElementTarget, zoom: number) {
   );
 }
 
+/**
+ * Massband zwischen den beiden Linien eines Paars: eine Strecke mit Endkappen
+ * quer zu den Linien, daneben der Abstand in Dokument-Pixeln. Konstante
+ * Bildschirmgroesse, deshalb /zoom.
+ */
+function renderLineGap(
+  shape: Shape & { tool: 'hline' | 'vline' },
+  from: number,
+  to: number,
+  gap: number,
+  strokeWidth: number,
+  zoom: number,
+) {
+  const horizontal = shape.tool === 'hline';
+  const cross = horizontal ? shape.x : shape.y;
+  const cap = 6 / zoom;
+  const size = 11 / zoom;
+  const label = `${Math.round(gap)} px`;
+  const mid = (from + to) / 2;
+  // Waagerechtes Paar: Beschriftung rechts neben dem Massband, senkrechtes
+  // Paar: darueber — so verdeckt sie die gemessene Strecke nie.
+  const labelX = horizontal ? cross + 9 / zoom : mid;
+  const labelY = horizontal ? mid : cross - 14 / zoom;
+  const padX = 5 / zoom;
+  const padY = 3 / zoom;
+  const boxW = label.length * size * 0.62 + padX * 2;
+  const boxH = size + padY * 2;
+  const line = { stroke: shape.color, strokeWidth: strokeWidth * 0.8, fill: 'none' } as const;
+  return (
+    <g>
+      {horizontal ? (
+        <>
+          <path d={`M${cross},${from} L${cross},${to}`} {...line} />
+          <path d={`M${cross - cap},${from} L${cross + cap},${from}`} {...line} />
+          <path d={`M${cross - cap},${to} L${cross + cap},${to}`} {...line} />
+        </>
+      ) : (
+        <>
+          <path d={`M${from},${cross} L${to},${cross}`} {...line} />
+          <path d={`M${from},${cross - cap} L${from},${cross + cap}`} {...line} />
+          <path d={`M${to},${cross - cap} L${to},${cross + cap}`} {...line} />
+        </>
+      )}
+      <rect
+        x={horizontal ? labelX - padX : labelX - boxW / 2}
+        y={labelY - boxH / 2}
+        width={boxW}
+        height={boxH}
+        rx={5 / zoom}
+        fill="rgba(14, 16, 20, 0.92)"
+        stroke={shape.color}
+        strokeWidth={1.2 / zoom}
+      />
+      <text
+        x={labelX}
+        y={labelY}
+        fill="#fff"
+        fontSize={size}
+        fontWeight={600}
+        textAnchor={horizontal ? 'start' : 'middle'}
+        dominantBaseline="central"
+        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+      >
+        {label}
+      </text>
+    </g>
+  );
+}
+
 function renderShape(
   shape: Shape,
   strokeWidth: number,
@@ -1029,6 +1274,59 @@ function renderShape(
         <g key={shape.id} strokeLinecap="round" strokeLinejoin="round" {...stroke}>
           <path d={`M${x1},${y1} L${x2},${y2}`} />
           <path d={`M${p1} L${x2},${y2} L${p2}`} />
+        </g>
+      );
+    }
+    case 'hline':
+    case 'vline': {
+      // Ueber den Frame hinaus verlaengert — der Viewport schneidet ab, die
+      // Linie spannt so in jeder Scroll-Position ueber die volle Breite/Hoehe.
+      const horizontal = shape.tool === 'hline';
+      const lineAt = (v: number) =>
+        horizontal
+          ? `M${shape.x - LINE_REACH},${v} L${shape.x + LINE_REACH},${v}`
+          : `M${v},${shape.y - LINE_REACH} L${v},${shape.y + LINE_REACH}`;
+      const start = horizontal ? shape.y : shape.x;
+      const gap = lineGap(shape);
+      // Der gemessene Streifen bekommt ein Rautenmuster — dezent genug, um
+      // den Inhalt darunter lesbar zu lassen, aber deutlich als Flaeche.
+      const patternId = `ink-diamonds-${shape.id}`;
+      const cell = 9 / zoom;
+      return (
+        <g key={shape.id}>
+          {shape.to != null && (
+            <>
+              <defs>
+                <pattern
+                  id={patternId}
+                  width={cell}
+                  height={cell}
+                  patternUnits="userSpaceOnUse"
+                >
+                  <path
+                    d={`M0,${cell / 2} L${cell / 2},0 L${cell},${cell / 2} L${cell / 2},${cell} Z`}
+                    fill="none"
+                    stroke={shape.color}
+                    strokeWidth={1.2 / zoom}
+                  />
+                </pattern>
+              </defs>
+              <rect
+                x={horizontal ? shape.x - LINE_REACH : Math.min(start, shape.to)}
+                y={horizontal ? Math.min(start, shape.to) : shape.y - LINE_REACH}
+                width={horizontal ? LINE_REACH * 2 : Math.abs(shape.to - start)}
+                height={horizontal ? Math.abs(shape.to - start) : LINE_REACH * 2}
+                fill={`url(#${patternId})`}
+                fillOpacity={0.1}
+                stroke="none"
+              />
+            </>
+          )}
+          <path d={lineAt(start)} {...stroke} />
+          {shape.to != null && <path d={lineAt(shape.to)} {...stroke} />}
+          {shape.to != null &&
+            gap != null &&
+            renderLineGap(shape, start, shape.to, gap, strokeWidth, zoom)}
         </g>
       );
     }

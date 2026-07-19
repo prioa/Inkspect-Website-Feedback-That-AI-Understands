@@ -1,29 +1,11 @@
-import { useEffect, type JSX } from 'react';
+import { useEffect } from 'react';
 import { TOOL_LABELS, type Tool } from '@/lib/annotations';
-import {
-  IconArrow,
-  IconClose,
-  IconEllipse,
-  IconInspect,
-  IconPen,
-  IconPin,
-  IconPointer,
-  IconRect,
-  IconText,
-} from './icons';
+import { IconClose, IconPointer } from './icons';
+import { TOOL_ICONS } from './AnnotationPalette';
 
 /** Cmd auf dem Mac, sonst Ctrl — nur fuer die Anzeige der Shortcuts. */
 const MOD = navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl';
 
-const TOOL_ROWS: { id: Tool; icon: JSX.Element; key: string }[] = [
-  { id: 'element', icon: <IconInspect size={16} />, key: '1' },
-  { id: 'pin', icon: <IconPin size={16} />, key: '2' },
-  { id: 'pen', icon: <IconPen size={16} />, key: '3' },
-  { id: 'rect', icon: <IconRect size={16} />, key: '4' },
-  { id: 'ellipse', icon: <IconEllipse size={16} />, key: '5' },
-  { id: 'arrow', icon: <IconArrow size={16} />, key: '6' },
-  { id: 'text', icon: <IconText size={16} />, key: '7' },
-];
 
 function Keys({ keys }: { keys: string[] }) {
   return (
@@ -43,7 +25,14 @@ function Keys({ keys }: { keys: string[] }) {
  * Notiz, Titelleiste zieht die Karte um). Per `?` oder das Hilfe-Icon
  * geoeffnet, per Esc/Klick auf den Backdrop geschlossen.
  */
-export function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
+export function ShortcutsOverlay({
+  order,
+  onClose,
+}: {
+  /** Werkzeug-Reihenfolge der Leiste — die Ziffern folgen ihr. */
+  order: readonly Tool[];
+  onClose: () => void;
+}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -78,11 +67,11 @@ export function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
                 <span className="sheet__row-label">Interact — clicks go to the page</span>
                 <Keys keys={['Esc']} />
               </div>
-              {TOOL_ROWS.map((row) => (
-                <div key={row.id} className="sheet__row">
-                  <span className="sheet__row-icon">{row.icon}</span>
-                  <span className="sheet__row-label">{TOOL_LABELS[row.id]}</span>
-                  <Keys keys={[row.key]} />
+              {order.map((id, i) => (
+                <div key={id} className="sheet__row">
+                  <span className="sheet__row-icon">{TOOL_ICONS[id]()}</span>
+                  <span className="sheet__row-label">{TOOL_LABELS[id]}</span>
+                  <Keys keys={[String(i + 1)]} />
                 </div>
               ))}
             </div>
@@ -94,7 +83,7 @@ export function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
                 <Keys keys={[MOD, 'Z']} />
               </div>
               <div className="sheet__row">
-                <span className="sheet__row-label">Leave draw mode / exit full window</span>
+                <span className="sheet__row-label">Leave draw mode</span>
                 <Keys keys={['Esc']} />
               </div>
               <div className="sheet__row">
@@ -116,8 +105,16 @@ export function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
                 <Keys keys={['Double-click']} />
               </div>
               <div className="sheet__row">
+                <span className="sheet__row-label">Move your own marking</span>
+                <Keys keys={['Drag outline']} />
+              </div>
+              <div className="sheet__row">
                 <span className="sheet__row-label">Reorder devices</span>
                 <Keys keys={['Drag title']} />
+              </div>
+              <div className="sheet__row">
+                <span className="sheet__row-label">Move / reorder the tool bar</span>
+                <Keys keys={['Drag grip']} />
               </div>
               <div className="sheet__row">
                 <span className="sheet__row-label">Zoom the grid (turns auto zoom off)</span>

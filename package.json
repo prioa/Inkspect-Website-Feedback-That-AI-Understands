@@ -1,6 +1,6 @@
 {
   "name": "inkspect",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Responsive preview with synced device frames, live CSS editor and feedback tools (Chrome/Firefox)",
   "type": "module",

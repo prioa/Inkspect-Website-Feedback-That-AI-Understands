@@ -1,4 +1,4 @@
-import { browser } from 'wxt/browser';
+import { storageLocal } from './storage';
 
 export interface DevicePreset {
   id: string;
@@ -88,13 +88,13 @@ function isPreset(value: unknown): value is DevicePreset {
 }
 
 export async function loadCustomPresets(): Promise<DevicePreset[]> {
-  const result = await browser.storage.local.get(CUSTOM_KEY);
+  const result = await storageLocal().get(CUSTOM_KEY);
   const list = (result as Record<string, unknown>)[CUSTOM_KEY];
   return Array.isArray(list) ? list.filter(isPreset) : [];
 }
 
 export async function saveCustomPresets(presets: DevicePreset[]): Promise<void> {
-  await browser.storage.local.set({ [CUSTOM_KEY]: presets.filter((p) => isCustomPreset(p.id)) });
+  await storageLocal().set({ [CUSTOM_KEY]: presets.filter((p) => isCustomPreset(p.id)) });
 }
 
 export interface GridState {
@@ -103,7 +103,7 @@ export interface GridState {
 }
 
 export async function loadGridState(): Promise<GridState | null> {
-  const result = await browser.storage.local.get(GRID_KEY);
+  const result = await storageLocal().get(GRID_KEY);
   const state = (result as Record<string, unknown>)[GRID_KEY] as Partial<GridState> | undefined;
   if (!state || !Array.isArray(state.devices) || typeof state.zoom !== 'number') return null;
   return {
@@ -116,7 +116,7 @@ export async function loadGridState(): Promise<GridState | null> {
 }
 
 export async function saveGridState(state: GridState): Promise<void> {
-  await browser.storage.local.set({ [GRID_KEY]: state });
+  await storageLocal().set({ [GRID_KEY]: state });
 }
 
 /*
@@ -172,11 +172,11 @@ function isWorkspace(value: unknown): value is Workspace {
 }
 
 export async function loadWorkspaces(): Promise<Workspace[]> {
-  const result = await browser.storage.local.get(WORKSPACE_KEY);
+  const result = await storageLocal().get(WORKSPACE_KEY);
   const list = (result as Record<string, unknown>)[WORKSPACE_KEY];
   return Array.isArray(list) ? list.filter(isWorkspace) : [];
 }
 
 export async function saveWorkspaces(list: Workspace[]): Promise<void> {
-  await browser.storage.local.set({ [WORKSPACE_KEY]: list });
+  await storageLocal().set({ [WORKSPACE_KEY]: list });
 }

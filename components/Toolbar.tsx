@@ -8,6 +8,7 @@ import {
   type Workspace,
 } from '@/lib/devices';
 import type { ThemePref } from '@/lib/settings';
+import { ANNOTATION_COLORS } from '@/lib/annotations';
 import {
   IconCheck,
   IconClose,
@@ -80,6 +81,9 @@ interface Props {
   /** Inkspect startet im Vollbild-Modus. */
   startFullscreen: boolean;
   onToggleStartFullscreen: () => void;
+  /** Wie viele Feedback-Farben die Werkzeugleiste anbietet (2 oder 4). */
+  paletteColorCount: number;
+  onSetPaletteColorCount: (count: number) => void;
   onReload: () => void;
   onToggleEditor: () => void;
   /** Schaltet den Schrift-Inspector an/aus. */
@@ -142,6 +146,8 @@ export function Toolbar({
   onToggleAutoFit,
   startFullscreen,
   onToggleStartFullscreen,
+  paletteColorCount,
+  onSetPaletteColorCount,
   onReload,
   onToggleEditor,
   onToggleInspector,
@@ -515,6 +521,20 @@ export function Toolbar({
 
       <span className="toolbar__sep" />
 
+      {/* Vollbild ist der haeufigste Moduswechsel — fester Platz statt Menue. */}
+      <div className="toolbar__group">
+        <button
+          className="icon-btn"
+          onClick={onFullscreen}
+          title="Full window mode — the page at full size with the feedback bar"
+          aria-label="Full window mode"
+        >
+          <IconExpand />
+        </button>
+      </div>
+
+      <span className="toolbar__sep" />
+
       {/* „More": alle Neben-Funktionen beschriftet an einem Ort — haelt die
           Toolbar aufgeraeumt und macht die Bedeutung sofort klar. */}
       <div className="toolbar__group">
@@ -563,25 +583,14 @@ export function Toolbar({
                 </button>
                 <button
                   className="menu__item"
-                  role="menuitem"
-                  onClick={() => {
-                    onFullscreen();
-                    setMoreMenuOpen(false);
-                  }}
-                >
-                  <span className="menu__item-icon">
-                    <IconExpand size={15} />
-                  </span>
-                  <span className="menu__item-name">Full window mode</span>
-                </button>
-                <button
-                  className="menu__item"
                   role="menuitemcheckbox"
                   aria-checked={startFullscreen}
                   title="Open Inkspect in full window mode from now on"
                   onClick={onToggleStartFullscreen}
                 >
-                  <span className="menu__item-icon" />
+                  <span className="menu__item-icon">
+                    <IconExpand size={15} />
+                  </span>
                   <span className="menu__item-name">Start in full window</span>
                   <span className="menu__check">
                     {startFullscreen && <IconCheck size={14} />}
@@ -603,6 +612,28 @@ export function Toolbar({
                 <button className="menu__item" role="menuitem" onClick={() => onToggleSync('all')}>
                   <span className="menu__item-name">{syncAll ? 'Turn all off' : 'Turn all on'}</span>
                 </button>
+
+                <div className="menu__title menu__title--sep">Feedback colours</div>
+                {[2, 4].map((count) => (
+                  <button
+                    key={count}
+                    className="menu__item"
+                    role="menuitemradio"
+                    aria-checked={paletteColorCount === count}
+                    title={`Offer ${count} colours in the feedback tool bar`}
+                    onClick={() => onSetPaletteColorCount(count)}
+                  >
+                    <span className="menu__item-icon menu__swatches">
+                      {ANNOTATION_COLORS.slice(0, count).map((c) => (
+                        <i key={c} style={{ background: c }} />
+                      ))}
+                    </span>
+                    <span className="menu__item-name">{count} colours</span>
+                    <span className="menu__check">
+                      {paletteColorCount === count && <IconCheck size={14} />}
+                    </span>
+                  </button>
+                ))}
 
                 <div className="menu__title menu__title--sep">Theme</div>
                 {THEME_ROWS.map((row) => (
