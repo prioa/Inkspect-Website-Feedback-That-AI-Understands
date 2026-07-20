@@ -17,8 +17,8 @@
   <rect width="1280" height="800" fill="url(#bg)"/>
   <rect width="1280" height="800" fill="url(#glow)"/>
 
-  <text x="80" y="96" font-size="44" font-weight="800" fill="#e8eaf0">Point, draw, comment — feedback that sticks.</text>
-  <text x="80" y="138" font-size="20" fill="#a9b0bf">Pins, shapes, freehand and element picks — every note stays anchored to the page.</text>
+  <text x="80" y="96" font-size="44" font-weight="800" fill="#e8eaf0">Live feedback on the page — shareable as a link.</text>
+  <text x="80" y="138" font-size="20" fill="#a9b0bf">Pins, shapes, freehand and element picks stay anchored — send it all as one URL.</text>
 
   <!-- Phone with annotations -->
   <g filter="url(#ds)"><rect x="90" y="190" width="330" height="570" rx="14" fill="#151820" stroke="#262c38" stroke-width="1.5"/></g>
@@ -48,6 +48,15 @@
   <rect x="273" y="589" width="120" height="56" rx="6" fill="#dbe1ec"/>
   <rect x="273" y="655" width="92" height="8" rx="4" fill="#c9d0dc"/>
   <rect x="273" y="671" width="64" height="8" rx="4" fill="#c9d0dc"/>
+
+  <!-- blue guide line with measured gap -->
+  <line x1="91.5" y1="495" x2="418.5" y2="495" stroke="#5b8cff" stroke-width="2"/>
+  <line x1="93" y1="489" x2="93" y2="501" stroke="#5b8cff" stroke-width="2"/>
+  <line x1="417" y1="489" x2="417" y2="501" stroke="#5b8cff" stroke-width="2"/>
+  <line x1="300" y1="484" x2="300" y2="494" stroke="#5b8cff" stroke-width="1.4" stroke-dasharray="3 2"/>
+  <line x1="300" y1="496" x2="300" y2="506" stroke="#5b8cff" stroke-width="1.4" stroke-dasharray="3 2"/>
+  <rect x="312" y="484" width="56" height="22" rx="6" fill="rgba(14,16,20,0.92)" stroke="#5b8cff" stroke-width="1.2"/>
+  <text x="340" y="499" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">26 px</text>
 
   <!-- red freehand loop around logo -->
   <path d="M 106,250 C 100,234 130,224 158,230 C 184,236 190,254 172,266 C 152,278 116,274 106,260 C 100,252 108,244 120,242" fill="none" stroke="#ff5d5d" stroke-width="3" stroke-linecap="round"/>
@@ -86,51 +95,96 @@
   <text x="936" y="335" font-size="13" fill="#e8eaf0">Make the CTA full width</text>
 
   <circle cx="917" cy="370" r="5" fill="#3ecf6e"/>
-  <text x="936" y="375" font-size="13" fill="#e8eaf0">div.card — Align prices to the…</text>
+  <text x="936" y="371" font-size="13" fill="#e8eaf0">div.card — Align prices to the…</text>
+  <text x="936" y="388" font-size="11" fill="#6f7686" font-family="ui-monospace, Menlo, monospace">146 × 126 px</text>
 
-  <circle cx="917" cy="410" r="5" fill="#ffb340"/>
-  <text x="936" y="415" font-size="13" fill="#e8eaf0">Arrow — Menu icon too small</text>
+  <circle cx="917" cy="412" r="5" fill="#ffb340"/>
+  <text x="936" y="417" font-size="13" fill="#e8eaf0">Arrow — Menu icon too small</text>
 
-  <circle cx="917" cy="450" r="5" fill="#ff5d5d"/>
-  <text x="936" y="455" font-size="13" fill="#e8eaf0">Freehand</text>
+  <circle cx="917" cy="450" r="5" fill="#5b8cff"/>
+  <text x="936" y="446" font-size="13" fill="#e8eaf0">Guide line — baseline gap</text>
+  <text x="936" y="463" font-size="11" fill="#6f7686" font-family="ui-monospace, Menlo, monospace">26 px</text>
 
   <line x1="904" y1="486" x2="1176" y2="486" stroke="#262c38"/>
   <rect x="904" y="508" width="130" height="36" rx="9" fill="#5b8cff"/>
   <text x="969" y="531" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">Share as link</text>
   <rect x="1046" y="508" width="130" height="36" rx="9" fill="#262c38" stroke="#37404f"/>
   <text x="1111" y="531" font-size="13" font-weight="600" fill="#e8eaf0" text-anchor="middle">Screenshots</text>
-  <text x="904" y="576" font-size="12" fill="#6f7686">3 annotated screenshots saved to your</text>
-  <text x="904" y="594" font-size="12" fill="#6f7686">Downloads folder — notes included.</text>
+  <text x="904" y="576" font-size="12" fill="#6f7686">Everything packed into the URL — opens live</text>
+  <text x="904" y="594" font-size="12" fill="#6f7686">on the page. No server, no account.</text>
 
-  <!-- Tool palette -->
-  <g filter="url(#ds)"><rect x="470" y="690" width="430" height="54" rx="27" fill="#151820" stroke="#262c38" stroke-width="1.5"/></g>
-  <!-- pointer -->
-  <path d="M 498,706 L 498,725 L 503,721 L 506.4,728.5 L 509.6,727.1 L 506.3,719.9 L 512,719.3 Z" fill="#e8eaf0"/>
-  <!-- element picker (crosshair) -->
-  <circle cx="540" cy="717" r="8" fill="none" stroke="#a9b0bf" stroke-width="2"/>
-  <line x1="540" y1="704" x2="540" y2="709" stroke="#a9b0bf" stroke-width="2"/>
-  <line x1="540" y1="725" x2="540" y2="730" stroke="#a9b0bf" stroke-width="2"/>
-  <line x1="527" y1="717" x2="532" y2="717" stroke="#a9b0bf" stroke-width="2"/>
-  <line x1="548" y1="717" x2="553" y2="717" stroke="#a9b0bf" stroke-width="2"/>
-  <!-- pin (active) -->
-  <rect x="566" y="700" width="34" height="34" rx="9" fill="#26314a"/>
-  <circle cx="583" cy="713" r="6" fill="none" stroke="#5b8cff" stroke-width="2.4"/>
-  <line x1="583" y1="719" x2="583" y2="729" stroke="#5b8cff" stroke-width="2.4"/>
-  <!-- pen -->
-  <path d="M 618,728 L 621,719 L 634,706 L 640,712 L 627,725 Z" fill="none" stroke="#a9b0bf" stroke-width="2" stroke-linejoin="round"/>
-  <!-- rect -->
-  <rect x="660" y="709" width="17" height="15" rx="2" fill="none" stroke="#a9b0bf" stroke-width="2"/>
-  <!-- ellipse -->
-  <ellipse cx="712" cy="717" rx="9.5" ry="7.5" fill="none" stroke="#a9b0bf" stroke-width="2"/>
-  <!-- arrow -->
-  <line x1="740" y1="726" x2="756" y2="708" stroke="#a9b0bf" stroke-width="2" stroke-linecap="round"/>
-  <path d="M 748,708 L 756,708 L 755,716" fill="none" stroke="#a9b0bf" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- text tool -->
-  <text x="778" y="725" font-size="17" font-weight="700" fill="#a9b0bf">T</text>
-  <line x1="802" y1="704" x2="802" y2="730" stroke="#262c38"/>
-  <!-- swatches -->
-  <circle cx="822" cy="717" r="7" fill="#ff5d5d" stroke="#fff" stroke-width="2"/>
-  <circle cx="844" cy="717" r="6.5" fill="#ffb340"/>
-  <circle cx="866" cy="717" r="6.5" fill="#3ecf6e"/>
-  <circle cx="888" cy="717" r="6.5" fill="#5b8cff"/>
+  <!-- Floating tool bar (as in the product) -->
+  <g filter="url(#ds)"><rect x="470" y="690" width="616" height="54" rx="27" fill="#151820" stroke="#262c38" stroke-width="1.5"/></g>
+  <circle cx="491" cy="710" r="1.5" fill="#6f7686"/>
+  <circle cx="491" cy="717" r="1.5" fill="#6f7686"/>
+  <circle cx="491" cy="724" r="1.5" fill="#6f7686"/>
+  <circle cx="497" cy="710" r="1.5" fill="#6f7686"/>
+  <circle cx="497" cy="717" r="1.5" fill="#6f7686"/>
+  <circle cx="497" cy="724" r="1.5" fill="#6f7686"/>
+  <line x1="512" y1="704" x2="512" y2="730" stroke="#2c3342"/>
+  <g transform="translate(521,708) scale(0.75)" fill="none" stroke="#a9b0bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3Z"/>
+      <path d="m13 13 6 6"/>
+  </g>
+  <line x1="550" y1="704" x2="550" y2="730" stroke="#2c3342"/>
+  <g transform="translate(561,708) scale(0.75)" fill="none" stroke="#a9b0bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5"/>
+      <path d="m13 13 8 3-3.6 1.4L16 21l-3-8Z"/>
+  </g>
+  <rect x="587" y="700" width="34" height="34" rx="9" fill="#26314a"/>
+  <g transform="translate(595,708) scale(0.75)" fill="none" stroke="#5b8cff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+      <circle cx="12" cy="10" r="3"/>
+  </g>
+  <g transform="translate(629,708) scale(0.75)" fill="none" stroke="#a9b0bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 17c3-6 5-8 7-6s-2 6 1 6 5-8 10-11"/>
+  </g>
+  <g transform="translate(663,708) scale(0.75)" fill="none" stroke="#a9b0bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="5" width="18" height="14" rx="2"/>
+  </g>
+  <g transform="translate(697,708) scale(0.75)" fill="none" stroke="#a9b0bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <ellipse cx="12" cy="12" rx="9" ry="6.5"/>
+  </g>
+  <g transform="translate(731,708) scale(0.75)" fill="none" stroke="#a9b0bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 19 19 5"/>
+      <path d="M9 5h10v10"/>
+  </g>
+  <g transform="translate(765,708) scale(0.75)" fill="none" stroke="#a9b0bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12h18"/>
+      <path d="M3 8v8"/>
+      <path d="M21 8v8"/>
+  </g>
+  <g transform="translate(799,708) scale(0.75)" fill="none" stroke="#a9b0bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3v18"/>
+      <path d="M8 3h8"/>
+      <path d="M8 21h8"/>
+  </g>
+  <g transform="translate(833,708) scale(0.75)" fill="none" stroke="#a9b0bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 7V5h16v2"/>
+      <path d="M12 5v14"/>
+      <path d="M9 19h6"/>
+  </g>
+  <line x1="862" y1="704" x2="862" y2="730" stroke="#2c3342"/>
+  <circle cx="882" cy="717" r="7" fill="#ff5d5d" stroke="#fff" stroke-width="2"/>
+  <circle cx="904" cy="717" r="6.5" fill="#ffb340"/>
+  <circle cx="926" cy="717" r="6.5" fill="#3ecf6e"/>
+  <circle cx="948" cy="717" r="6.5" fill="#5b8cff"/>
+  <line x1="964" y1="704" x2="964" y2="730" stroke="#2c3342"/>
+  <g transform="translate(975,708) scale(0.75)" fill="none" stroke="#a9b0bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 14 4 9l5-5"/>
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>
+  </g>
+  <g transform="translate(1007,708) scale(0.75)" fill="none" stroke="#ff8f8f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 6h18"/>
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+  </g>
+  <line x1="1036" y1="704" x2="1036" y2="730" stroke="#2c3342"/>
+  <g transform="translate(1047,708) scale(0.75)" fill="none" stroke="#a9b0bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 14h6v6"/>
+      <path d="M20 10h-6V4"/>
+      <path d="M14 10l7-7"/>
+      <path d="M3 21l7-7"/>
+  </g>
+
 </svg>

@@ -20,6 +20,12 @@ interface Props {
   reloadKey: number;
   /** Globaler Zeichenmodus — die Overlays aller Frames sind scharf. */
   annotating: boolean;
+  /**
+   * Die Seite verbietet das Einbetten und der Nutzer arbeitet bewusst ohne
+   * Header-Eingriff weiter — statt eines leeren Rahmens steht dann ein
+   * Hinweis im Viewport.
+   */
+  previewBlocked?: boolean;
   shapes: Shape[];
   /** Shape-Ids erledigter Eintraege — gedimmt gerendert. */
   dimmedIds: Set<string>;
@@ -58,6 +64,12 @@ interface Props {
   onAddShape: (uid: string, shape: Shape) => void;
   /** Markierung verschoben (Versatz im Dokumentraum). */
   onMoveShape?: (uid: string, shapeId: string, dx: number, dy: number) => void;
+  /** Box in der Groesse geaendert (neue Eckpunkte im Dokumentraum). */
+  onResizeShape?: (
+    uid: string,
+    shapeId: string,
+    box: { x1: number; y1: number; x2: number; y2: number },
+  ) => void;
   /** Abstand eines Linienpaars gesetzt (nur UI-State). */
   onSetLineGap?: (shapeId: string, gap: number | null) => void;
   /** Stand einer Markierung speichern (nach dem Tippen/Ziehen). */
@@ -79,6 +91,7 @@ export function DeviceFrame({
   zoom,
   reloadKey,
   annotating,
+  previewBlocked = false,
   shapes,
   dimmedIds,
   lockedIds,
@@ -101,6 +114,7 @@ export function DeviceFrame({
   onBadgeClick,
   onAddShape,
   onMoveShape,
+  onResizeShape,
   onSetLineGap,
   onCommitShape,
   onSetShapeNote,
@@ -282,6 +296,16 @@ export function DeviceFrame({
           }}
         />
 
+        {previewBlocked && (
+          <div className="device__blocked">
+            <strong>Preview blocked by the site</strong>
+            <p>
+              This page sends headers that forbid embedding. Turn the preview on from the toolbar
+              marker whenever you want.
+            </p>
+          </div>
+        )}
+
         <AnnotationOverlay
           width={width}
           height={height}
@@ -303,6 +327,9 @@ export function DeviceFrame({
           onSetNote={(shapeId, note) => onSetShapeNote(device.uid, shapeId, note)}
           onMoveShape={
             onMoveShape && ((shapeId, dx, dy) => onMoveShape(device.uid, shapeId, dx, dy))
+          }
+          onResizeShape={
+            onResizeShape && ((shapeId, box) => onResizeShape(device.uid, shapeId, box))
           }
           onSetLineGap={onSetLineGap}
           onCommitShape={onCommitShape}

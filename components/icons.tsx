@@ -31,6 +31,14 @@ export const IconReload = ({ size }: IconProps) => (
   </Icon>
 );
 
+/** Kompass — Einstieg in die gefuehrte Tour. */
+export const IconCompass = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m15.5 8.5-2 5-5 2 2-5z" />
+  </Icon>
+);
+
 export const IconCode = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="m16 18 6-6-6-6" />

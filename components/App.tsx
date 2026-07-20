@@ -6,6 +6,7 @@ import { DeviceFrame } from './DeviceFrame';
 import { AnnotationPalette, FeedbackBar } from './AnnotationPalette';
 import { FeedbackPanel } from './FeedbackPanel';
 import { ShortcutsOverlay } from './ShortcutsOverlay';
+import { Tour } from './Tour';
 import { ConfirmDialog } from './ConfirmDialog';
 import { IconClose, IconMessage, IconWarning } from './icons';
 import {
@@ -54,6 +55,7 @@ import {
   type Tool,
 } from '@/lib/annotations';
 import type { NoteEditRequest } from './AnnotationOverlay';
+import { FrameGate } from './FrameGate';
 import {
   addItems,
   clearUrl,
@@ -75,7 +77,7 @@ import {
 import { buildShareUrl } from '@/lib/share';
 import { captureFullFrameShot, downloadBlob } from '@/lib/screenshot';
 import { applyOverride, clearOverride, collectSheets, type SheetSource } from '@/lib/stylesheets';
-import type { FrameBypassResponse } from '@/lib/messages';
+import type { FrameBypassResponse, FrameCheckResponse } from '@/lib/messages';
 import { createLogger } from '@/lib/log';
 
 const APPLY_DEBOUNCE_MS = 150;
@@ -253,7 +255,13 @@ export function App({
   const [theme, setTheme] = useState<ThemePref>(DEFAULT_SETTINGS.theme);
   const [editorWidth, setEditorWidth] = useState(DEFAULT_SETTINGS.editorWidth);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_SETTINGS.panelWidth);
-  const [coachOpen, setCoachOpen] = useState(false);
+  /**
+   * Laufender Schritt der gefuehrten Tour, `null` wenn sie nicht laeuft.
+   * Ersetzt den alten Ein-Satz-Hinweis: der nannte nur den Rechtsklick, waehrend
+   * die eigentlichen Gesten (Karten ziehen, Hilfslinien aufziehen, Markierung
+   * verschieben) unentdeckt blieben.
+   */
+  const [tourStep, setTourStep] = useState<number | null>(null);
   // Auto-Fit: haelt den Zoom so, dass alle Karten in eine Zeile passen —
   // nachgezogen bei Grid-Wechsel und jeder Breitenaenderung (Panel/Editor,
   // Fenster). Jeder manuelle Zoom schaltet ihn ab.
@@ -287,11 +295,13 @@ export function App({
       setTheme(s.theme);
       setEditorWidth(s.editorWidth);
       setPanelWidth(s.panelWidth);
-      setCoachOpen(!s.onboardingSeen);
+      if (!s.tourDone) setTourStep(0);
       setAutoFit(s.autoFit);
       setStartFullscreen(s.startFullscreen);
       setPaletteColorCount(s.paletteColorCount);
       setToolbarPlacement({ dock: s.toolbarDock, x: s.toolbarX, y: s.toolbarY });
+      setFramingAllowed(s.framingAllowed.includes(location.origin));
+      framingConsentLoaded.current = true;
       if (s.startFullscreen) setFullscreen(true);
       settingsRestored.current = true;
     });
@@ -319,13 +329,13 @@ export function App({
     void saveSettings({ theme: next });
   }, []);
 
-  const coachOpenRef = useRef(coachOpen);
-  coachOpenRef.current = coachOpen;
-  const dismissCoach = useCallback(() => {
-    if (!coachOpenRef.current) return;
-    setCoachOpen(false);
-    void saveSettings({ onboardingSeen: true });
+  /** Tour beenden — ob durchgelaufen oder abgebrochen, sie kommt nicht wieder. */
+  const closeTour = useCallback(() => {
+    setTourStep(null);
+    void saveSettings({ tourDone: true });
   }, []);
+  /** Aus dem „More"-Menue heraus noch einmal von vorn. */
+  const restartTour = useCallback(() => setTourStep(0), []);
 
   // Eigene, benannte Grid-Layouts (Device-Sets).
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -352,6 +362,26 @@ export function App({
   const [blocked, setBlocked] = useState(false);
   const [bypassEnabled, setBypassEnabled] = useState(false);
   const [bypassPending, setBypassPending] = useState(false);
+  /**
+   * Darf die aktuelle URL als Frame geladen werden? Wird *vor* dem Laden
+   * geklaert (Header-Vorabpruefung im Background), damit die Warnung kommt,
+   * bevor die Seite ueberhaupt angefordert wird.
+   */
+  const [gate, setGate] = useState<'checking' | 'open' | 'blocked'>('checking');
+  /**
+   * Diese Origin hat der Nutzer schon einmal freigegeben — dann laedt eine
+   * blockierte Seite direkt, statt erneut zu fragen. Der Toolbar-Indikator
+   * zeigt den laufenden Eingriff und nimmt die Freigabe wieder zurueck.
+   */
+  const [framingAllowed, setFramingAllowed] = useState(false);
+  const framingConsentLoaded = useRef(false);
+  /**
+   * Der Nutzer arbeitet bewusst ohne Header-Eingriff weiter: die Oberflaeche
+   * laeuft, die Device-Frames bleiben leer und zeigen einen Hinweis.
+   */
+  const [framingSkipped, setFramingSkipped] = useState(false);
+  /** URL → blockiert? Verhindert einen Vorab-Request pro Reload. */
+  const framingChecked = useRef(new Map<string, boolean>());
   const [hint, setHint] = useState<string | null>(null);
   // Wird gesetzt, sobald der Extension-Kontext invalidiert ist (Update/Reload
   // der Extension bei offener UI). Ab hier schlaegt jede Persistenz fehl —
@@ -428,17 +458,34 @@ export function App({
   // Zeilenfuellendes Grid: die Grid-Breite wird gemessen (reagiert auch auf
   // Panel-/Editor-Toggles), daraus ergibt sich der effektive Zoom pro Device.
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const [gridEl, setGridEl] = useState<HTMLDivElement | null>(null);
+  /**
+   * Callback-Ref statt blossem `useRef`: das Grid haengt am Frame-Gate und
+   * montiert erst, wenn das die Seite geprueft hat. Ein Effekt, der beim
+   * ersten Lauf `gridRef.current` liest, greift bis dahin ins Leere und haengt
+   * ohne Abhaengigkeit auf den Knoten nie nach — Breitenmessung und
+   * Wheel-Zoom blieben die ganze Sitzung tot. Der Ref bleibt fuer die
+   * imperativen Leser (Scrollbalken-Probe im Fit-Knopf).
+   */
+  const attachGrid = useCallback((el: HTMLDivElement | null) => {
+    gridRef.current = el;
+    setGridEl(el);
+  }, []);
   const [gridWidth, setGridWidth] = useState(0);
   useEffect(() => {
-    const el = gridRef.current;
-    if (!el || fullscreen) return;
+    if (!gridEl || fullscreen) return;
     const observer = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
       if (w != null) setGridWidth(w);
     });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [fullscreen]);
+    observer.observe(gridEl);
+    // Beim Abbau zurueck auf 0: eine stehengebliebene Breite wuerde den
+    // naechsten Fit gegen ein Grid rechnen, das es nicht mehr gibt.
+    return () => {
+      observer.disconnect();
+      setGridWidth(0);
+    };
+  }, [gridEl, fullscreen]);
 
   /** Effektiver Zoom pro Device (Zeile auf volle Breite skaliert). */
   const effZooms = useMemo(() => rowZooms(devices, zoom, gridWidth), [devices, zoom, gridWidth]);
@@ -546,16 +593,18 @@ export function App({
         // geht — dort nur der Knopf-Puls als Hinweis, wo die Liste wohnt.
         if (fullscreenRef.current) pulseFab();
         else setFeedbackOpen(true);
-        dismissCoach(); // erster Zeichenschritt: Erst-Hinweis ist erledigt
       }
       setTool(next);
     },
-    [dismissCoach, pulseFab],
+    [pulseFab],
   );
 
   // Die Werkzeug-Palette ist ein Kontextmenue: Rechtsklick (auf Grid,
   // Overlay oder in einer Vorschau) oeffnet sie neben der Maus.
   const [paletteAt, setPaletteAt] = useState<{ x: number; y: number } | null>(null);
+  // Stabiles Objekt: die Tour haengt Effekte daran auf, ein frisches Literal
+  // pro Render wuerde sie bei jedem Tastendruck neu bewerten lassen.
+  const tourState = useMemo(() => ({ paletteOpen: paletteAt !== null }), [paletteAt]);
   const openPalette = useCallback((x: number, y: number) => setPaletteAt({ x, y }), []);
   const closePalette = useCallback(() => setPaletteAt(null), []);
 
@@ -945,6 +994,7 @@ export function App({
     setActiveId(null);
     setOverrides({});
     setBlocked(false);
+    setFramingSkipped(false);
     setActiveUrl(normalizeUrl(next.href));
     setNavigating(true);
     setSrc(next.href);
@@ -953,36 +1003,139 @@ export function App({
     setReloadKey((k) => k + 1);
   }, []);
 
-  const enableBypass = useCallback(async () => {
-    setBypassPending(true);
-    try {
-      const res = (await browser.runtime.sendMessage({
-        type: 'ink:frame-bypass',
-        enabled: true,
-      })) as FrameBypassResponse;
-
-      if (!res.ok) {
-        setHint(`Could not bypass the frame blocking: ${res.error}`);
-        return;
+  // Letztes Netz: verlaesst der Tab die Seite, stirbt die UI — der Eingriff
+  // darf nicht zurueckbleiben. tabs.onUpdated im Background deckt denselben
+  // Fall ab, dieser Weg ist der schnellere.
+  useEffect(() => {
+    const off = () => {
+      try {
+        void browser.runtime.sendMessage({ type: 'ink:frame-bypass', enabled: false });
+      } catch {
+        /* Kontext schon weg */
       }
-      setBypassEnabled(true);
-      reloadFrames();
-    } finally {
-      setBypassPending(false);
+    };
+    window.addEventListener('pagehide', off);
+    return () => window.removeEventListener('pagehide', off);
+  }, []);
+
+  /**
+   * Vorab-Pruefung der Framing-Header. Faellt der Check aus (Netzwerkfehler,
+   * Background nicht erreichbar), wird geladen — die Erkennung nach dem Load
+   * bleibt als Netz bestehen.
+   */
+  useEffect(() => {
+    if (bypassEnabled) {
+      setGate('open');
+      return;
     }
+    const cached = framingChecked.current.get(src);
+    if (cached != null) {
+      setGate(cached ? 'blocked' : 'open');
+      return;
+    }
+
+    let current = true;
+    setGate('checking');
+    void (async () => {
+      let isBlocked = false;
+      try {
+        const res = (await browser.runtime.sendMessage({
+          type: 'ink:frame-check',
+          url: src,
+        })) as FrameCheckResponse;
+        isBlocked = res.ok && res.blocked;
+      } catch {
+        isBlocked = false;
+      }
+      framingChecked.current.set(src, isBlocked);
+      if (current) setGate(isBlocked ? 'blocked' : 'open');
+    })();
+    return () => {
+      current = false;
+    };
+  }, [src, bypassEnabled]);
+
+  /**
+   * Header-Eingriff einschalten. `remember` speichert die Zustimmung fuer
+   * diese Origin — danach laufen blockierte Seiten ohne erneute Nachfrage.
+   */
+  const enableBypass = useCallback(
+    async (remember = true) => {
+      setBypassPending(true);
+      try {
+        const res = (await browser.runtime.sendMessage({
+          type: 'ink:frame-bypass',
+          enabled: true,
+          host: location.host,
+        })) as FrameBypassResponse;
+
+        if (!res.ok) {
+          setHint(`Could not load the preview: ${res.error}`);
+          return;
+        }
+        if (remember) {
+          setFramingAllowed(true);
+          const current = await loadSettings();
+          if (!current.framingAllowed.includes(location.origin)) {
+            void saveSettings({
+              framingAllowed: [...current.framingAllowed, location.origin],
+            });
+          }
+        }
+        framingChecked.current.clear();
+        setBypassEnabled(true);
+        setGate('open');
+        reloadFrames();
+      } finally {
+        setBypassPending(false);
+      }
+    },
+    [reloadFrames],
+  );
+
+  /** Eingriff beenden und die Freigabe dieser Origin zuruecknehmen. */
+  const revokeBypass = useCallback(async () => {
+    await browser.runtime.sendMessage({ type: 'ink:frame-bypass', enabled: false });
+    const current = await loadSettings();
+    void saveSettings({
+      framingAllowed: current.framingAllowed.filter((o) => o !== location.origin),
+    });
+    framingChecked.current.clear();
+    setFramingAllowed(false);
+    setBypassEnabled(false);
+    reloadFrames();
   }, [reloadFrames]);
+
+  /**
+   * Freigegebene Origin: den Eingriff einschalten, sobald eine Seite daran
+   * scheitert — ohne erneute Nachfrage, aber sichtbar in der Werkzeugleiste.
+   */
+  useEffect(() => {
+    if (gate !== 'blocked' || bypassEnabled || bypassPending) return;
+    if (!framingConsentLoaded.current || !framingAllowed) return;
+    void enableBypass(false);
+  }, [gate, framingAllowed, bypassEnabled, bypassPending, enableBypass]);
+
+  /**
+   * Blockiert — entweder vorab an den Headern erkannt oder (als Netz) erst am
+   * leeren Frame nach dem Laden. Bis das geklaert ist, werden keine Frames
+   * gerendert; sonst fordern sie die Seite an, bevor die Warnung stand.
+   */
+  const frameBlocked = (gate === 'blocked' || blocked) && !bypassEnabled;
+  const gateOpen = (!frameBlocked || framingSkipped) && gate !== 'checking';
 
   const handleClose = useCallback(async () => {
     scrollSync.current.detachAll();
     interactionSync.current.detachAll();
-    if (bypassEnabled) {
-      await browser.runtime.sendMessage({
-        type: 'ink:frame-bypass',
-        enabled: false,
-      });
+    // Bedingungslos: der UI-State kann die Regel verfehlen (zweiter Start bei
+    // liegengebliebener Regel) — ein ueberfluessiges Abschalten kostet nichts.
+    try {
+      await browser.runtime.sendMessage({ type: 'ink:frame-bypass', enabled: false });
+    } catch {
+      /* Background nicht erreichbar — Cleanup laeuft ueber tabs.onUpdated */
     }
     onClose();
-  }, [bypassEnabled, onClose]);
+  }, [onClose]);
 
   const addDevice = useCallback(
     (presetId: string) => {
@@ -1155,7 +1308,7 @@ export function App({
   // passive:false — React haengt wheel sonst passiv an, dann greift kein
   // preventDefault.
   useEffect(() => {
-    const el = gridRef.current;
+    const el = gridEl;
     if (!el || fullscreen) return;
     const onWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
@@ -1166,7 +1319,7 @@ export function App({
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [fullscreen, setZoomManual]);
+  }, [gridEl, fullscreen, setZoomManual]);
 
   /** Legt ein eigenes Preset an (persistiert) und stellt es direkt ins Grid. */
   const addCustomDevice = useCallback((name: string, width: number, height: number) => {
@@ -1353,6 +1506,23 @@ export function App({
       const updated: FeedbackItem = { ...existing, shape: translateShape(existing.shape, dx, dy) };
       setFeedback((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       persist(replaceItem(updated), 'Markierung verschieben');
+    },
+    [feedback],
+  );
+
+  /**
+   * Neue Groesse einer Box uebernehmen. Wie beim Verschieben nur eigene
+   * Eintraege; das Overlay bietet fremde Marker erst gar nicht mit Griffen an.
+   */
+  const resizeShape = useCallback(
+    (_uid: string, shapeId: string, box: { x1: number; y1: number; x2: number; y2: number }) => {
+      const existing = feedback.find((item) => item.shape.id === shapeId);
+      if (!existing || !isMine(existing)) return;
+      const shape = existing.shape;
+      if (shape.tool !== 'rect' && shape.tool !== 'ellipse') return;
+      const updated: FeedbackItem = { ...existing, shape: { ...shape, ...box } };
+      setFeedback((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      persist(replaceItem(updated), 'Markierung skalieren');
     },
     [feedback],
   );
@@ -1878,6 +2048,10 @@ export function App({
           feedbackCount={feedbackCount}
           annotating={annotating}
           inspecting={inspecting}
+          framingBypassed={bypassEnabled}
+          framingBlocked={frameBlocked}
+          onRevokeFraming={() => void revokeBypass()}
+          onEnableFraming={() => void enableBypass()}
           theme={theme}
           workspaces={workspaces}
           onNavigate={handleNavigate}
@@ -1909,6 +2083,7 @@ export function App({
           }}
           onSetTheme={changeTheme}
           onHelp={() => setHelpOpen(true)}
+          onTour={restartTour}
           onFullscreen={() => setFullscreen(true)}
           onClose={() => void handleClose()}
         />
@@ -1930,23 +2105,18 @@ export function App({
         </div>
       )}
 
-      {blocked && !bypassEnabled && (
-        <div className="banner">
-          <strong>This page refuses to be embedded.</strong>
-          <span>
-            It sends <code>X-Frame-Options: DENY</code> or <code>frame-ancestors 'none'</code>. To
-            work around this, Inkspect removes these headers — only in this tab, only for the
-            preview frames.
-          </span>
-          <span className="device__bar-spacer" />
-          <button onClick={() => void enableBypass()} disabled={bypassPending}>
-            {bypassPending ? 'Enabling…' : 'Bypass blocking'}
-          </button>
-        </div>
-      )}
-
       <div className={`body${resizing ? ' body--resizing' : ''}`}>
-        {!fullscreen && editorOpen && (
+        {gateOpen ? null : (
+          <FrameGate
+            url={src}
+            checking={gate === 'checking' && !frameBlocked}
+            pending={bypassPending}
+            onProceed={() => void enableBypass()}
+            onSkip={() => setFramingSkipped(true)}
+            onClose={() => void handleClose()}
+          />
+        )}
+        {gateOpen && !fullscreen && editorOpen && (
           <>
             <CssEditor
               shadowRoot={shadowRoot}
@@ -1970,7 +2140,7 @@ export function App({
           </>
         )}
 
-        {fullscreen && (
+        {gateOpen && fullscreen && (
           <div className="fs-stage">
             <DeviceFrame
               key={FS_UID}
@@ -1980,6 +2150,7 @@ export function App({
               zoom={1}
               reloadKey={reloadKey}
               annotating={annotating}
+              previewBlocked={frameBlocked}
               shapes={itemsFor(FULLSCREEN_ID).map((item) => item.shape)}
               dimmedIds={
                 new Set(
@@ -2013,6 +2184,7 @@ export function App({
               onAddShape={addShape}
               onSetShapeNote={setShapeNote}
               onMoveShape={moveShape}
+              onResizeShape={resizeShape}
               onSetLineGap={setLineGap}
               onCommitShape={commitShape}
               onDragBegin={() => {}}
@@ -2022,9 +2194,9 @@ export function App({
           </div>
         )}
 
-        {!fullscreen && (
+        {gateOpen && !fullscreen && (
         <div
-          ref={gridRef}
+          ref={attachGrid}
           className={`grid${dragUid ? ' grid--dragging' : ''}`}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -2039,6 +2211,7 @@ export function App({
               zoom={effZooms.get(device.uid) ?? zoom}
               reloadKey={reloadKey}
               annotating={annotating}
+              previewBlocked={frameBlocked}
               shapes={itemsFor(device.id).map((item) => item.shape)}
               dimmedIds={
                 new Set(
@@ -2073,6 +2246,7 @@ export function App({
               onAddShape={addShape}
               onSetShapeNote={setShapeNote}
               onMoveShape={moveShape}
+              onResizeShape={resizeShape}
               onSetLineGap={setLineGap}
               onCommitShape={commitShape}
               onDragBegin={setDragUid}
@@ -2201,18 +2375,17 @@ export function App({
         />
       )}
 
-      {coachOpen && !fullscreen && !helpOpen && (
-        <div className="coach" role="note">
-          <div>
-            <strong>New here?</strong> Right-click any preview — or hit Feedback up top — to mark
-            elements, drop pins and draw. Press <kbd>?</kbd> anytime for all shortcuts.
-          </div>
-          <div className="coach__actions">
-            <button className="coach__dismiss" onClick={dismissCoach}>
-              Got it
-            </button>
-          </div>
-        </div>
+      {/* Die Tour zeigt auf Elemente der Grid-Ansicht; im Vollbild gibt es
+          weder Toolbar noch Karten-Titelleisten, dort pausiert sie und laeuft
+          beim Zurueckwechseln am selben Schritt weiter. */}
+      {tourStep !== null && !fullscreen && !helpOpen && (
+        <Tour
+          root={shadowRoot}
+          state={tourState}
+          index={tourStep}
+          onIndex={setTourStep}
+          onClose={closeTour}
+        />
       )}
 
       {inspecting && inspect && (

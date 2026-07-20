@@ -19,8 +19,16 @@ export interface UiSettings {
   editorWidth: number;
   /** Breite des Feedback-Panels (rechts) in Shell-Pixeln. */
   panelWidth: number;
-  /** Der Erst-Hinweis auf die Feedback-Werkzeuge wurde weggeklickt. */
-  onboardingSeen: boolean;
+  /**
+   * Die gefuehrte Tour wurde durchlaufen oder abgebrochen.
+   *
+   * Bewusst ein neues Feld statt des abgeloesten `onboardingSeen`: die Tour
+   * zeigt Gesten, die der alte Ein-Satz-Hinweis nie erwaehnt hat —
+   * Bestandsnutzer sollen sie einmal sehen, auch wenn sie den alten Hinweis
+   * laengst weggeklickt hatten. Das Alt-Feld bleibt in gespeicherten Staenden
+   * liegen und wird schlicht nicht mehr gelesen.
+   */
+  tourDone: boolean;
   /** Zoom automatisch einpassen, wenn sich Grid oder Breite aendern. */
   autoFit: boolean;
   /** Inkspect direkt im Vollbild-Modus oeffnen. */
@@ -35,6 +43,12 @@ export interface UiSettings {
   /** Freie Position (linke obere Ecke der Leiste, Fenster-Koordinaten). */
   toolbarX: number;
   toolbarY: number;
+  /**
+   * Origins, fuer die der Nutzer dem Entfernen der Framing-Header zugestimmt
+   * hat. Gefragt wird einmal pro Origin; danach laedt eine blockierte Seite
+   * direkt, solange der Toolbar-Indikator den laufenden Eingriff zeigt.
+   */
+  framingAllowed: string[];
 }
 
 /**
@@ -59,13 +73,14 @@ export const DEFAULT_SETTINGS: UiSettings = {
   theme: 'system',
   editorWidth: 380,
   panelWidth: 320,
-  onboardingSeen: false,
+  tourDone: false,
   autoFit: true,
   startFullscreen: false,
   paletteColorCount: 2,
   toolbarDock: 'left',
   toolbarX: 14,
   toolbarY: 80,
+  framingAllowed: [],
 };
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
@@ -83,7 +98,7 @@ export async function loadSettings(): Promise<UiSettings> {
       theme: raw.theme === 'light' || raw.theme === 'dark' ? raw.theme : 'system',
       editorWidth: clamp(raw.editorWidth, EDITOR_WIDTH_MIN, EDITOR_WIDTH_MAX, DEFAULT_SETTINGS.editorWidth),
       panelWidth: clamp(raw.panelWidth, PANEL_WIDTH_MIN, PANEL_WIDTH_MAX, DEFAULT_SETTINGS.panelWidth),
-      onboardingSeen: raw.onboardingSeen === true,
+      tourDone: raw.tourDone === true,
       // Vorbelegt an: alte Staende ohne das Feld bekommen die Automatik.
       autoFit: raw.autoFit !== false,
       startFullscreen: raw.startFullscreen === true,
@@ -93,6 +108,9 @@ export async function loadSettings(): Promise<UiSettings> {
         raw.toolbarDock === 'bottom' || raw.toolbarDock === 'free' ? raw.toolbarDock : 'left',
       toolbarX: clamp(raw.toolbarX, 0, 10000, DEFAULT_SETTINGS.toolbarX),
       toolbarY: clamp(raw.toolbarY, 0, 10000, DEFAULT_SETTINGS.toolbarY),
+      framingAllowed: Array.isArray(raw.framingAllowed)
+        ? raw.framingAllowed.filter((o): o is string => typeof o === 'string')
+        : [],
     };
   } catch (e) {
     if (!reportContextError(e)) log.error('Settings laden fehlgeschlagen', e);

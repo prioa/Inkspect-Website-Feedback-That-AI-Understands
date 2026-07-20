@@ -96,6 +96,18 @@ try {
   }, { timeout: 10000 });
   await new Promise((r) => setTimeout(r, 500));
 
+  // Beim ersten Start laeuft die Onboarding-Tour und dimmt alles ausser dem
+  // gerade erklaerten Element — ihre Flaechen fangen die Klicks der Tests ab.
+  // Wegklicken wie ein Nutzer, der sie ueberspringt.
+  await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    sr.querySelector('.tour__head .icon-btn')?.click();
+  });
+  await page.waitForFunction(
+    () => !document.getElementById('inkspect-root').shadowRoot.querySelector('.tour__card'),
+    { timeout: 3000 },
+  );
+
   const frameInfo = await page.evaluate(() => {
     const frames = [...document.getElementById('inkspect-root').shadowRoot.querySelectorAll('iframe')];
     return frames.map((f) => {
@@ -170,7 +182,7 @@ try {
         ...document.getElementById('inkspect-root').shadowRoot.querySelectorAll('iframe'),
       ][i];
       const r = f.getBoundingClientRect();
-      return { left: r.left, top: r.top, scale: r.width / f.width };
+      return { left: r.left, top: r.top, scale: r.width / f.width, logicalWidth: Number(f.width) };
     }, index);
   const inFrame0 = async (x, y) => {
     const f = await frameRect(0);
@@ -435,26 +447,27 @@ try {
     `pins: ${panel.pins}, labels: ${panel.labels.join(' | ')}`,
   );
 
-  // --- 7b. Notiz erscheint beim Hover ueber dem Marker ---
+  // --- 7b. Notiz steht dauerhaft am Marker, der Hover loest sie ab ---
+  // Frueher erschien sie erst beim Ueberfahren; jetzt haengt eine gekuerzte
+  // Fassung dauerhaft am Marker und der Hover ersetzt sie durch den vollen
+  // Text. Geprueft wird deshalb, dass sie beidesmal da ist — und dass immer
+  // nur EINE Blase rendert: Dauer- und Hover-Fassung duerfen sich nicht
+  // ueberlagern (das Overlay filtert die gehoverte aus der Dauerliste).
+  const countBubbles = () =>
+    page.evaluate(
+      () =>
+        [...document.getElementById('inkspect-root').shadowRoot.querySelectorAll('.anno__svg text')]
+          .filter((t) => t.textContent === 'Logo zu klein').length,
+    );
   await page.mouse.move(pinSpot.x + 120, pinSpot.y + 60);
   await new Promise((r) => setTimeout(r, 200));
-  const bubbleAway = await page.evaluate(() => {
-    const sr = document.getElementById('inkspect-root').shadowRoot;
-    return [...sr.querySelectorAll('.anno__svg text')].some(
-      (t) => t.textContent === 'Logo zu klein',
-    );
-  });
+  const bubbleAway = await countBubbles();
   await page.mouse.move(pinSpot.x, pinSpot.y);
   await new Promise((r) => setTimeout(r, 300));
-  const bubbleOn = await page.evaluate(() => {
-    const sr = document.getElementById('inkspect-root').shadowRoot;
-    return [...sr.querySelectorAll('.anno__svg text')].some(
-      (t) => t.textContent === 'Logo zu klein',
-    );
-  });
+  const bubbleOn = await countBubbles();
   check(
-    'Notiz erscheint beim Hover ueber dem Marker',
-    !bubbleAway && bubbleOn,
+    'Notiz steht dauerhaft am Marker, ohne sich beim Hover zu verdoppeln',
+    bubbleAway === 1 && bubbleOn === 1,
     `abseits: ${bubbleAway}, auf Marker: ${bubbleOn}`,
   );
 
@@ -810,7 +823,9 @@ try {
   // --- 10b. Screenshots-Export: annotierte Full-Page-PNGs im Download-Ordner ---
   // Frame-Skalierung vor dem Export merken — die erwartete Bildhoehe haengt
   // am zeilenfuellenden Zoom, nicht mehr am festen Stepper-Wert.
-  const exportScale = (await frameRect(0)).scale;
+  const exportFrame = await frameRect(0);
+  const exportScale = exportFrame.scale;
+  const exportLogicalWidth = exportFrame.logicalWidth;
   const downloadDir = mkdtempSync(join(tmpdir(), 'inkspect-e2e-'));
   const cdp = await page.createCDPSession();
   await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir });
@@ -891,11 +906,16 @@ try {
     `Sprechblasen-Pixel: ${darkPixels}`,
   );
   // Full-Page: Testseite ist 4000 px hoch → Dokumenthoehe × Frame-Skalierung.
+  // Auch die Breite haengt am zeilenfuellenden Zoom (nicht an einem festen
+  // Stepper-Wert), deshalb gegen die Viewport-Breite des Frames pruefen statt
+  // gegen eine feste Pixelzahl.
   const expectedH = 4000 * exportScale;
+  const expectedW = exportLogicalWidth * exportScale;
   check(
     'Screenshot ist Full-Page (ganze Dokumenthoehe)',
-    Math.abs(shotSize.h - expectedH) < expectedH * 0.08 && shotSize.w > 200,
-    `${shotSize.w}×${shotSize.h}, erwartet ~${Math.round(expectedH)}`,
+    Math.abs(shotSize.h - expectedH) < expectedH * 0.08 &&
+      Math.abs(shotSize.w - expectedW) < expectedW * 0.08,
+    `${shotSize.w}×${shotSize.h}, erwartet ~${Math.round(expectedW)}×${Math.round(expectedH)}`,
   );
   // Sticky-Header (40×50 px logisch) darf nur EINMAL im Bild stehen — ohne
   // Unterdrueckung staende er auf jedem der ~6 Slices.

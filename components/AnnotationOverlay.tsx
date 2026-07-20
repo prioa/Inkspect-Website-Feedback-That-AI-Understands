@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
-import type { ElementRef, Point, Shape, Tool } from '@/lib/annotations';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type { BoxShape, ElementRef, Point, Shape, Tool } from '@/lib/annotations';
 import {
   LINE_REACH,
   elementLabel,
@@ -52,6 +52,11 @@ interface Props {
   onSetNote: (shapeId: string, note: string) => void;
   /** Verschobene Markierung uebernehmen (Dokumentraum-Versatz). */
   onMoveShape?: (shapeId: string, dx: number, dy: number) => void;
+  /** Neue Eckpunkte einer in der Groesse geaenderten Box uebernehmen. */
+  onResizeShape?: (
+    shapeId: string,
+    box: { x1: number; y1: number; x2: number; y2: number },
+  ) => void;
   /**
    * Abstand eines Linienpaars setzen (null = einzelne Linie). Laeuft nur in
    * den UI-State; gespeichert wird ueber `onCommitShape`, wenn das Feld den
@@ -115,6 +120,167 @@ const MIN_DRAG = 3;
 /** Toleranz um die Marker-Box fuer den Notiz-Hover (Dokument-Pixel). */
 const HOVER_PAD = 8;
 
+/**
+ * Griffe an Rechteck/Ellipse. Das Kuerzel nennt die Kanten, die der Griff
+ * zieht (`nw` = oben links, `e` = rechte Kante).
+ */
+type HandleId = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+const HANDLE_IDS: HandleId[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+/** Fangradius eines Griffs in Bildschirm-Pixeln. */
+const HANDLE_HIT = 9;
+
+/** Cursor-Modifier des Overlays pro Griff. */
+const HANDLE_CURSOR: Record<HandleId, string> = {
+  nw: 'nwse',
+  se: 'nwse',
+  ne: 'nesw',
+  sw: 'nesw',
+  n: 'ns',
+  s: 'ns',
+  e: 'ew',
+  w: 'ew',
+};
+
+/** Nur aufgezogene Boxen lassen sich in der Groesse aendern (Pfeil nicht). */
+function isResizable(shape: Shape): shape is BoxShape & { tool: 'rect' | 'ellipse' } {
+  return shape.tool === 'rect' || shape.tool === 'ellipse';
+}
+
+function handlePos(b: { x: number; y: number; w: number; h: number }, id: HandleId): Point {
+  return {
+    x: id.includes('w') ? b.x : id.includes('e') ? b.x + b.w : b.x + b.w / 2,
+    y: id.startsWith('n') ? b.y : id.startsWith('s') ? b.y + b.h : b.y + b.h / 2,
+  };
+}
+
+/** Griff unter dem Punkt (Dokumentraum) oder null. */
+function handleAt(shape: Shape, p: Point, tol: number): HandleId | null {
+  const b = shapeBounds(shape);
+  if (!b) return null;
+  return (
+    HANDLE_IDS.find((id) => {
+      const h = handlePos(b, id);
+      return Math.abs(p.x - h.x) <= tol && Math.abs(p.y - h.y) <= tol;
+    }) ?? null
+  );
+}
+
+/** Neue Eckpunkte, wenn `handle` auf `p` gezogen wird. Ueberkreuzen ist erlaubt. */
+function resizeBox(shape: BoxShape, handle: HandleId, p: Point) {
+  const box = {
+    x1: Math.min(shape.x1, shape.x2),
+    y1: Math.min(shape.y1, shape.y2),
+    x2: Math.max(shape.x1, shape.x2),
+    y2: Math.max(shape.y1, shape.y2),
+  };
+  if (handle.includes('w')) box.x1 = p.x;
+  if (handle.includes('e')) box.x2 = p.x;
+  if (handle.startsWith('n')) box.y1 = p.y;
+  if (handle.startsWith('s')) box.y2 = p.y;
+  return box;
+}
+
+/**
+ * Unsichtbare Trefferflaeche entlang der Kontur einer Markierung. Ausserhalb
+ * des Korrekturmodus faengt das Overlay als Ganzes keine Events (sonst waere
+ * die Seite nicht mehr bedienbar) — nur diese Konturen tun es, damit sich
+ * Markierungen trotzdem greifen und skalieren lassen.
+ */
+function renderHitShape(shape: Shape, tol: number) {
+  const hit = {
+    className: 'anno__hit',
+    fill: 'none',
+    stroke: 'transparent',
+    strokeWidth: tol * 2,
+  };
+  switch (shape.tool) {
+    case 'element':
+    case 'rect': {
+      const b = shapeBounds(shape);
+      return b ? <rect key={shape.id} x={b.x} y={b.y} width={b.w} height={b.h} {...hit} /> : null;
+    }
+    case 'ellipse': {
+      const b = shapeBounds(shape);
+      return b ? (
+        <ellipse
+          key={shape.id}
+          cx={b.x + b.w / 2}
+          cy={b.y + b.h / 2}
+          rx={b.w / 2}
+          ry={b.h / 2}
+          {...hit}
+        />
+      ) : null;
+    }
+    case 'arrow':
+      return (
+        <path key={shape.id} d={`M${shape.x1},${shape.y1} L${shape.x2},${shape.y2}`} {...hit} />
+      );
+    case 'pen':
+      return (
+        <g key={shape.id}>
+          {(shape.strokes ?? []).map((points, i) => (
+            <polyline key={i} points={points.map((pt) => `${pt.x},${pt.y}`).join(' ')} {...hit} />
+          ))}
+        </g>
+      );
+    case 'pin':
+    case 'text': {
+      // Punktfoermig: die ganze Flaeche ist der Griff.
+      const b = shapeBounds(shape);
+      return b ? (
+        <rect
+          key={shape.id}
+          className="anno__hit anno__hit--area"
+          x={b.x - tol}
+          y={b.y - tol}
+          width={b.w + tol * 2}
+          height={b.h + tol * 2}
+          fill="transparent"
+          stroke="none"
+        />
+      ) : null;
+    }
+    case 'hline':
+    case 'vline': {
+      const horizontal = shape.tool === 'hline';
+      const lineAt = (v: number) =>
+        horizontal
+          ? `M${shape.x - LINE_REACH},${v} L${shape.x + LINE_REACH},${v}`
+          : `M${v},${shape.y - LINE_REACH} L${v},${shape.y + LINE_REACH}`;
+      const start = horizontal ? shape.y : shape.x;
+      return (
+        <g key={shape.id}>
+          <path d={lineAt(start)} {...hit} />
+          {shape.to != null && <path d={lineAt(shape.to)} {...hit} />}
+        </g>
+      );
+    }
+  }
+}
+
+/** Sichtbarer Frame-Ausschnitt in Dokument-Koordinaten. */
+interface View {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Beschriftungen sitzen im Dokumentraum, sind aber Bildschirm-Elemente: am
+ * Rand gezeichnete Labels laegen sonst ausserhalb des sichtbaren Ausschnitts.
+ * Klemmt die linke obere Ecke einer Label-Box in `view` ein.
+ */
+function clampLabel(x: number, y: number, w: number, h: number, zoom: number, view?: View) {
+  if (!view) return { x, y };
+  const edge = 4 / zoom;
+  return {
+    x: Math.max(view.x + edge, Math.min(x, view.x + view.w - w - edge)),
+    y: Math.max(view.y + edge, Math.min(y, view.y + view.h - h - edge)),
+  };
+}
+
 /** elementFromPoint, das in offene Shadow Roots absteigt (Web Components). */
 function deepElementFromPoint(doc: Document, x: number, y: number): Element | null {
   let el = doc.elementFromPoint(x, y);
@@ -146,6 +312,7 @@ export function AnnotationOverlay({
   onAdd,
   onSetNote,
   onMoveShape,
+  onResizeShape,
   onSetLineGap,
   onCommitShape,
 }: Props) {
@@ -163,17 +330,32 @@ export function AnnotationOverlay({
    * Markierung, die gerade an der Maus haengt. Verschoben wird sie erst beim
    * Loslassen im Store — waehrend des Zugs zeigt das Overlay den Versatz.
    */
-  /** Eigene Markierung unterm Cursor — Cursor wird zum Greifer. */
-  const [grabbable, setGrabbable] = useState(false);
+  /** Eigene Markierung unterm Cursor — Cursor wird zum Greifer, der Marker
+   *  bekommt einen Greif-Rahmen. */
+  const [grabId, setGrabId] = useState<string | null>(null);
   const [movingShape, setMovingShape] = useState<{
     id: string;
     dx: number;
     dy: number;
     from: Point;
   } | null>(null);
+  /** Griff unterm Cursor (Markierung + Ecke) — zeigt den Resize-Cursor an. */
+  const [hoverHandle, setHoverHandle] = useState<{ id: string; handle: HandleId } | null>(null);
+  /**
+   * Laufende Groessenaenderung. Wie beim Verschieben wandert waehrend des Zugs
+   * nur der UI-State mit; gespeichert wird beim Loslassen.
+   */
+  const [resizing, setResizing] = useState<{
+    id: string;
+    handle: HandleId;
+    box: { x1: number; y1: number; x2: number; y2: number };
+  } | null>(null);
 
   const displayShapes = shapes;
   const dimmed = dimmedIds;
+
+  /** Eigene Markierung — fremde (importierte) bleiben, wo der Ersteller sie setzte. */
+  const mine = (s: Shape) => isMovableShape(s) && !lockedIds?.has(s.id);
 
   // Kein veralteter Hover-Rahmen, wenn Werkzeug/Modus wechseln.
   useEffect(() => {
@@ -198,6 +380,23 @@ export function AnnotationOverlay({
     noteDraftRef.current = value;
     setNoteDraftState(value);
   };
+
+  // Der Cursor gehoert ins Notizfeld, sobald der Editor aufgeht. `autoFocus`
+  // allein reicht nicht: der Pointer-Up des Aufziehens landet danach und holt
+  // den Fokus zurueck ins Overlay — deshalb explizit nach dem Layout setzen.
+  const noteFieldRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    if (!noteDraft) return;
+    const id = requestAnimationFrame(() => {
+      const field = noteFieldRef.current;
+      if (!field) return;
+      field.focus();
+      // Bestehenden Text nicht ueberschreiben, sondern anhaengen lassen.
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteDraft?.shapeId]);
 
   // Doppelklick auf einen Marker (von der App gemeldet, weil die Events im
   // Interaktionsmodus im Frame landen): Notiz-Editor mit dem vorhandenen
@@ -343,6 +542,40 @@ export function AnnotationOverlay({
 
   if (!active && shapes.length === 0) return null;
 
+  /**
+   * Doppelklick ausserhalb des Korrekturmodus: Notiz-Editor oeffnen.
+   *
+   * Die App lauscht dafuer zusaetzlich im Frame-Dokument, doch die
+   * Trefferflaechen (`.anno__hit--area`) liegen ueber dem iframe und
+   * verschlucken den Doppelklick, bevor er dort ankommt — genau wie beim
+   * Wheel-Weiterreichen daneben. Wer den Marker trifft, wird deshalb hier
+   * bedient; alles andere laeuft unveraendert an die Seite durch.
+   */
+  const handleDoubleClick = (e: ReactMouseEvent) => {
+    if (active) return;
+    const rect = svgRef.current!.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / zoom + scroll.x;
+    const y = (e.clientY - rect.top) / zoom + scroll.y;
+    // Hinterste zuerst — die liegen im Overlay obenauf.
+    for (let i = displayShapes.length - 1; i >= 0; i--) {
+      const shape = displayShapes[i];
+      if (!shape || dimmed?.has(shape.id)) continue;
+      const b = shapeBounds(shape);
+      if (
+        b &&
+        x >= b.x - HOVER_PAD &&
+        x <= b.x + b.w + HOVER_PAD &&
+        y >= b.y - HOVER_PAD &&
+        y <= b.y + b.h + HOVER_PAD
+      ) {
+        e.preventDefault();
+        const value = editableTextOf(shape);
+        setNoteDraft({ shapeId: shape.id, x, y, value, initial: value });
+        return;
+      }
+    }
+  };
+
   const toDoc = (e: ReactPointerEvent): Point => {
     const rect = svgRef.current!.getBoundingClientRect();
     return {
@@ -433,7 +666,7 @@ export function AnnotationOverlay({
   };
 
   const handleDown = (e: ReactPointerEvent) => {
-    if (!active || e.button !== 0) return;
+    if (e.button !== 0) return;
 
     // Verhindert die Default-Fokusaenderung des nachfolgenden mousedown —
     // die wuerde das frisch geoeffnete Notiz-Feld sofort wieder blurren
@@ -445,6 +678,25 @@ export function AnnotationOverlay({
     commitNote();
 
     const p = toDoc(e);
+
+    // Griff einer eigenen Box angefasst? Dann Groesse aendern — vor dem
+    // Verschieben geprueft, denn die Griffe sitzen auf der Kontur.
+    if (onResizeShape) {
+      const grabbedHandle = [...displayShapes]
+        .reverse()
+        .map((s) => ({ shape: s, handle: mine(s) ? handleAt(s, p, HANDLE_HIT / zoom) : null }))
+        .find((hit) => isResizable(hit.shape) && hit.handle != null);
+      if (grabbedHandle?.handle && isResizable(grabbedHandle.shape)) {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setResizing({
+          id: grabbedHandle.shape.id,
+          handle: grabbedHandle.handle,
+          box: resizeBox(grabbedHandle.shape, grabbedHandle.handle, p),
+        });
+        setHoverNote(null);
+        return;
+      }
+    }
 
     // Kontur einer eigenen Markierung angefasst? Dann wird verschoben statt
     // gezeichnet — hinterste zuerst, die liegen im Overlay obenauf.
@@ -459,6 +711,10 @@ export function AnnotationOverlay({
         return;
       }
     }
+
+    // Ab hier wird gezeichnet — das gibt es nur im Korrekturmodus. Der Klick
+    // gehoert sonst der Seite (das Overlay faengt ihn dort gar nicht erst ab).
+    if (!active) return;
 
     if (tool === 'element') {
       // Uebernimmt das gerade gehighlightete Element als Markierung.
@@ -497,6 +753,14 @@ export function AnnotationOverlay({
   };
 
   const handleMove = (e: ReactPointerEvent) => {
+    if (resizing) {
+      const p = toDoc(e);
+      const shape = displayShapes.find((s) => s.id === resizing.id);
+      if (shape && isResizable(shape)) {
+        setResizing({ ...resizing, box: resizeBox(shape, resizing.handle, p) });
+      }
+      return;
+    }
     if (movingShape) {
       const p = toDoc(e);
       setMovingShape({ ...movingShape, dx: p.x - movingShape.from.x, dy: p.y - movingShape.from.y });
@@ -506,12 +770,24 @@ export function AnnotationOverlay({
     if (!draft) {
       const p = toDoc(e);
       updateHover(p.x, p.y);
-      setGrabbable(
-        active &&
-          onMoveShape != null &&
-          displayShapes.some(
-            (s) => isMovableShape(s) && !lockedIds?.has(s.id) && hitsShape(s, p, 8 / zoom),
-          ),
+      // Hinterste zuerst — die liegen im Overlay obenauf, wie beim Anfassen.
+      const grabbed =
+        onMoveShape
+          ? [...displayShapes].reverse().find((s) => mine(s) && hitsShape(s, p, 8 / zoom))
+          : undefined;
+      setGrabId(grabbed?.id ?? null);
+      // Griff schlaegt Kontur: sitzt der Cursor auf einer Ecke/Kante, meint
+      // der Zug die Groesse, nicht die Position.
+      const overHandle =
+        onResizeShape
+          ? [...displayShapes]
+              .reverse()
+              .filter((s) => isResizable(s) && mine(s))
+              .map((s) => ({ id: s.id, handle: handleAt(s, p, HANDLE_HIT / zoom) }))
+              .find((hit) => hit.handle != null)
+          : null;
+      setHoverHandle(
+        overHandle?.handle ? { id: overHandle.id, handle: overHandle.handle } : null,
       );
     }
     // Linien-Werkzeuge: Vorschau der Linie unterm Cursor.
@@ -581,6 +857,16 @@ export function AnnotationOverlay({
   // Als DOM-Bezug dienen die gekreuzten Elemente, beim Pfeil das Element
   // unter der Spitze.
   const handleUp = () => {
+    if (resizing) {
+      const { id, box } = resizing;
+      setResizing(null);
+      // Zusammengeschobene Boxen nicht speichern — sonst bliebe ein
+      // unsichtbarer Marker zurueck.
+      if (Math.abs(box.x2 - box.x1) >= MIN_DRAG / zoom && Math.abs(box.y2 - box.y1) >= MIN_DRAG / zoom) {
+        onResizeShape?.(id, box);
+      }
+      return;
+    }
     if (movingShape) {
       const { id, dx, dy } = movingShape;
       setMovingShape(null);
@@ -623,6 +909,33 @@ export function AnnotationOverlay({
   const hoverShape = hoverShapeId ? displayShapes.find((s) => s.id === hoverShapeId) : null;
   const hoverBox = hoverShape ? shapeBounds(hoverShape) : null;
 
+  /**
+   * Verschieben sichtbar machen: der Marker unterm Cursor bekommt einen
+   * Greif-Rahmen, der gezogene einen kraeftigeren an seiner neuen Position.
+   */
+  const grabShape = grabId && !movingShape ? displayShapes.find((s) => s.id === grabId) : null;
+  const grabBox = grabShape ? shapeBounds(grabShape) : null;
+  const dragShape = movingShape ? displayShapes.find((s) => s.id === movingShape.id) : null;
+  const dragBox = dragShape
+    ? shapeBounds(translateShape(dragShape, movingShape!.dx, movingShape!.dy))
+    : null;
+
+  /** Markierung mit Griffen: die unterm Cursor bzw. die gerade gezogene. */
+  const handleShape = (() => {
+    // Auch beim Hover im Panel — so sind die Griffe auffindbar, ohne die
+    // Kontur genau zu treffen.
+    const id = resizing?.id ?? hoverHandle?.id ?? grabId ?? hoverShapeId;
+    const shape = id ? displayShapes.find((s) => s.id === id) : null;
+    // Nur wo der Zug auch etwas bewirkt.
+    if (!onResizeShape || movingShape) return null;
+    if (!shape || !isResizable(shape) || !mine(shape)) return null;
+    return resizing ? { ...shape, ...resizing.box } : shape;
+  })();
+  const handleBounds = handleShape ? shapeBounds(handleShape) : null;
+
+  /** Sichtbarer Ausschnitt im Dokumentraum — Beschriftungen bleiben darin. */
+  const view: View = { x: scroll.x, y: scroll.y, w: width, h: height };
+
   /** Editor-Position in Overlay-Pixeln, an den Raendern eingeklemmt. */
   const clampEditor = (x: number, y: number, w: number, h: number) => ({
     left: Math.max(4, Math.min((x - scroll.x) * zoom + 14, width * zoom - w - 4)),
@@ -633,23 +946,57 @@ export function AnnotationOverlay({
     <div
       className={`anno${active ? ' anno--active' : ''}${
         active && tool === 'element' ? ' anno--pick' : ''
-      }${grabbable && !movingShape ? ' anno--grab' : ''}${movingShape ? ' anno--grabbing' : ''}`}
+      }${movingShape || resizing ? ' anno--dragging' : ''}${
+        grabId && !movingShape && !hoverHandle ? ' anno--grab' : ''
+      }${
+        movingShape ? ' anno--grabbing' : ''
+      }${
+        resizing || hoverHandle
+          ? ` anno--resize-${HANDLE_CURSOR[resizing?.handle ?? hoverHandle!.handle]}`
+          : ''
+      }`}
     >
       <svg
         ref={svgRef}
         className="anno__svg"
         viewBox={`0 0 ${width} ${height}`}
+        onDoubleClick={handleDoubleClick}
         onPointerDown={handleDown}
         onPointerMove={handleMove}
         onPointerUp={handleUp}
         onPointerCancel={() => {
           setDraft(null);
           setMovingShape(null);
+          setResizing(null);
+        }}
+        onWheel={(e) => {
+          // Die Trefferflaechen liegen ueber dem Frame — eine Hilfslinie
+          // spannt sogar ueber die volle Breite. Ohne Weiterreichen liesse
+          // sich die Seite ueber ihr nicht mehr scrollen.
+          if (active) return;
+          const win = frameEl?.contentWindow;
+          if (!win) return;
+          // deltaMode 1 = Zeilen, 2 = Seiten.
+          const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? height : 1;
+          try {
+            win.scrollBy(e.deltaX * unit, e.deltaY * unit);
+          } catch {
+            /* Frame nicht lesbar */
+          }
+        }}
+        onPointerOut={() => {
+          // Ausserhalb des Korrekturmodus kommen Events nur von den Konturen:
+          // verlaesst der Zeiger sie, bleibt sonst der Greif-Rahmen kleben.
+          if (active || movingShape || resizing) return;
+          setGrabId(null);
+          setHoverHandle(null);
+          setHoverNote(null);
         }}
         onPointerLeave={() => {
           setPicked(null);
           setLineGhost(null);
-          setGrabbable(false);
+          setGrabId(null);
+          setHoverHandle(null);
           setHoverNote(null);
         }}
       >
@@ -672,19 +1019,68 @@ export function AnnotationOverlay({
             const s =
               movingShape?.id === sh.id
                 ? translateShape(sh, movingShape.dx, movingShape.dy)
-                : sh;
-            return dimmed?.has(s.id) ? (
-              <g key={`dim-${s.id}`} opacity={0.35}>
-                {renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id))}
-              </g>
-            ) : (
-              renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id))
-            );
+                : resizing?.id === sh.id && isResizable(sh)
+                  ? { ...sh, ...resizing.box }
+                  : sh;
+            if (dimmed?.has(s.id)) {
+              return (
+                <g key={`dim-${s.id}`} opacity={0.35}>
+                  {renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id), view)}
+                </g>
+              );
+            }
+            // Der gezogene Marker hebt sich sichtbar ab, solange er an der
+            // Maus haengt.
+            if (movingShape?.id === s.id) {
+              return (
+                <g key={`drag-${s.id}`} className="anno__moving">
+                  {renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id), view)}
+                </g>
+              );
+            }
+            return renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id), view);
           })}
+          {/* Trefferflaechen der eigenen Markierungen — ausserhalb des
+              Korrekturmodus der einzige Weg, sie noch anfassen zu koennen. */}
+          {!active && !showNotes && (onMoveShape || onResizeShape) && (
+            <g className="anno__hits">
+              {displayShapes
+                .filter((s) => mine(s) && !dimmed?.has(s.id))
+                .map((sh) =>
+                  movingShape?.id === sh.id
+                    ? translateShape(sh, movingShape.dx, movingShape.dy)
+                    : resizing?.id === sh.id && isResizable(sh)
+                      ? { ...sh, ...resizing.box }
+                      : sh,
+                )
+                .map((s) => renderHitShape(s, 8 / zoom))}
+            </g>
+          )}
           {showNotes &&
             displayShapes
               .filter((s) => !dimmed?.has(s.id))
-              .map((s) => renderNoteBubble(s, zoom, undefined, undefined, width))}
+              .map((s) => renderNoteBubble(s, zoom, { clampWidth: width }))}
+          {/* Notizen stehen dauerhaft am Marker — gekuerzt, damit sie den
+              Inhalt nicht zudecken; der Hover zeigt den vollen Text. */}
+          {!showNotes &&
+            notedShapes
+              .filter((s) => s.id !== hoverNote?.id)
+              .map((s) =>
+                movingShape?.id === s.id
+                  ? translateShape(s, movingShape.dx, movingShape.dy)
+                  : s,
+              )
+              .filter((s) => {
+                const anchor = noteOf(s);
+                return (
+                  anchor != null &&
+                  anchor.x <= view.x + view.w &&
+                  anchor.y <= view.y + view.h &&
+                  anchor.x >= view.x - view.w &&
+                  anchor.y >= view.y - view.h
+                );
+              })
+              .map((s) => renderNoteBubble(s, zoom, { view, compact: true }))}
           {!showNotes &&
             hoverNote &&
             (() => {
@@ -692,12 +1088,10 @@ export function AnnotationOverlay({
               if (!shape) return null;
               // Direkt neben dem Cursor, eingeklemmt in den sichtbaren
               // Frame-Ausschnitt (Dokumentraum: scroll..scroll+viewport).
-              return renderNoteBubble(
-                shape,
-                zoom,
-                { x: hoverNote.x + 14 / zoom, y: hoverNote.y + 18 / zoom },
-                { x: scroll.x, y: scroll.y, w: width, h: height },
-              );
+              return renderNoteBubble(shape, zoom, {
+                at: { x: hoverNote.x + 14 / zoom, y: hoverNote.y + 18 / zoom },
+                view,
+              });
             })()}
           {active && !draft && lineGhost && (tool === 'hline' || tool === 'vline') && (
             <g opacity={0.55}>
@@ -706,10 +1100,87 @@ export function AnnotationOverlay({
                 strokeWidth,
                 fontSize,
                 zoom,
+                undefined,
+                view,
               )}
             </g>
           )}
-          {draft && renderShape(draft, strokeWidth, fontSize, zoom)}
+          {draft && renderShape(draft, strokeWidth, fontSize, zoom, undefined, view)}
+          {/* Greifbar: heller Rahmen mit dunkler Kontur darunter, damit er auf
+              jedem Seitenhintergrund steht. */}
+          {grabBox && (
+            <g className="anno__mark-grab" pointerEvents="none">
+              <rect
+                x={grabBox.x - 5 / zoom}
+                y={grabBox.y - 5 / zoom}
+                width={grabBox.w + 10 / zoom}
+                height={grabBox.h + 10 / zoom}
+                rx={7 / zoom}
+                fill="none"
+                stroke="rgba(14, 16, 20, .55)"
+                strokeWidth={4 / zoom}
+              />
+              <rect
+                x={grabBox.x - 5 / zoom}
+                y={grabBox.y - 5 / zoom}
+                width={grabBox.w + 10 / zoom}
+                height={grabBox.h + 10 / zoom}
+                rx={7 / zoom}
+                fill="none"
+                stroke="#5b8cff"
+                strokeWidth={2 / zoom}
+                strokeDasharray={`${5 / zoom} ${4 / zoom}`}
+              />
+            </g>
+          )}
+          {dragBox && (
+            <g className="anno__mark-drag" pointerEvents="none">
+              <rect
+                x={dragBox.x - 5 / zoom}
+                y={dragBox.y - 5 / zoom}
+                width={dragBox.w + 10 / zoom}
+                height={dragBox.h + 10 / zoom}
+                rx={7 / zoom}
+                fill="rgba(91, 140, 255, .16)"
+                stroke="rgba(14, 16, 20, .55)"
+                strokeWidth={4.5 / zoom}
+              />
+              <rect
+                x={dragBox.x - 5 / zoom}
+                y={dragBox.y - 5 / zoom}
+                width={dragBox.w + 10 / zoom}
+                height={dragBox.h + 10 / zoom}
+                rx={7 / zoom}
+                fill="none"
+                stroke="#5b8cff"
+                strokeWidth={2.5 / zoom}
+              />
+            </g>
+          )}
+          {/* Griffe an Ecken und Kantenmitten — hier aendert der Zug die Groesse. */}
+          {handleBounds && (
+            <g className="anno__handles">
+              {HANDLE_IDS.map((id) => {
+                const pt = handlePos(handleBounds, id);
+                const size = 9 / zoom;
+                const activeHandle = (resizing?.handle ?? hoverHandle?.handle) === id;
+                return (
+                  <rect
+                    key={id}
+                    x={pt.x - size / 2}
+                    y={pt.y - size / 2}
+                    width={size}
+                    height={size}
+                    rx={2 / zoom}
+                    fill={activeHandle ? '#5b8cff' : '#fff'}
+                    stroke="rgba(14, 16, 20, .75)"
+                    strokeWidth={1.5 / zoom}
+                    pointerEvents="all"
+                  />
+                );
+              })}
+            </g>
+          )}
           {hoverBox && (
             <rect
               className="anno__mark-hover"
@@ -741,7 +1212,7 @@ export function AnnotationOverlay({
           )}
           {active && tool === 'element' && picked && !noteDraft && (
             <g pointerEvents="none">
-              {renderBoxModel(picked, zoom)}
+              {renderBoxModel(picked, zoom, view)}
               <rect
                 x={picked.x}
                 y={picked.y}
@@ -759,6 +1230,7 @@ export function AnnotationOverlay({
                 `${picked.label} · ${Math.round(picked.w)}×${Math.round(picked.h)}`,
                 color,
                 zoom,
+                view,
               )}
             </g>
           )}
@@ -841,6 +1313,7 @@ export function AnnotationOverlay({
             );
           })()}
           <textarea
+            ref={noteFieldRef}
             className="anno__note-field"
             value={noteDraft.value}
             autoFocus
@@ -929,19 +1402,24 @@ function noteOf(shape: Shape): { text: string; x: number; y: number } | null {
 }
 
 /**
- * Notiz als Sprechblase — beim Hover direkt neben dem Cursor (`at`, in den
- * sichtbaren Ausschnitt `view` eingeklemmt), beim Screenshot-Export am
- * Marker verankert. Konstante Bildschirmgroesse, deshalb /zoom.
+ * Notiz als Sprechblase — dauerhaft am Marker (gekuerzt), beim Hover in
+ * voller Laenge direkt neben dem Cursor (`at`). Konstante Bildschirmgroesse,
+ * deshalb /zoom.
  */
-function renderNoteBubble(
-  shape: Shape,
-  zoom: number,
-  at?: Point,
-  view?: { x: number; y: number; w: number; h: number },
+interface NoteBubbleOptions {
+  /** Abweichender Ankerpunkt (Hover: Mausposition). */
+  at?: Point;
+  /** Sichtbarer Ausschnitt — die Blase bleibt vollstaendig darin. */
+  view?: View;
   /** Nur-horizontales Einklemmen (Screenshot): Blase nicht ueber den rechten
    *  Frame-Rand hinaus rendern, sonst schneidet der Capture sie ab. */
-  clampWidth?: number,
-) {
+  clampWidth?: number;
+  /** Dauerhafte Blase am Marker: kurz halten, langer Text wird abgeschnitten. */
+  compact?: boolean;
+}
+
+function renderNoteBubble(shape: Shape, zoom: number, opts: NoteBubbleOptions = {}) {
+  const { at, view, clampWidth, compact } = opts;
   const source = noteOf(shape);
   if (!source) return null;
 
@@ -954,15 +1432,16 @@ function renderNoteBubble(
   const barX = 8 / zoom;
   const barW = 3 / zoom;
   const textX = barX + barW + 9 / zoom;
-  const lines = wrapNote(source.text, 32, 5);
+  const lines = compact ? wrapNote(source.text, 26, 2) : wrapNote(source.text, 32, 5);
   const longest = lines.reduce((max, l) => Math.max(max, l.length), 0);
   const w = textX + longest * size * 0.6 + padRight;
   const h = lines.length * lineH + padY * 2;
 
   const note = { ...source, ...(at ?? {}) };
   const edge = 4 / zoom;
-  if (at && view) {
-    // Interaktiv (Hover): in den sichtbaren Frame-Ausschnitt einklemmen.
+  if (view) {
+    // Die Notiz gehoert zum Marker und muss lesbar bleiben: in den sichtbaren
+    // Frame-Ausschnitt einklemmen statt am Rand abzuschneiden.
     note.x = Math.max(view.x + edge, Math.min(note.x, view.x + view.w - w - edge));
     note.y = Math.max(view.y + edge, Math.min(note.y, view.y + view.h - h - edge));
   } else if (clampWidth != null) {
@@ -1015,18 +1494,27 @@ function renderNoteBubble(
  * unruhig wirkte. Sitzt oberhalb des Ankers; rutscht nach innen, wenn oben
  * kein Platz ist. Konstante Bildschirmgroesse, deshalb /zoom.
  */
-function renderLabelPill(x: number, y: number, text: string, color: string, zoom: number) {
+function renderLabelPill(
+  x: number,
+  y: number,
+  text: string,
+  color: string,
+  zoom: number,
+  view?: View,
+) {
   const size = 11 / zoom;
   const padX = 6 / zoom;
   const padY = 3.5 / zoom;
   const w = text.length * size * 0.62 + padX * 2;
   const h = size + padY * 2;
-  const top = y - h - 4 / zoom >= 0 ? y - h - 4 / zoom : y + 4 / zoom;
+  const above = y - h - 4 / zoom;
+  const raw = above >= (view?.y ?? 0) ? above : y + 4 / zoom;
+  const box = clampLabel(x, raw, w, h, zoom, view);
   return (
     <g pointerEvents="none">
       <rect
-        x={x}
-        y={top}
+        x={box.x}
+        y={box.y}
         width={w}
         height={h}
         rx={h / 2}
@@ -1035,8 +1523,8 @@ function renderLabelPill(x: number, y: number, text: string, color: string, zoom
         strokeWidth={1 / zoom}
       />
       <text
-        x={x + padX}
-        y={top + padY + size * 0.82}
+        x={box.x + padX}
+        y={box.y + padY + size * 0.82}
         fill="#fff"
         fontSize={size}
         fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
@@ -1052,7 +1540,7 @@ function renderLabelPill(x: number, y: number, text: string, color: string, zoom
  * Margin-Streifen orange, Padding-Streifen gruen, Werte als Mini-Pills, wenn
  * der Streifen genug Platz bietet. Negative Margins werden nicht gezeichnet.
  */
-function renderBoxModel(t: ElementTarget, zoom: number) {
+function renderBoxModel(t: ElementTarget, zoom: number, view?: View) {
   const { margin: m, padding: p } = t;
   const ml = Math.max(0, m.l);
   const mr = Math.max(0, m.r);
@@ -1087,8 +1575,19 @@ function renderBoxModel(t: ElementTarget, zoom: number) {
           const label = String(Math.round(s.v));
           const w = label.length * labelSize * 0.65 + 8 / zoom;
           const h = labelSize + 5 / zoom;
-          const cx = s.x + s.w / 2;
-          const cy = s.y + s.h / 2;
+          // Mitte des sichtbaren Streifenteils — bei teils ausgescrolltem
+          // Element bleibt die Pille am Streifen statt aus dem Bild zu laufen.
+          const vis = view
+            ? {
+                x0: Math.max(s.x, view.x),
+                x1: Math.min(s.x + s.w, view.x + view.w),
+                y0: Math.max(s.y, view.y),
+                y1: Math.min(s.y + s.h, view.y + view.h),
+              }
+            : { x0: s.x, x1: s.x + s.w, y0: s.y, y1: s.y + s.h };
+          if (vis.x1 <= vis.x0 || vis.y1 <= vis.y0) return null;
+          const cx = (vis.x0 + vis.x1) / 2;
+          const cy = (vis.y0 + vis.y1) / 2;
           return (
             <g key={`v${i}`}>
               <rect x={cx - w / 2} y={cy - h / 2} width={w} height={h} rx={h / 2} fill="rgba(14, 16, 20, .85)" />
@@ -1122,6 +1621,7 @@ function renderLineGap(
   gap: number,
   strokeWidth: number,
   zoom: number,
+  view?: View,
 ) {
   const horizontal = shape.tool === 'hline';
   const cross = horizontal ? shape.x : shape.y;
@@ -1137,6 +1637,16 @@ function renderLineGap(
   const padY = 3 / zoom;
   const boxW = label.length * size * 0.62 + padX * 2;
   const boxH = size + padY * 2;
+  // Am Rand gezogene Linien: die Beschriftung rutscht in den sichtbaren
+  // Ausschnitt, statt neben dem Frame zu verschwinden.
+  const box = clampLabel(
+    horizontal ? labelX - padX : labelX - boxW / 2,
+    labelY - boxH / 2,
+    boxW,
+    boxH,
+    zoom,
+    view,
+  );
   const line = { stroke: shape.color, strokeWidth: strokeWidth * 0.8, fill: 'none' } as const;
   return (
     <g>
@@ -1154,8 +1664,8 @@ function renderLineGap(
         </>
       )}
       <rect
-        x={horizontal ? labelX - padX : labelX - boxW / 2}
-        y={labelY - boxH / 2}
+        x={box.x}
+        y={box.y}
         width={boxW}
         height={boxH}
         rx={5 / zoom}
@@ -1164,12 +1674,12 @@ function renderLineGap(
         strokeWidth={1.2 / zoom}
       />
       <text
-        x={labelX}
-        y={labelY}
+        x={box.x + boxW / 2}
+        y={box.y + boxH / 2}
         fill="#fff"
         fontSize={size}
         fontWeight={600}
-        textAnchor={horizontal ? 'start' : 'middle'}
+        textAnchor="middle"
         dominantBaseline="central"
         fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
       >
@@ -1185,8 +1695,9 @@ function renderShape(
   fontSize: number,
   zoom: number,
   pinNumber?: number,
+  view?: View,
 ) {
-  const stroke = { stroke: shape.color, strokeWidth, fill: 'none' } as const;
+  const stroke ={ stroke: shape.color, strokeWidth, fill: 'none' } as const;
 
   switch (shape.tool) {
     case 'element':
@@ -1202,7 +1713,7 @@ function renderShape(
             stroke={shape.color}
             strokeWidth={strokeWidth}
           />
-          {renderLabelPill(shape.x, shape.y, shape.label, shape.color, zoom)}
+          {renderLabelPill(shape.x, shape.y, shape.label, shape.color, zoom, view)}
         </g>
       );
     case 'pin': {
@@ -1326,7 +1837,7 @@ function renderShape(
           {shape.to != null && <path d={lineAt(shape.to)} {...stroke} />}
           {shape.to != null &&
             gap != null &&
-            renderLineGap(shape, start, shape.to, gap, strokeWidth, zoom)}
+            renderLineGap(shape, start, shape.to, gap, strokeWidth, zoom, view)}
         </g>
       );
     }

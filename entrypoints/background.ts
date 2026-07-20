@@ -1,6 +1,7 @@
 import { defineBackground } from 'wxt/utils/define-background';
 import { browser } from 'wxt/browser';
 import type { BackgroundRequest } from '@/lib/messages';
+import { framingBlockedByHeaders } from '@/lib/framing';
 import { createLogger } from '@/lib/log';
 
 export default defineBackground(() => {
@@ -19,7 +20,7 @@ export default defineBackground(() => {
    * der CSP fallen also auch die XSS-Schutzmassnahmen innerhalb der Frames.
    * Deshalb Opt-in, nur dieser Tab, nur sub_frame, Cleanup beim Schliessen.
    */
-  async function setBypass(tabId: number, enabled: boolean): Promise<void> {
+  async function setBypass(tabId: number, enabled: boolean, host?: string): Promise<void> {
     const existing = bypassRules.get(tabId);
     const removeRuleIds = existing == null ? [] : [existing];
 
@@ -32,7 +33,7 @@ export default defineBackground(() => {
     }
 
     const id = existing ?? nextRuleId++;
-    log.info('setBypass', { tabId, enabled, ruleId: id });
+    log.info('setBypass', { tabId, enabled, ruleId: id, host });
     await browser.declarativeNetRequest.updateSessionRules({
       removeRuleIds,
       addRules: [
@@ -42,6 +43,9 @@ export default defineBackground(() => {
           condition: {
             tabIds: [tabId],
             resourceTypes: ['sub_frame'],
+            // Nur die Domain, die betrachtet wird — fremde iframes *innerhalb*
+            // der Vorschau (Werbung, OAuth, Payment) behalten ihre CSP.
+            ...(host ? { requestDomains: [host] } : {}),
           },
           action: {
             type: 'modifyHeaders',
@@ -57,6 +61,26 @@ export default defineBackground(() => {
 
     bypassRules.set(tabId, id);
   }
+
+  /**
+   * Der Service Worker schlaeft nach kurzer Untaetigkeit ein, die
+   * Session-Rules ueberleben ihn aber. Ohne diesen Abgleich waeren die Regeln
+   * nach dem Aufwachen unbekannt — und wuerden nie wieder aufgeraeumt.
+   */
+  const restored = (async () => {
+    try {
+      const rules = await browser.declarativeNetRequest.getSessionRules();
+      for (const rule of rules) {
+        const tabId = rule.condition?.tabIds?.[0];
+        if (tabId == null) continue;
+        bypassRules.set(tabId, rule.id);
+        nextRuleId = Math.max(nextRuleId, rule.id + 1);
+      }
+      if (rules.length > 0) log.info('Session-Rules uebernommen', rules.length);
+    } catch (e) {
+      log.warn('Session-Rules lesen fehlgeschlagen', e);
+    }
+  })();
 
   /** Wartet, bis der Tab fertig geladen ist. */
   function waitForComplete(tabId: number): Promise<void> {
@@ -128,13 +152,34 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (request?.type === 'ink:frame-check') {
+      // Vorab-Request nur wegen der Header — der Body interessiert nicht und
+      // wird sofort verworfen. Mit Cookies, weil manche Seiten die Header nur
+      // fuer eingeloggte Nutzer setzen.
+      const url = request.url;
+      fetch(url, { method: 'GET', credentials: 'include', redirect: 'follow' })
+        .then((res) => {
+          void res.body?.cancel();
+          const blocked = framingBlockedByHeaders(res.headers, new URL(url).origin);
+          log.info('frame-check', { url, blocked });
+          sendResponse({ ok: true, blocked });
+        })
+        .catch((e: unknown) => {
+          // Im Zweifel laden lassen — die Erkennung nach dem Load faengt es ab.
+          log.warn('frame-check fehlgeschlagen', url, e);
+          sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+        });
+      return true;
+    }
+
     if (request?.type === 'ink:frame-bypass') {
       const tabId = sender.tab?.id;
       if (tabId == null) {
         sendResponse({ ok: false, error: 'Kein Tab-Kontext' });
         return false;
       }
-      setBypass(tabId, request.enabled)
+      restored
+        .then(() => setBypass(tabId, request.enabled, request.host))
         .then(() => sendResponse({ ok: true }))
         .catch((e: unknown) => {
           sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
@@ -149,11 +194,13 @@ export default defineBackground(() => {
     void setBypass(tabId, false);
   });
 
-  // Beim Verlassen der Seite stirbt das Content-Script und damit die UI.
-  // changeInfo.url ist nur bei echter Top-Level-Navigation gesetzt, nicht wenn
-  // wir die Preview-Frames neu laden.
+  // Beim Verlassen der Seite stirbt das Content-Script und damit die UI — der
+  // Eingriff darf sie nicht ueberleben. `status: 'loading'` deckt auch den
+  // Reload derselben URL ab (dabei ist changeInfo.url nicht gesetzt); das
+  // Neuladen der Preview-Frames loest kein tabs.onUpdated aus.
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.url != null && bypassRules.has(tabId)) {
+    if ((changeInfo.url != null || changeInfo.status === 'loading') && bypassRules.has(tabId)) {
+      log.info('Top-Level-Navigation — Bypass aufgeraeumt', tabId);
       void setBypass(tabId, false);
     }
   });

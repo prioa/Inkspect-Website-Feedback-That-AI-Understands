@@ -132,6 +132,32 @@ export function lineGap(shape: LineShape): number | null {
 }
 
 /**
+ * Masse einer Markierung als Kurztext fuers Panel (`320 × 48 px`, `24 px`) —
+ * dieselbe Zahl, die das Overlay am Marker zeigt. Punktfoermige Markierungen
+ * (Pin, Text, Freihand) haben keine Angabe.
+ */
+export function shapeSize(shape: Shape): string | null {
+  switch (shape.tool) {
+    case 'element':
+      return `${Math.round(shape.w)} × ${Math.round(shape.h)} px`;
+    case 'rect':
+    case 'ellipse':
+      return `${Math.round(Math.abs(shape.x2 - shape.x1))} × ${Math.round(
+        Math.abs(shape.y2 - shape.y1),
+      )} px`;
+    case 'arrow':
+      return `${Math.round(Math.hypot(shape.x2 - shape.x1, shape.y2 - shape.y1))} px`;
+    case 'hline':
+    case 'vline': {
+      const gap = lineGap(shape);
+      return gap == null ? null : `${Math.round(gap)} px`;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
  * Halbe Laenge, mit der Hilfslinien ueber ihren Ankerpunkt hinaus gezeichnet
  * werden — gross genug, dass sie jeden Frame in jeder Scroll-Position
  * ueberspannen; der SVG-Viewport schneidet den Ueberstand ab.

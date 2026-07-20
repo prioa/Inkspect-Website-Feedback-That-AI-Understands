@@ -118,6 +118,9 @@ export function AnnotationPalette({
           <button
             key={id}
             className={`icon-btn${tool === id ? ' icon-btn--active' : ''}`}
+            // Anker fuer die Onboarding-Tour — die zeigt gezielt auf einzelne
+            // Werkzeuge, ohne sich auf die Reihenfolge verlassen zu muessen.
+            data-tool={id}
             title={`${TOOL_LABELS[id]} (${i + 1})`}
             aria-pressed={tool === id}
             onClick={() => onTool(id)}

@@ -24,8 +24,11 @@ SYNCED DEVICE PREVIEWS
 VISUAL FEEDBACK, RIGHT ON THE PAGE
 • Element picker: hover to highlight DOM elements, click to capture them with a readable label
 • Comment pins, freehand drawing, rectangles, ellipses, arrows and text notes — pins, picked elements and shapes take an optional comment
+• Guide lines across the full width or height — drag a second one to measure the gap in pixels, or type the target value into the note
+• Move and resize your own markings by their outline; element picks stay locked to the DOM box they measured
 • Markings stick to the content while you scroll and stay bound to page + device viewport
-• A tidy panel groups all feedback per page and per device
+• A floating tool bar that snaps to the left edge or the bottom — or sits docked under the grid
+• A tidy panel groups all feedback per page and per device, with sizes and spacings right next to each item
 • Check items off as you fix them — done markers dim on the page, badges count what is still open
 
 SHARE IT — WITHOUT A SERVER
@@ -56,7 +59,7 @@ Developer Tools
 
 - `marquee-1400x560.jpg` — marquee promo tile
 - `tile-440x280.jpg` — small promo tile
-- `screenshot-1-sync-1280x800.jpg` — synced device previews
-- `screenshot-2-feedback-1280x800.jpg` — feedback tools + panel
+- `screenshot-1-feedback-1280x800.jpg` — live, shareable feedback (tools + panel)
+- `screenshot-2-sync-1280x800.jpg` — synced device previews
 - `screenshot-3-css-1280x800.jpg` — live CSS editor
 - `screenshot-4-share-1280x800.jpg` — share link + annotated screenshot export

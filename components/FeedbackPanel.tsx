@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DeviceInstance, DevicePreset } from '@/lib/devices';
 import type { Shape } from '@/lib/annotations';
-import { pinNumbers, TOOL_LABELS } from '@/lib/annotations';
+import { pinNumbers, shapeSize, TOOL_LABELS } from '@/lib/annotations';
 import type { FeedbackItem } from '@/lib/feedbackStore';
 import { feedbackToMarkdown } from '@/lib/exportMarkdown';
 import { encodeShare, SHARE_PARAM } from '@/lib/share';
@@ -515,6 +515,7 @@ export function FeedbackPanel({
                         const editing = editingId === item.id;
                         const primary = primaryOf(item.shape);
                         const meta = metaOf(item.shape);
+                        const size = shapeSize(item.shape);
                         return (
                           <li
                             key={item.id}
@@ -591,6 +592,7 @@ export function FeedbackPanel({
                                   </span>
                                   <span className="fb-item__meta-row">
                                     {meta && <span className="fb-item__meta">{meta}</span>}
+                                    {size && <span className="fb-item__size">{size}</span>}
                                   </span>
                                 </>
                               )}

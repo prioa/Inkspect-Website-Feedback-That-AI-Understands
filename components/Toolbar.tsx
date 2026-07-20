@@ -9,10 +9,12 @@ import {
 } from '@/lib/devices';
 import type { ThemePref } from '@/lib/settings';
 import { ANNOTATION_COLORS } from '@/lib/annotations';
+import { t } from '@/lib/i18n';
 import {
   IconCheck,
   IconClose,
   IconCode,
+  IconCompass,
   IconDots,
   IconExpand,
   IconFit,
@@ -57,6 +59,17 @@ interface Props {
   annotating: boolean;
   /** Der Schrift-Inspector ist aktiv (Hover zeigt Font-Infos). */
   inspecting: boolean;
+  /**
+   * Die Framing-Header dieser Seite werden gerade entfernt. Sichtbar machen,
+   * solange es laeuft — sonst waere es ein stiller Eingriff.
+   */
+  framingBypassed?: boolean;
+  /** Die Seite verbietet das Einbetten und laeuft gerade ohne Eingriff. */
+  framingBlocked?: boolean;
+  /** Eingriff beenden und die Freigabe dieser Seite zuruecknehmen. */
+  onRevokeFraming?: () => void;
+  /** Eingriff nachtraeglich einschalten (aus dem blockierten Zustand). */
+  onEnableFraming?: () => void;
   /** Aktuelles UI-Theme (System/Hell/Dunkel). */
   theme: ThemePref;
   /** Eigene gespeicherte Grid-Layouts (Device-Sets). */
@@ -94,6 +107,8 @@ interface Props {
   onSetTheme: (theme: ThemePref) => void;
   /** Oeffnet das Shortcuts-/Hilfe-Overlay. */
   onHelp: () => void;
+  /** Startet die gefuehrte Einsteiger-Tour noch einmal von vorn. */
+  onTour: () => void;
   /** Wechselt in den Vollbild-Modus (Seite ueber das ganze Fenster). */
   onFullscreen: () => void;
   onClose: () => void;
@@ -131,6 +146,10 @@ export function Toolbar({
   feedbackCount,
   annotating,
   inspecting,
+  framingBypassed = false,
+  framingBlocked = false,
+  onRevokeFraming,
+  onEnableFraming,
   theme,
   workspaces,
   onNavigate,
@@ -155,6 +174,7 @@ export function Toolbar({
   onToggleFeedback,
   onSetTheme,
   onHelp,
+  onTour,
   onFullscreen,
   onClose,
 }: Props) {
@@ -519,6 +539,39 @@ export function Toolbar({
         </div>
       </div>
 
+      {framingBypassed && onRevokeFraming && (
+        <>
+          <span className="toolbar__sep" />
+          <button
+            className="toolbar__flag"
+            onClick={onRevokeFraming}
+            title={
+              'This page forbids being embedded, so Inkspect strips those headers for frames of ' +
+              'this domain in this tab — the page\u2019s CSP is off inside them. ' +
+              'Click to stop and reload without the change.'
+            }
+          >
+            CSP off in preview
+          </button>
+        </>
+      )}
+      {!framingBypassed && framingBlocked && onEnableFraming && (
+        <>
+          <span className="toolbar__sep" />
+          <button
+            className="toolbar__flag toolbar__flag--muted"
+            onClick={onEnableFraming}
+            title={
+              'This page forbids being embedded, so the device frames stay empty. ' +
+              'Click to show the preview \u2014 Inkspect then removes those headers for frames ' +
+              'of this domain, in this tab, while it is open.'
+            }
+          >
+            Preview blocked — show anyway
+          </button>
+        </>
+      )}
+
       <span className="toolbar__sep" />
 
       {/* Vollbild ist der haeufigste Moduswechsel — fester Platz statt Menue. */}
@@ -666,6 +719,19 @@ export function Toolbar({
                     <IconHelp size={15} />
                   </span>
                   <span className="menu__item-name">Keyboard shortcuts</span>
+                </button>
+                <button
+                  className="menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    onTour();
+                    setMoreMenuOpen(false);
+                  }}
+                >
+                  <span className="menu__item-icon">
+                    <IconCompass size={15} />
+                  </span>
+                  <span className="menu__item-name">{t('tourRestart')}</span>
                 </button>
               </div>
             </>

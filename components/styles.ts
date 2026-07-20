@@ -403,6 +403,185 @@ input::placeholder { color: var(--text-2); }
 .banner button { border-color: #7a3b3b; background: #522929; }
 .banner button:hover:not(:disabled) { background: #653232; }
 
+/* Laufender Header-Eingriff — warnfarben, damit er nicht uebersehen wird. */
+.toolbar__flag {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  flex: 0 0 auto;
+  border: 1px solid var(--warn-border);
+  border-radius: 999px;
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.toolbar__flag:hover:not(:disabled) { background: var(--warn-bg); filter: brightness(1.12); }
+/* Blockiert, aber ohne Eingriff — ein Angebot, keine Warnung. */
+.toolbar__flag--muted {
+  border-color: var(--border-strong);
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-weight: 500;
+}
+.toolbar__flag--muted:hover:not(:disabled) { background: var(--bg-3); color: var(--text-0); filter: none; }
+
+/* ---------- Framing-Sperre (Vollbild statt Previews) ---------- */
+
+.gate {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  overflow: auto;
+  background: var(--bg-0);
+}
+.gate__card {
+  width: 100%;
+  max-width: 620px;
+  padding: 30px 34px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-l);
+}
+.gate__card--quiet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  color: var(--text-2);
+  box-shadow: none;
+}
+/* Ruhiges Bild-Zeichen statt Warndreieck — es ist eine Weggabelung, kein Fehler. */
+.gate__badge {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.gate__title {
+  margin: 16px 0 8px;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-0);
+}
+.gate__title strong { font-weight: 600; color: var(--accent); overflow-wrap: anywhere; }
+.gate__lead {
+  margin: 0 0 22px;
+  color: var(--text-1);
+  line-height: 1.6;
+}
+.gate__lead code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+/* Zwei gleichwertige Wege, jeder mit seinem Preis daneben. */
+.gate__options { display: flex; flex-direction: column; gap: 10px; }
+.gate__option {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-0);
+}
+.gate__option--primary { border-color: var(--accent); }
+.gate__option-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.gate__option-title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+.gate__option-text {
+  margin: 0;
+  color: var(--text-1);
+  line-height: 1.55;
+}
+.gate__option-text strong { font-weight: 600; color: var(--text-0); overflow-wrap: anywhere; }
+/* Der Preis der Option — sichtbar, aber nicht als Alarm. */
+.gate__option-cost {
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.gate__btn { flex: 0 0 auto; padding: 7px 14px; }
+.gate__btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.gate__btn--primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+.gate__foot {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 20px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.gate__link {
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-2);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.gate__link:hover:not(:disabled) { background: none; color: var(--text-0); }
+.gate__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ink-gate-spin .8s linear infinite;
+}
+@keyframes ink-gate-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Hinweis im leeren Device-Frame, wenn ohne Header-Eingriff weitergemacht wurde. */
+.device__blocked {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+  background: var(--bg-1);
+  color: var(--text-2);
+}
+.device__blocked strong { color: var(--text-1); font-weight: 600; }
+.device__blocked p { margin: 0; max-width: 300px; line-height: 1.5; font-size: 12px; }
+
 /* ---------- Layout ---------- */
 
 .body { display: flex; flex: 1 1 auto; min-height: 0; }
@@ -601,6 +780,18 @@ input::placeholder { color: var(--text-2); }
   white-space: nowrap;
   color: var(--text-2);
   font-size: 11px;
+}
+/* Masse der Markierung — eigene Pille, damit sie neben dem Werkzeugnamen
+   nicht mit weggekuerzt wird. */
+.fb-item__size {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  white-space: nowrap;
 }
 .fb-item__actions {
   display: flex;
@@ -874,9 +1065,45 @@ input::placeholder { color: var(--text-2); }
   touch-action: none;
 }
 .anno--pick .anno__svg { cursor: pointer; }
+/* Ausserhalb des Korrekturmodus faengt nur die Kontur einer Markierung (plus
+   ihre Griffe) Maus-Events — alles daneben gehoert weiter der Seite. */
+.anno__hit {
+  pointer-events: stroke;
+  cursor: grab;
+}
+.anno__hit--area { pointer-events: all; }
+.anno__handles rect { pointer-events: all; }
+/* Waehrend des Zugs faengt das ganze Overlay, damit er nicht abreisst,
+   sobald der Zeiger die Kontur verlaesst. */
+.anno--dragging .anno__svg { pointer-events: auto; }
 /* Eigene Markierung unterm Cursor: sie laesst sich an ihrer Kontur ziehen. */
-.anno--grab .anno__svg { cursor: grab; }
-.anno--grabbing .anno__svg { cursor: grabbing; }
+.anno--grab .anno__svg,
+.anno--grab .anno__hit { cursor: grab; }
+.anno--grabbing .anno__svg,
+.anno--grabbing .anno__hit { cursor: grabbing; }
+/* Groessenaenderung an den Griffen einer Box. */
+.anno--resize-nwse .anno__svg,
+.anno--resize-nwse .anno__hit,
+.anno--resize-nwse .anno__handles rect { cursor: nwse-resize; }
+.anno--resize-nesw .anno__svg,
+.anno--resize-nesw .anno__hit,
+.anno--resize-nesw .anno__handles rect { cursor: nesw-resize; }
+.anno--resize-ns .anno__svg,
+.anno--resize-ns .anno__hit,
+.anno--resize-ns .anno__handles rect { cursor: ns-resize; }
+.anno--resize-ew .anno__svg,
+.anno--resize-ew .anno__hit,
+.anno--resize-ew .anno__handles rect { cursor: ew-resize; }
+/* Greifbar (Hover) und am Zug: gestrichelter bzw. voller Rahmen um den
+   Marker — der Cursor allein verraet nicht, *welche* Markierung gemeint ist. */
+.anno__mark-grab { animation: ink-anno-fade 120ms ease-out; }
+.anno__mark-drag { animation: ink-anno-fade 90ms ease-out; }
+@keyframes ink-anno-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* Der gezogene Marker haengt sichtbar an der Maus. */
+.anno__moving { opacity: .85; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .45)); }
 /* Doppelter Puls um den per Panel-Klick angesprungenen Marker. */
 .anno__flash { animation: ink-anno-flash 1.8s ease-out forwards; }
 @keyframes ink-anno-flash {
@@ -1265,8 +1492,11 @@ input::placeholder { color: var(--text-2); }
   .fsbar__hint,
   .root--fs .panel--right,
   .root--fs.root--panel-closing .panel--right,
+  .tour__card,
+  .tour__shade,
   .overlay-backdrop { animation: none !important; }
   .fsbar { transition: none !important; }
+  .tour__ring { transition: none !important; }
 }
 
 /* ---------- Panel-Splitter (Groesse ziehen) ---------- */
@@ -1347,59 +1577,90 @@ input::placeholder { color: var(--text-2); }
 .menu__preview-meta { color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.5; }
 .menu__preview-meta strong { color: var(--text-1); font-weight: 600; }
 
-/* ---------- Coach-Mark (Erst-Hinweis) ---------- */
+/* ---------- Gefuehrte Tour (Spotlight-Onboarding) ---------- */
 
-.coach {
+/* Die Tour selbst faengt keine Zeiger — nur ihre Dimm-Flaechen tun das.
+   Das Loch dazwischen bleibt dadurch bedienbar, was die Aktions-Schritte
+   ("rechtsklick jetzt") ueberhaupt erst moeglich macht. */
+.tour { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
+
+.tour__shade {
   position: fixed;
-  top: 60px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 55;
-  width: min(320px, calc(100vw - 24px));
-  padding: 12px 14px 10px;
-  background: var(--accent);
-  color: #fff;
+  background: rgba(6, 8, 12, .62);
+  pointer-events: auto;
+  animation: ink-fade-in .16s ease-out;
+}
+
+.tour__ring {
+  position: fixed;
   border-radius: var(--radius-m);
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px var(--accent-dim);
+  pointer-events: none;
+  transition: left .16s ease, top .16s ease, width .16s ease, height .16s ease;
+}
+
+.tour__card {
+  position: fixed;
+  width: 340px;
+  max-width: calc(100vw - 16px);
+  padding: 14px 16px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-l);
   box-shadow: var(--shadow-l);
-  font-size: 12.5px;
-  line-height: 1.5;
+  color: var(--text-0);
+  pointer-events: auto;
   animation: ink-coach-in .18s ease-out;
 }
 @keyframes ink-coach-in {
-  from { opacity: 0; transform: translate(-50%, -6px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-.coach::before {
-  content: '';
-  position: absolute;
-  top: -6px;
-  left: 50%;
-  margin-left: -6px;
-  width: 12px;
-  height: 12px;
-  background: var(--accent);
-  transform: rotate(45deg);
-  border-radius: 2px;
+
+.tour__head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.tour__title { flex: 1 1 auto; font-size: 14px; font-weight: 700; }
+.tour__body { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--text-1); }
+
+.tour__waiting {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
 }
-.coach strong { font-weight: 700; }
-.coach kbd {
-  display: inline-block;
-  padding: 0 5px;
-  background: rgba(255, 255, 255, .22);
-  border-radius: 4px;
-  font-family: ui-monospace, monospace;
-  font-size: 11px;
+
+.tour__foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
 }
-.coach__actions { display: flex; justify-content: flex-end; margin-top: 8px; }
-.coach__dismiss {
-  padding: 4px 12px;
-  background: rgba(255, 255, 255, .2);
-  border: none;
+.tour__dots { display: flex; gap: 5px; flex: 1 1 auto; }
+.tour__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  transition: background .16s ease;
+}
+.tour__dot--on { background: var(--accent); }
+
+.tour__actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.tour__btn {
+  padding: 5px 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
   border-radius: var(--radius-s);
-  color: #fff;
+  color: var(--text-1);
+  font-size: 12px;
   font-weight: 600;
 }
-.coach__dismiss:hover:not(:disabled) { background: rgba(255, 255, 255, .32); }
+.tour__btn:hover:not(:disabled) { color: var(--text-0); border-color: var(--border-strong); }
+.tour__btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.tour__btn--primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 
 /* ---------- Shortcuts-/Hilfe-Overlay ---------- */
 
