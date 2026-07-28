@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="no-js">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -15,209 +15,435 @@
 <meta property="og:image" content="https://prioa.github.io/Inkspect-Website-Feedback-That-AI-Understands/img/marquee-1400x560.jpg" />
 <meta name="twitter:card" content="summary_large_image" />
 
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="style.css" />
+<script>document.documentElement.className = 'js';</script>
 </head>
 <body>
 
+<!--
+  Feste Elemente liegen bewusst ausserhalb von #smooth-wrapper: ScrollSmoother
+  transformiert den Inhalt, und ein transformierter Vorfahr macht aus
+  `position: fixed` einen neuen Enthaltungsblock — die Kopfleiste wuerde
+  mitscrollen.
+-->
+<div class="ink-bar" aria-hidden="true"><span class="ink-bar__fill"></span></div>
+
 <header class="top">
   <div class="wrap top__bar">
-    <span class="top__mark"><img src="img/icon.svg" alt="" /> Inkspect</span>
+    <a class="top__mark" href="#top"><img src="img/icon.svg" alt="" width="26" height="26" /> Inkspect</a>
     <span class="top__spacer"></span>
     <nav class="top__links">
-      <a href="#features" class="is-optional">Features</a>
-      <a href="#privacy" class="is-optional">Privacy</a>
+      <a href="#handoff" class="is-optional" data-scroll>How it works</a>
+      <a href="#more" class="is-optional" data-scroll>Features</a>
+      <a href="#privacy" class="is-optional" data-scroll>Privacy</a>
       <a href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands">GitHub</a>
-      <a href="https://chromewebstore.google.com/detail/opckhhggofkbihbnabhhaidgknmniebk">Install</a>
+      <a class="top__cta" href="https://chromewebstore.google.com/detail/opckhhggofkbihbnabhhaidgknmniebk">Install</a>
     </nav>
   </div>
 </header>
 
-<main>
+<!--
+  Werkzeugleiste wie im Addon: sie haengt am linken Rand und zeigt an, welches
+  Werkzeug der gerade sichtbare Abschnitt vorfuehrt (`data-tool` am Abschnitt).
+-->
+<aside class="dock" aria-hidden="true">
+  <span class="dock__tool" data-tool="element" title="Mark element">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="14" height="14" rx="2" stroke-dasharray="3 2.5"/><path d="M8 8h4v4H8z" fill="currentColor" stroke="none"/></svg>
+  </span>
+  <span class="dock__tool" data-tool="pin" title="Comment pin">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4h12v9H9l-4 3v-3H4z" stroke-linejoin="round"/></svg>
+  </span>
+  <span class="dock__tool" data-tool="pen" title="Freehand">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 17c3-1 3.5-9 6-9s1 6 3.5 6S16 8 17 5" stroke-linecap="round"/></svg>
+  </span>
+  <span class="dock__tool" data-tool="line" title="Guide lines">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 6h16M2 14h16"/><path d="M10 8v4"/></svg>
+  </span>
+  <span class="dock__tool" data-tool="text" title="Text">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
+  </span>
+  <span class="dock__tool" data-tool="shield" title="Local only">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3l6 2.5V10c0 4-2.6 6-6 7-3.4-1-6-3-6-7V5.5z" stroke-linejoin="round"/></svg>
+  </span>
+</aside>
 
-<section class="hero">
-  <div class="wrap">
-    <h1>Website feedback that <em>AI understands</em></h1>
-    <p class="hero__lead">
-      “The button is too small” plus a screenshot makes an AI coding agent guess.
-      Inkspect writes down what you actually meant — with the CSS selector, the
+<div id="smooth-wrapper">
+<div id="smooth-content">
+
+<main id="top">
+
+<!-- ══════════════════════════════ Hero ══════════════════════════════ -->
+<section class="hero" data-tool="pin">
+  <div class="wrap hero__head">
+    <p class="hero__kicker" data-reveal>Browser extension · Chrome &amp; Firefox</p>
+    <!-- Nur der Vorderteil wird in Zeichen zerlegt: das <em> traegt den
+         absolut positionierten Unterstrich, den SplitText sonst mitverschiebt. -->
+    <h1 class="hero__h1">
+      <span class="split">Website feedback that</span>
+      <em>AI understands<svg class="scribble" viewBox="0 0 300 24" preserveAspectRatio="none" aria-hidden="true"><path d="M4 16c48 4 96 5 148 2s96-6 144-8" vector-effect="non-scaling-stroke"/><path d="M12 21c60 2 120 1 180-3" vector-effect="non-scaling-stroke" opacity=".55"/></svg></em>
+    </h1>
+    <p class="hero__lead" data-reveal>
+      “The button is too small” plus a screenshot makes an agent guess.
+      Inkspect writes down what you actually meant — the CSS selector, the
       current value and the target value of every note.
     </p>
-    <p class="hero__note">Chrome &amp; Firefox · no account · nothing uploaded</p>
-
-    <div class="cta">
-      <a class="btn btn--primary" href="https://chromewebstore.google.com/detail/opckhhggofkbihbnabhhaidgknmniebk">
-        Add to Chrome
-      </a>
+    <div class="cta" data-reveal>
+      <a class="btn btn--primary" href="https://chromewebstore.google.com/detail/opckhhggofkbihbnabhhaidgknmniebk">Add to Chrome</a>
       <span class="btn btn--soon">Firefox <span class="btn__soon">in review</span></span>
-      <a class="btn" href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands">
-        Source on GitHub
-      </a>
+      <a class="btn" href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands">Source on GitHub</a>
     </div>
-
-    <figure class="shot-lead">
-      <img src="img/screenshot-1-feedback-1280x800.svg" width="1280" height="800"
-           alt="Inkspect marking up a live page, next to the Markdown checklist it produces" />
-    </figure>
+    <p class="hero__note" data-reveal>No account · nothing uploaded · works on the page you already have open</p>
   </div>
+
+  <!--
+    Die Buehne ist die eigentliche Ansage: eine fremde Website, die sich
+    beim Scrollen selbst markiert. Alle Innenmasse stehen in `cqw`, damit
+    Inhalt und SVG-Overlay (viewBox 1200x750) bei jeder Breite deckungs-
+    gleich bleiben.
+  -->
+  <div class="wrap wrap--wide">
+    <div class="stage stage--hero" id="stage-hero">
+      <div class="mock">
+        <div class="mock__chrome">
+          <i class="mock__dot"></i><i class="mock__dot"></i><i class="mock__dot"></i>
+          <span class="mock__url">northlight.example / pricing</span>
+          <span class="mock__ink">Inkspect</span>
+        </div>
+        <div class="site">
+          <div class="site__bar">
+            <span class="site__logo"></span>
+            <span class="site__nav"><i></i><i></i><i></i></span>
+            <span class="site__pill"></span>
+          </div>
+          <div class="site__hero">
+            <p class="site__eyebrow">Pricing</p>
+            <h2 class="site__h1">Ship your best work, faster.</h2>
+            <p class="site__lead">One workspace for the whole team — plan, build and review in the same place.</p>
+            <span class="site__cta">Get started</span>
+          </div>
+          <div class="site__cards">
+            <span class="site__card"><i></i><b></b><u></u></span>
+            <span class="site__card"><i></i><b></b><u></u></span>
+            <span class="site__card"><i></i><b></b><u></u></span>
+          </div>
+        </div>
+      </div>
+
+      <!--
+        Markierungsebene. Die Koordinaten sind Design-Pixel desselben
+        1200x750-Rasters wie `--u` im CSS — Overlay und Inhalt decken sich
+        deshalb bei jeder Breite. Gezeichnet wird per DrawSVG beim Scrollen.
+      -->
+      <svg class="ann" viewBox="0 0 1200 750" fill="none" aria-hidden="true">
+        <g stroke="var(--m-green)" stroke-width="2" stroke-dasharray="7 6">
+          <path class="a-guide" d="M40 328H1160" />
+          <path class="a-guide" d="M40 384H1160" />
+        </g>
+        <path class="a-rect" d="M50 380c46-7 100-8 168-4 6 20 6 42 2 60-56 6-116 6-168 1-6-19-6-40-1-58 7-3 16-5 24-6"
+              stroke="var(--m-blue)" stroke-width="3.5" stroke-linecap="round" />
+        <path class="a-arrow" d="M556 462c-70 20-190 2-296-42" stroke="var(--m-amber)" stroke-width="3.5" stroke-linecap="round" />
+        <path class="a-head" d="M260 420l36 8M260 420l8 36" stroke="var(--m-amber)" stroke-width="3.5" stroke-linecap="round" />
+        <circle class="a-pin" cx="720" cy="230" r="15" stroke="var(--m-blue)" stroke-width="3" />
+        <text class="a-pinno" x="720" y="236" fill="var(--m-blue)" font-size="17" font-weight="700" text-anchor="middle">1</text>
+        <path class="a-pen" d="M240 296c48 8 96 9 148 5s96-6 140-2" stroke="var(--m-amber)" stroke-width="3.5" stroke-linecap="round" />
+        <rect class="a-pick" x="422" y="488" width="356" height="162" rx="10"
+              stroke="var(--m-green)" stroke-width="2.5" stroke-dasharray="6 5" />
+      </svg>
+
+      <!-- Notizen als HTML: echter Text bleibt scharf und vorlesbar -->
+      <span class="ann__note ann__note--1">Headline sits too tight above the lead <b>— pin 1</b></span>
+      <span class="ann__note ann__note--2">Make this full width on mobile</span>
+      <span class="ann__note ann__note--3"><i>56 px</i> lead → button</span>
+      <span class="ann__note ann__note--4">.card:nth-of-type(2)</span>
+    </div>
+    <p class="stage__cap" data-speed="1.12">Everything above happens on the live page — in your browser, in your session, at your viewport.</p>
+  </div>
+
+  <span class="hero__hint" data-speed="0.82" aria-hidden="true">scroll<i></i></span>
 </section>
 
-<section id="features">
-  <div class="wrap">
-    <h2>Mark the page, not a screenshot</h2>
-    <p class="sub">
-      Everything happens on the page you are actually looking at — in your browser,
-      with your session, at the viewport you care about.
-    </p>
-
-    <div class="row">
-      <div class="row__text">
-        <h3>Feedback an agent can act on</h3>
-        <p>
-          Copy every note of a site as a Markdown checklist. Each entry points at a
-          place in your source code instead of at a pixel in a picture.
-        </p>
-        <ul>
-          <li>CSS selector, Shadow&nbsp;DOM boundaries included</li>
-          <li>Style changes as <em>from → to</em>, rewritten text, measured spacings</li>
-          <li>Plain text — paste it into an agent prompt, a pull request or a ticket</li>
-        </ul>
-      </div>
-      <pre class="code">- [ ] <b>Headline sits too tight above the form</b>
-  - selector: <i>.hero &gt; h1.h1-display</i>
-  - change on <i>.h1-display</i>: <i>margin-bottom</i> 8px → 24px
-  - text: “Get started” → “Start your free trial”
-  - device: Desktop HD · position: 412, 268</pre>
+<!-- ═════════════════════════ Handoff (gepinnt) ═════════════════════════ -->
+<section id="handoff" class="handoff" data-tool="text">
+  <!-- Ueberschrift steht mit im Pin: sonst waere beim Wischen nicht mehr zu
+       sehen, worauf man gerade schaut. -->
+  <div class="handoff__stick">
+    <div class="wrap">
+      <h2 class="h2" data-reveal>A screenshot makes it <em>guess</em>.</h2>
+      <p class="sub" data-reveal>Keep scrolling — this is what the same note turns into.</p>
     </div>
 
-    <div class="row row--flip">
-      <div class="row__text">
-        <h3>Pick an element, change it, see it</h3>
-        <p>
-          Rewrite the text, change font weight and size, drag padding and margins per
-          edge or all four linked. The change happens on the page — you see the result
-          before you write it down.
-        </p>
-        <ul>
-          <li>Class scope moves every <em>.btn-primary</em>, element scope just the one you picked</li>
-          <li>Every edit is listed and can be reverted one by one</li>
-        </ul>
-      </div>
-      <img src="img/screenshot-2-inspect-1280x800.svg" width="1280" height="800"
-           alt="The element picker with live edits to text, font and spacing" />
-    </div>
+    <div class="wrap handoff__grid">
+      <figure class="vague">
+        <div class="stage">
+          <div class="mock">
+            <div class="mock__chrome">
+              <i class="mock__dot"></i><i class="mock__dot"></i><i class="mock__dot"></i>
+              <span class="mock__url">northlight.example / pricing</span>
+            </div>
+            <div class="site">
+              <div class="site__bar">
+                <span class="site__logo"></span>
+                <span class="site__nav"><i></i><i></i><i></i></span>
+                <span class="site__pill"></span>
+              </div>
+              <div class="site__hero">
+                <p class="site__eyebrow">Pricing</p>
+                <h3 class="site__h1">Ship your best work, faster.</h3>
+                <p class="site__lead">One workspace for the whole team — plan, build and review in the same place.</p>
+                <span class="site__cta">Get started</span>
+              </div>
+              <div class="site__cards">
+                <span class="site__card"><i></i><b></b><u></u></span>
+                <span class="site__card"><i></i><b></b><u></u></span>
+                <span class="site__card"><i></i><b></b><u></u></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>“the button is too small, and the spacing looks off”</figcaption>
+        <span class="vague__stamp">what an agent gets today</span>
+      </figure>
 
-    <div class="row">
-      <div class="row__text">
-        <h3>Hand it over three ways</h3>
-        <p>
-          A Markdown checklist for your agent, a share link that opens the markings
-          live on the page, or an annotated PDF for tickets and reviews.
-        </p>
-        <ul>
-          <li>The share link carries the data inside the URL — there is no server</li>
-          <li>PDFs cover the whole page, one file per device viewport</li>
-          <li>Notes are rendered right at their marker, so the file speaks for itself</li>
-        </ul>
+      <div class="sharp">
+        <div class="sharp__bar"><span></span> feedback.md</div>
+        <div class="sharp__code"><span class="ln">## /pricing</span>
+          <span class="ln"> </span>
+          <span class="ln">### iPhone SE (375×667)</span>
+          <span class="ln">- [ ] <b>Make the CTA full width</b> — <i>a.btn--primary</i></span>
+          <span class="ln">  - selector: <i>main &gt; section.hero &gt;&gt;&gt; a.btn--primary</i></span>
+          <span class="ln">  - text: "Get started" → "Start your free trial"</span>
+          <span class="ln">  - change on <i>.btn--primary</i>: <i>padding-top</i> 8px → 14px</span>
+          <span class="ln">  - change on <i>.btn--primary</i>: <i>font-weight</i> 500 → 700</span>
+          <span class="ln">  - position: 412, 980 (document px)</span>
+          <span class="ln">- [x] <b>Align prices to the baseline</b> — <i>div.card</i></span>
+          <span class="ln">  - selector: <i>section.plans &gt; div.card:nth-of-type(2)</i></span>
+          <span class="ln">  - spacing: 56 px</span></div>
+        <span class="sharp__stamp">what Inkspect hands over</span>
       </div>
-      <img src="img/screenshot-3-export-1280x800.svg" width="1280" height="800"
-           alt="Markdown export, share link and annotated PDF side by side" />
-    </div>
 
-    <div class="row row--flip">
-      <div class="row__text">
-        <h3>Every viewport at once</h3>
-        <p>
-          See the page in phone, tablet and desktop widths side by side. Scrolling,
-          clicks, typing, hover states and link navigation are mirrored across all
-          frames in real time.
-        </p>
-        <ul>
-          <li>Add, rotate and remove devices; define your own sizes</li>
-          <li>Save a grid as a named set — your setup survives the session</li>
-        </ul>
-      </div>
-      <img src="img/screenshot-4-sync-1280x800.svg" width="1280" height="800"
-           alt="Synced device previews in phone, tablet and desktop widths" />
-    </div>
-
-    <div class="row">
-      <div class="row__text">
-        <h3>Live CSS editor</h3>
-        <p>
-          Edit the page's stylesheets in a full editor, cross-origin sheets included.
-          Changes apply instantly across every device frame and survive reloads.
-        </p>
-        <ul>
-          <li>Reset any sheet back to the original with one click</li>
-        </ul>
-      </div>
-      <img src="img/screenshot-5-css-1280x800.svg" width="1280" height="800"
-           alt="The built-in CSS editor changing a stylesheet live" />
-    </div>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Also in the box</h2>
-    <p class="sub">Small things that turn a demo into a tool you keep open.</p>
-    <div class="grid">
-      <div class="card">
-        <h3>Markings that stick</h3>
-        <p>They follow the content while you scroll and re-anchor to their element after a reload.</p>
-      </div>
-      <div class="card">
-        <h3>Guide lines that measure</h3>
-        <p>Drag one across the page, drag a second, and the gap between them is measured in pixels — straight into the export.</p>
-      </div>
-      <div class="card">
-        <h3>A panel that keeps order</h3>
-        <p>All feedback grouped per page and per device. Check items off as you fix them; badges count what is still open.</p>
-      </div>
-      <div class="card">
-        <h3>Full window mode</h3>
-        <p>The page at full size with a floating tool bar you can drag anywhere, plus an optional phone mockup beside it.</p>
-      </div>
-      <div class="card">
-        <h3>Stubborn pages</h3>
-        <p>Sites that refuse to be embedded can still be previewed via an explicit opt-in, scoped to the current tab.</p>
-      </div>
-      <div class="card">
-        <h3>Find your way</h3>
-        <p>A guided tour on first open, and a shortcut sheet behind <kbd>?</kbd> whenever you need it.</p>
-      </div>
+      <span class="handoff__seam" aria-hidden="true"></span>
     </div>
   </div>
 </section>
 
-<section id="privacy">
-  <div class="wrap">
-    <h2>Nothing leaves your browser</h2>
-    <div class="note">
-      <p>
-        <strong>There is no Inkspect server.</strong> Your feedback is stored locally
-        in your browser. Share links carry the data compressed inside the URL itself,
-        so a link works without anything being uploaded anywhere — and it stops working
-        the moment you stop sharing it. Read the
-        <a href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands/blob/main/PRIVACY.md">full privacy policy</a>.
+<!-- ═════════════════════ Element-Picker (gepinnt) ═════════════════════ -->
+<section id="inspect" class="inspect" data-tool="element">
+  <div class="inspect__stick">
+    <div class="wrap">
+      <h2 class="h2" data-reveal>Pick it, change it, <em>watch the numbers</em>.</h2>
+      <p class="sub" data-reveal>
+        The element picker edits the page in front of you. Every drag is recorded
+        as <b>from → to</b> — so the note carries the value, not an adjective.
       </p>
     </div>
+
+    <div class="wrap wrap--wide inspect__grid">
+      <div class="stage stage--edit" id="stage-edit">
+        <div class="mock">
+          <div class="mock__chrome">
+            <i class="mock__dot"></i><i class="mock__dot"></i><i class="mock__dot"></i>
+            <span class="mock__url">northlight.example / pricing</span>
+            <span class="mock__ink">Inkspect</span>
+          </div>
+          <div class="site site--zoom">
+            <div class="site__hero">
+              <p class="site__eyebrow">Pricing</p>
+              <h2 class="site__h1">Ship your best work, faster.</h2>
+              <p class="site__lead">One workspace for the whole team — plan, build and review in the same place.</p>
+              <!--
+                Der Rahmen des Element-Pickers steckt im Button selbst: so
+                waechst er beim Padding-Scrub mit, statt danebenzuliegen.
+              -->
+              <span class="site__cta" id="edit-cta"><span class="padband"></span><span id="edit-label">Get started</span><span class="pickbox" id="pickbox"><i>a.btn--primary</i></span><span class="padtag" id="pad-top">8px</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <div class="panel__head">
+          <span class="panel__title">Inspect</span>
+          <span class="panel__sel">a.btn--primary</span>
+        </div>
+        <div class="panel__scope">
+          <span class="chip is-on">Class · 3 elements</span>
+          <span class="chip">Element</span>
+        </div>
+        <label class="ctrl">
+          <span class="ctrl__k">padding-top</span>
+          <span class="ctrl__v"><b id="v-pad">8</b>px</span>
+          <span class="ctrl__track"><i id="t-pad"></i></span>
+        </label>
+        <label class="ctrl">
+          <span class="ctrl__k">font-weight</span>
+          <span class="ctrl__v"><b id="v-weight">500</b></span>
+          <span class="ctrl__track"><i id="t-weight"></i></span>
+        </label>
+        <label class="ctrl">
+          <span class="ctrl__k">text</span>
+          <span class="ctrl__v ctrl__v--text" id="v-text">Get started</span>
+        </label>
+        <div class="panel__log" id="editlog">
+          <span class="logrow"><i>padding-top</i> 8px <em>→</em> 14px</span>
+          <span class="logrow"><i>font-weight</i> 500 <em>→</em> 700</span>
+          <span class="logrow"><i>text</i> “Get started” <em>→</em> “Start your free trial”</span>
+        </div>
+        <p class="panel__foot">Every edit is listed and revertable one by one.</p>
+      </aside>
+    </div>
   </div>
 </section>
 
-<section>
-  <div class="wrap" style="text-align: center;">
-    <h2>Try it on the page you have open</h2>
-    <p class="sub" style="margin-inline: auto;">
-      One click on the toolbar icon. No account, no setup, no upload.
-    </p>
-    <div class="cta">
-      <a class="btn btn--primary" href="https://chromewebstore.google.com/detail/opckhhggofkbihbnabhhaidgknmniebk">
-        Add to Chrome
-      </a>
-      <a class="btn" href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands/releases">
-        Download a build
-      </a>
+<!-- ═══════════════════ Geraete (horizontal, gepinnt) ═══════════════════ -->
+<section id="devices" class="devices" data-tool="line">
+  <div class="devices__stick">
+    <div class="wrap">
+      <h2 class="h2" data-reveal>Every viewport at once — <em>in sync</em>.</h2>
+      <p class="sub" data-reveal>
+        Scrolling, clicks, typing, hover and navigation are mirrored across all
+        frames in real time. Scroll on: the frames scroll with you.
+      </p>
+    </div>
+
+    <div class="devices__rail">
+    <div class="devices__track">
+      <article class="dev dev--phone">
+        <header class="dev__bar"><span>iPhone SE</span><b>375 × 667</b></header>
+        <div class="dev__screen"><div class="mini"><div class="mini__page"></div></div></div>
+      </article>
+      <article class="dev dev--tablet">
+        <header class="dev__bar"><span>iPad mini</span><b>768 × 1024</b></header>
+        <div class="dev__screen"><div class="mini"><div class="mini__page"></div></div></div>
+      </article>
+      <article class="dev dev--laptop">
+        <header class="dev__bar"><span>Laptop</span><b>1280 × 800</b></header>
+        <div class="dev__screen"><div class="mini"><div class="mini__page"></div></div></div>
+      </article>
+      <article class="dev dev--desktop">
+        <header class="dev__bar"><span>Desktop HD</span><b>1920 × 1080</b></header>
+        <div class="dev__screen"><div class="mini"><div class="mini__page"></div></div></div>
+      </article>
+      <div class="dev__meta">
+        <span class="sync"><i></i> scroll · hover · clicks &amp; inputs</span>
+        <p>Each channel can be switched off on its own. Save a grid as a named set and bring it back later.</p>
+      </div>
+    </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ Uebergabe ═══════════════════════════ -->
+<section id="export" class="export" data-tool="text">
+  <div class="wrap">
+    <h2 class="h2" data-reveal>Hand it over <em>three ways</em>.</h2>
+    <p class="sub" data-reveal>To an agent, to a teammate, or into a ticket.</p>
+
+    <div class="three">
+      <article class="way" data-way="md">
+        <h3>Markdown checklist</h3>
+        <p>The whole domain as a task list — selector, values, position, done state. Paste it straight into an agent prompt.</p>
+        <div class="way__vis way__vis--md">
+          <span class="task"><i></i>Make the CTA full width</span>
+          <span class="task"><i></i>Align prices to the baseline</span>
+          <span class="task"><i></i>Tighten the hero spacing</span>
+          <span class="task"><i></i>Raise contrast on the footer</span>
+        </div>
+      </article>
+
+      <article class="way" data-way="link">
+        <h3>Share link</h3>
+        <p>All markings of a page, deflate-compressed into the URL hash. Recipients with the extension see them on the page — nothing is uploaded.</p>
+        <div class="way__vis way__vis--link">
+          <span class="squeeze" id="squeeze"></span>
+          <span class="linkpill">…/pricing<b>#ink-feedback=</b>eJyrVkrLz1eyUsp…</span>
+        </div>
+      </article>
+
+      <article class="way" data-way="pdf">
+        <h3>Annotated PDF</h3>
+        <p>One file per device viewport, the full scroll-stitched page, notes rendered right at their marker.</p>
+        <div class="way__vis way__vis--pdf">
+          <span class="sheet"><i>Desktop HD</i></span>
+          <span class="sheet"><i>iPad mini</i></span>
+          <span class="sheet"><i>iPhone SE</i></span>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ Kleinkram ══════════════════════════ -->
+<section id="more" class="more" data-tool="pen">
+  <div class="wrap">
+    <h2 class="h2" data-reveal>Also in the box</h2>
+    <p class="sub" data-reveal>Small things that turn a demo into a tool you keep open.</p>
+    <div class="grid">
+      <div class="card"><h3>Markings that stick</h3><p>They follow the content while you scroll and re-anchor to their element after a reload.</p></div>
+      <div class="card"><h3>Guide lines that measure</h3><p>Drag one across the page, drag a second, and the gap between them lands in the export in pixels.</p></div>
+      <div class="card"><h3>A panel that keeps order</h3><p>Feedback grouped per page and per device. Check items off as you fix them; badges count what is still open.</p></div>
+      <div class="card"><h3>Full window mode</h3><p>The page at full size with a floating tool bar you can drag anywhere, plus an optional phone mockup beside it.</p></div>
+      <div class="card"><h3>Live CSS editor</h3><p>Edit the page's stylesheets, cross-origin sheets included. Changes apply across every frame and survive reloads.</p></div>
+      <div class="card"><h3>Stubborn pages</h3><p>Sites that refuse to be embedded can still be previewed via an explicit opt-in, scoped to the current tab.</p></div>
+      <div class="card"><h3>Find your way</h3><p>A guided tour on first open, and a shortcut sheet behind <kbd>?</kbd> whenever you need it.</p></div>
+      <div class="card"><h3>Keyboard first</h3><p><kbd>1</kbd>–<kbd>9</kbd> picks a tool, <kbd>I</kbd> opens the inspector, <kbd>Esc</kbd> goes back to interacting.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ Datenschutz ═══════════════════════════ -->
+<section id="privacy" class="privacy" data-tool="shield">
+  <div class="wrap privacy__grid">
+    <div>
+      <h2 class="h2" data-reveal>Nothing leaves <em>your browser</em>.</h2>
+      <p class="sub" data-reveal>
+        There is no Inkspect server. Feedback is stored locally in your browser.
+        A share link carries the data compressed inside the URL itself — so it
+        works without an upload, and it stops working the moment you stop
+        sharing it.
+      </p>
+      <p data-reveal>
+        <a class="btn" href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands/blob/main/PRIVACY.md">Read the privacy policy</a>
+      </p>
+    </div>
+
+    <!-- Daten laufen per MotionPath nach aussen und prallen an der Grenze ab -->
+    <div class="vault" data-speed="1.08">
+      <svg viewBox="0 0 400 400" fill="none" aria-hidden="true">
+        <defs>
+          <path id="p1" d="M200 200C240 168 300 176 336 200" />
+          <path id="p2" d="M200 200C176 246 128 262 78 246" />
+          <path id="p3" d="M200 200C236 236 246 296 224 336" />
+          <path id="p4" d="M200 200C160 172 118 152 74 156" />
+        </defs>
+        <circle class="vault__ring" cx="200" cy="200" r="150" stroke="var(--border-strong)" stroke-width="1.5" stroke-dasharray="4 7" />
+        <circle class="vault__wall" cx="200" cy="200" r="150" stroke="var(--m-green)" stroke-width="2.5" />
+        <circle class="vault__core" cx="200" cy="200" r="44" fill="var(--bg-2)" stroke="var(--border-strong)" stroke-width="1.5" />
+        <g class="vault__dots" fill="var(--accent)">
+          <circle r="5" /><circle r="5" /><circle r="5" /><circle r="5" />
+        </g>
+      </svg>
+      <span class="vault__label">storage.local</span>
+      <span class="vault__edge">no server · no account</span>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ CTA ══════════════════════════════ -->
+<section class="last">
+  <div class="wrap last__in">
+    <h2 class="h2" data-reveal>Try it on the page you have open</h2>
+    <p class="sub" data-reveal>One click on the toolbar icon. No account, no setup, no upload.</p>
+    <div class="cta cta--ring">
+      <span class="ringwrap">
+        <a class="btn btn--primary" href="https://chromewebstore.google.com/detail/opckhhggofkbihbnabhhaidgknmniebk">Add to Chrome</a>
+        <!-- Handgezogener Kreis: preserveAspectRatio none + nicht skalierende
+             Strichbreite, damit er sich an jede Buttonbreite anlegt. -->
+        <svg class="ring" viewBox="0 0 260 90" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M132 8c56-3 118 6 122 30s-64 44-124 44S6 68 6 42 62 5 124 6" vector-effect="non-scaling-stroke" />
+        </svg>
+      </span>
+      <a class="btn" href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands/releases">Download a build</a>
     </div>
   </div>
 </section>
@@ -233,6 +459,17 @@
     <a href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands/blob/main/PRIVACY.md">Privacy</a>
   </div>
 </footer>
+
+</div><!-- /#smooth-content -->
+</div><!-- /#smooth-wrapper -->
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/ScrollSmoother.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/SplitText.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/DrawSVGPlugin.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/MotionPathPlugin.min.js"></script>
+<script src="app.js"></script>
 
 </body>
 </html>
