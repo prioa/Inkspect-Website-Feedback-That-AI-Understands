@@ -593,7 +593,7 @@ export function Toolbar({
       <div className="toolbar__group">
         <span className="toolbar__menu">
           <button
-            className={`icon-btn${moreMenuOpen ? ' icon-btn--active' : ''}`}
+            className={`icon-btn toolbar__more${moreMenuOpen ? ' icon-btn--active' : ''}`}
             onClick={() => setMoreMenuOpen((v) => !v)}
             aria-expanded={moreMenuOpen}
             title="More tools & settings"

@@ -54,14 +54,14 @@ export const MESSAGES = {
 
   tour4Title: m('Pick a tool', 'Werkzeug wählen'),
   tour4Body: m(
-    'Element picker, pins, freehand, shapes, arrows, guide lines and text. Keys 1–9 pick a tool directly, Esc goes back to interacting with the page.',
-    'Element-Picker, Pins, Freihand, Formen, Pfeile, Hilfslinien und Text. Die Tasten 1–9 wählen direkt ein Werkzeug, Esc bringt dich zurück zum Interagieren mit der Seite.',
+    'Element picker and comment pin sit right in the bar; everything you draw with — freehand, shapes, arrows, guide lines, text — lives under “Draw”. Keys 1–9 pick a tool directly, Esc goes back to interacting with the page.',
+    'Element-Picker und Kommentar-Pin stehen direkt in der Leiste; alles zum Zeichnen — Freihand, Formen, Pfeile, Hilfslinien, Text — liegt unter „Draw“. Die Tasten 1–9 wählen direkt ein Werkzeug, Esc bringt dich zurück zum Interagieren mit der Seite.',
   ),
 
   tour5Title: m('Guide lines mark a region', 'Hilfslinien stecken einen Bereich ab'),
   tour5Body: m(
-    'The line tools draw full-width or full-height guides across the page — drag one out to pin a baseline, a fold or a column edge. Stack two and you have a region.',
-    'Die Linien-Werkzeuge ziehen Hilfslinien über die volle Breite oder Höhe der Seite — zieh eine auf, um eine Grundlinie, den Fold oder eine Spaltenkante festzuhalten. Zwei davon ergeben einen Bereich.',
+    'Open “Draw” for the line tools: they lay full-width or full-height guides across the page — drag one out to pin a baseline, a fold or a column edge. Stack two and you have a region.',
+    'Öffne „Draw“ für die Linien-Werkzeuge: Sie ziehen Hilfslinien über die volle Breite oder Höhe der Seite — zieh eine auf, um eine Grundlinie, den Fold oder eine Spaltenkante festzuhalten. Zwei davon ergeben einen Bereich.',
   ),
 
   tour6Title: m('Markings stay editable', 'Markierungen bleiben editierbar'),

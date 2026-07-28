@@ -1,8 +1,8 @@
 {
-  "name": "inkspect",
-  "version": "0.4.0",
+  "name": "Inkspect — Website Feedback That AI Understands",
+  "version": "0.8.95",
   "private": true,
-  "description": "Responsive preview with synced device frames, live CSS editor and feedback tools (Chrome/Firefox)",
+  "description": "Mark up any website, edit it live, and hand the feedback to your AI agent — with selectors and exact values. No account.",
   "type": "module",
   "scripts": {
     "dev": "wxt",

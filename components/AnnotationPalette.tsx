@@ -1,4 +1,12 @@
-import { useLayoutEffect, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type JSX,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
+import { createPortal } from 'react-dom';
 import type { PaletteTool, Tool } from '@/lib/annotations';
 import { TOOL_LABELS } from '@/lib/annotations';
 import type { ToolbarDock, ToolbarPlacement } from '@/lib/settings';
@@ -6,10 +14,12 @@ import {
   IconArrow,
   IconCollapse,
   IconEllipse,
+  IconExpand,
   IconGrip,
   IconHLine,
   IconInspect,
   IconPen,
+  IconPhone,
   IconPin,
   IconPointer,
   IconRect,
@@ -50,6 +60,203 @@ export const TOOL_ICONS: Record<Tool, () => JSX.Element> = {
   vline: () => <IconVLine />,
   text: () => <IconText />,
 };
+
+/**
+ * Werkzeuge, die direkt in der Leiste stehen. Element-Picker und Pin sind die
+ * beiden Einstiege; alles zum Zeichnen liegt darunter in der „Draw"-Gruppe —
+ * die Leiste bleibt so kurz und die Wahl ueberschaubar.
+ */
+const PRIMARY_TOOLS: readonly Tool[] = ['element', 'pin'];
+
+/** Werkzeuge der Leiste in Primaerknoepfe und Zeichen-Gruppe aufteilen. */
+function splitTools(order: readonly Tool[]): { primary: Tool[]; draw: Tool[] } {
+  return {
+    primary: order.filter((t) => PRIMARY_TOOLS.includes(t)),
+    draw: order.filter((t) => !PRIMARY_TOOLS.includes(t)),
+  };
+}
+
+/** Hover-Label der schwebenden Leiste; die Palette nutzt stattdessen `title`. */
+interface HintApi {
+  show: (e: ReactPointerEvent, label: string, key?: string) => void;
+  hide: () => void;
+}
+
+/**
+ * Werkzeugknoepfe beider Leisten: erst die Primaerwerkzeuge, dann ein
+ * „Draw"-Knopf, der die uebrigen in einem Flyout buendelt. Der Knopf traegt
+ * das Symbol des zuletzt benutzten Zeichen-Werkzeugs und ist aktiv, solange
+ * eines davon gewaehlt ist.
+ */
+function ToolButtons({
+  order,
+  tool,
+  onTool,
+  hint,
+  placement = 'down',
+}: {
+  order: readonly Tool[];
+  tool: PaletteTool;
+  onTool: (tool: PaletteTool) => void;
+  hint?: HintApi;
+  /** Wohin das Flyout aufklappt — die senkrechte Leiste braucht 'right'. */
+  placement?: 'up' | 'down' | 'right';
+}) {
+  const { primary, draw } = splitTools(order);
+
+  /**
+   * Das Flyout oeffnet beim Ueberfahren und schliesst mit kurzem Nachlauf:
+   * zwischen Knopf und Menue liegt eine Luecke, ohne Verzoegerung waere es
+   * weg, bevor der Zeiger drueben ankommt.
+   */
+  const [open, setOpen] = useState(false);
+  const closeTimer = useRef(0);
+  const openMenu = () => {
+    window.clearTimeout(closeTimer.current);
+    setOpen(true);
+  };
+  const closeSoon = () => {
+    window.clearTimeout(closeTimer.current);
+    closeTimer.current = window.setTimeout(() => setOpen(false), 220);
+  };
+  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+
+  /**
+   * Das Flyout wird aus der Leiste heraus geportalt: die schwebende Leiste
+   * scrollt bei wenig Platz (`overflow: auto`) und wuerde ein absolut
+   * positioniertes Kind schlicht abschneiden. Es haengt deshalb frei im
+   * Shell-Root und wird von Hand neben den Knopf gerechnet.
+   */
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [host, setHost] = useState<Element | null>(null);
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const root = btnRef.current?.closest('.root');
+    if (root) setHost(root);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setAt(null);
+      return;
+    }
+    const btn = btnRef.current;
+    const menu = menuRef.current;
+    if (!btn || !menu) return;
+    const b = btn.getBoundingClientRect();
+    const w = menu.offsetWidth;
+    const h = menu.offsetHeight;
+    const gap = 8;
+    let left: number;
+    let top: number;
+    if (placement === 'right') {
+      left = b.right + gap;
+      top = b.top + b.height / 2 - h / 2;
+    } else {
+      left = b.left + b.width / 2 - w / 2;
+      top = placement === 'down' ? b.bottom + gap : b.top - gap - h;
+      // Kein Platz auf der Wunschseite? Auf die andere klappen.
+      if (top < 8) top = b.bottom + gap;
+      else if (top + h > window.innerHeight - 8) top = b.top - gap - h;
+    }
+    setAt({
+      left: Math.max(8, Math.min(left, window.innerWidth - w - 8)),
+      top: Math.max(8, Math.min(top, window.innerHeight - h - 8)),
+    });
+  }, [open, placement, draw.length]);
+
+  // Das zuletzt gewaehlte Zeichen-Werkzeug bleibt das Gesicht der Gruppe.
+  const faceRef = useRef<Tool>(draw[0] ?? 'pen');
+  if (draw.includes(tool as Tool)) faceRef.current = tool as Tool;
+  const face = draw.includes(faceRef.current) ? faceRef.current : (draw[0] ?? 'pen');
+  const drawActive = draw.includes(tool as Tool);
+
+  /** Ziffern-Kuerzel folgen weiterhin der vollen Reihenfolge. */
+  const keyOf = (t: Tool) => String(order.indexOf(t) + 1);
+
+  const toolButton = (id: Tool) => (
+    <button
+      key={id}
+      className={`icon-btn${tool === id ? ' icon-btn--active' : ''}`}
+      // Anker fuer die Onboarding-Tour — die zeigt gezielt auf einzelne
+      // Werkzeuge, ohne sich auf die Reihenfolge verlassen zu muessen.
+      data-tool={id}
+      {...(hint
+        ? {
+            'aria-label': TOOL_LABELS[id],
+            onPointerEnter: (e: ReactPointerEvent) => hint.show(e, TOOL_LABELS[id], keyOf(id)),
+            onPointerLeave: hint.hide,
+          }
+        : { title: `${TOOL_LABELS[id]} (${keyOf(id)})` })}
+      aria-pressed={tool === id}
+      onClick={() => {
+        setOpen(false);
+        onTool(id);
+      }}
+    >
+      {TOOL_ICONS[id]()}
+    </button>
+  );
+
+  return (
+    <>
+      {primary.map(toolButton)}
+
+      {draw.length > 0 && (
+        <span className="tool-group" onPointerEnter={openMenu} onPointerLeave={closeSoon}>
+          <button
+            ref={btnRef}
+            className={`icon-btn tool-group__btn${drawActive ? ' icon-btn--active' : ''}${
+              open ? ' tool-group__btn--open' : ''
+            }`}
+            data-tool="draw"
+            aria-haspopup="true"
+            aria-expanded={open}
+            {...(hint
+              ? {
+                  'aria-label': `Draw — ${TOOL_LABELS[face]}`,
+                  onPointerEnter: (e: ReactPointerEvent) => hint.show(e, 'Draw', keyOf(face)),
+                  onPointerLeave: hint.hide,
+                }
+              : { title: `Draw — hover for freehand, shapes, arrows, guides & text` })}
+            // Klick nimmt direkt das zuletzt benutzte Zeichen-Werkzeug; die
+            // Auswahl der uebrigen laeuft ueber das Hover-Flyout.
+            onClick={() => {
+              setOpen(false);
+              onTool(face);
+            }}
+            // Tastaturbedienung: das Flyout haengt sonst am Zeiger.
+            onFocus={openMenu}
+            onBlur={closeSoon}
+          >
+            {TOOL_ICONS[face]()}
+            <span className="tool-group__caret" aria-hidden="true" />
+          </button>
+
+          {open &&
+            host &&
+            createPortal(
+              <div
+                ref={menuRef}
+                className={`tool-group__menu${placement === 'right' ? ' tool-group__menu--col' : ''}`}
+                role="menu"
+                aria-label="Draw tools"
+                // Vor der Messung aus dem Bild halten statt sichtbar springen.
+                style={at ?? { left: -9999, top: -9999 }}
+                onPointerEnter={openMenu}
+                onPointerLeave={closeSoon}
+              >
+                {draw.map(toolButton)}
+              </div>,
+              host,
+            )}
+        </span>
+      )}
+    </>
+  );
+}
 
 /**
  * Werkzeug-Palette als Kontextmenue: Rechtsklick oeffnet sie neben der Maus,
@@ -114,20 +321,7 @@ export function AnnotationPalette({
 
         <span className="palette__sep" />
 
-        {order.map((id, i) => (
-          <button
-            key={id}
-            className={`icon-btn${tool === id ? ' icon-btn--active' : ''}`}
-            // Anker fuer die Onboarding-Tour — die zeigt gezielt auf einzelne
-            // Werkzeuge, ohne sich auf die Reihenfolge verlassen zu muessen.
-            data-tool={id}
-            title={`${TOOL_LABELS[id]} (${i + 1})`}
-            aria-pressed={tool === id}
-            onClick={() => onTool(id)}
-          >
-            {TOOL_ICONS[id]()}
-          </button>
-        ))}
+        <ToolButtons order={order} tool={tool} onTool={onTool} />
 
         <span className="palette__sep" />
 
@@ -170,6 +364,8 @@ interface Hint {
   label: string;
   /** Kuerzel, falls die Aktion eins hat. */
   key?: string;
+  /** Zusatzzeilen (Bullets) — z. B. was der Bereichs-Toggle umschaltet. */
+  rows?: string[];
   x: number;
   y: number;
 }
@@ -208,10 +404,11 @@ export function FeedbackBar({
   onColor,
   onUndo,
   onClear,
+  phoneVisible = false,
+  onTogglePhone,
+  onFullscreen,
   onExit,
   onPlace,
-  exitIcon,
-  exitTitle = 'Exit full window mode',
 }: {
   tool: PaletteTool;
   color: string;
@@ -226,13 +423,17 @@ export function FeedbackBar({
   onColor: (color: string) => void;
   onUndo: () => void;
   onClear: () => void;
-  /** Letzter Knopf: Vollbild verlassen bzw. — angedockt — die Leiste schliessen. */
-  onExit: () => void;
+  /** Smartphone-Mockup sichtbar? Nur im Feedback-Vollbild angeboten. */
+  phoneVisible?: boolean;
+  /** Blendet das Smartphone-Mockup ein/aus. */
+  onTogglePhone?: () => void;
+  /** Ins Vollbild wechseln — nur in der Device-Ansicht angeboten. */
+  onFullscreen?: () => void;
+  /** Letzter Knopf: zurueck aus dem Vollbild. Fehlt er (Device-Ansicht),
+   *  entfaellt der Knopf — dort wohnt das Umschalten in der Grid-Toolbar. */
+  onExit?: () => void;
   /** Neue Platzierung nach dem Verschieben. */
   onPlace: (placement: ToolbarPlacement) => void;
-  /** Icon des letzten Knopfs (Default: Vollbild-Collapse). */
-  exitIcon?: JSX.Element;
-  exitTitle?: string;
 }) {
   const barRef = useRef<HTMLDivElement | null>(null);
   /** Laufender Zug: Position der Leiste und die Kante, in die sie faellt. */
@@ -296,13 +497,13 @@ export function FeedbackBar({
   };
 
   /** Label neben dem gerade ueberfahrenen Knopf einblenden. */
-  const showHint = (e: ReactPointerEvent, label: string, key?: string) => {
+  const showHint = (e: ReactPointerEvent, label: string, key?: string, rows?: string[]) => {
     if (drag) return;
     const r = e.currentTarget.getBoundingClientRect();
     setHint(
       vertical
-        ? { label, key, x: r.right + 10, y: r.top + r.height / 2 }
-        : { label, key, x: r.left + r.width / 2, y: r.top - 10 },
+        ? { label, key, rows, x: r.right + 10, y: r.top + r.height / 2 }
+        : { label, key, rows, x: r.left + r.width / 2, y: r.top - 10 },
     );
   };
   const hideHint = () => setHint(null);
@@ -359,19 +560,13 @@ export function FeedbackBar({
 
         <span className="palette__sep" />
 
-        {order.map((id, i) => (
-          <button
-            key={id}
-            className={`icon-btn${tool === id ? ' icon-btn--active' : ''}`}
-            aria-label={TOOL_LABELS[id]}
-            aria-pressed={tool === id}
-            onPointerEnter={(e) => showHint(e, TOOL_LABELS[id], String(i + 1))}
-            onPointerLeave={hideHint}
-            onClick={() => onTool(id)}
-          >
-            {TOOL_ICONS[id]()}
-          </button>
-        ))}
+        <ToolButtons
+          order={order}
+          tool={tool}
+          onTool={onTool}
+          hint={{ show: showHint, hide: hideHint }}
+          placement={vertical ? 'right' : 'up'}
+        />
 
         <span className="palette__sep" />
 
@@ -413,26 +608,62 @@ export function FeedbackBar({
           <IconTrash />
         </button>
 
-        <span className="palette__sep" />
+        {(onTogglePhone || onFullscreen || onExit) && <span className="palette__sep" />}
 
-        <button
-          className="icon-btn"
-          aria-label={exitTitle}
-          onPointerEnter={(e) => showHint(e, exitTitle)}
-          onPointerLeave={hideHint}
-          onClick={onExit}
-        >
-          {exitIcon ?? <IconCollapse />}
-        </button>
+        {onFullscreen && (
+          <button
+            className="icon-btn fsbar__fullscreen"
+            aria-label="Full window mode"
+            onPointerEnter={(e) => showHint(e, 'Full window')}
+            onPointerLeave={hideHint}
+            onClick={onFullscreen}
+          >
+            <IconExpand />
+          </button>
+        )}
+
+        {onTogglePhone && (
+          <button
+            className={`icon-btn fsbar__phone${phoneVisible ? ' icon-btn--active' : ''}`}
+            aria-label="Mobile preview"
+            aria-pressed={phoneVisible}
+            onPointerEnter={(e) => showHint(e, 'Mobile preview')}
+            onPointerLeave={hideHint}
+            onClick={onTogglePhone}
+          >
+            <IconPhone />
+          </button>
+        )}
+
+        {onExit && (
+          <button
+            className="icon-btn"
+            aria-label="Exit full window mode"
+            onPointerEnter={(e) => showHint(e, 'Exit full window')}
+            onPointerLeave={hideHint}
+            onClick={onExit}
+          >
+            <IconCollapse />
+          </button>
+        )}
       </div>
 
       {hint && (
         <div
-          className={`fsbar__hint fsbar__hint--${vertical ? 'side' : 'above'}`}
+          className={`fsbar__hint fsbar__hint--${vertical ? 'side' : 'above'}${
+            hint.rows ? ' fsbar__hint--rows' : ''
+          }`}
           style={{ left: hint.x, top: hint.y }}
         >
           {hint.label}
           {hint.key && <kbd className="kbd">{hint.key}</kbd>}
+          {hint.rows && (
+            <ul className="fsbar__hint-rows">
+              {hint.rows.map((row) => (
+                <li key={row}>{row}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </>

@@ -29,6 +29,20 @@ function refLinesOf(shape: Shape): string[] {
   const selector = shape.tool === 'element' ? shape.selector : shape.anchor;
   if (selector) out.push(`  - selector: \`${selector}\``);
 
+  // Im Element-Picker geaenderter Text — der Sollwert steht als Zitat da.
+  if (shape.tool === 'element' && shape.textChange) {
+    const { from, to } = shape.textChange;
+    out.push(`  - text: "${from}" → "${to}"`);
+  }
+
+  // Vom Element-Picker vorgeschlagene Stil-Aenderungen als Sollwerte.
+  if (shape.tool === 'element' && shape.styleChanges && shape.styleChanges.length > 0) {
+    const scope = shape.styleTarget ? ` on \`${shape.styleTarget}\`` : '';
+    for (const c of shape.styleChanges) {
+      out.push(`  - change${scope}: \`${c.prop}\` ${c.from} → ${c.to}`);
+    }
+  }
+
   const crossed = shape.tool === 'element' ? undefined : shape.anchors;
   const extra = crossed?.filter((sel) => sel !== selector) ?? [];
   if (extra.length > 0) {

@@ -42,7 +42,8 @@ const STEPS: Step[] = [
   {
     title: 'tour5Title',
     body: 'tour5Body',
-    anchor: ['.palette [data-tool="hline"]', '.palette [data-tool="vline"]'],
+    // Die Linien-Werkzeuge wohnen im „Draw"-Flyout — gezeigt wird dessen Knopf.
+    anchor: ['.palette [data-tool="draw"]'],
     pad: 4,
     needs: paletteOpen,
   },
@@ -135,10 +136,12 @@ export function Tour({
   onIndex: (next: number) => void;
   onClose: () => void;
 }) {
+  const steps = STEPS;
+
   // Der Index wird von aussen gesetzt (Menue-Neustart, Zurueckspringen) —
   // hart klemmen, statt bei einem Ausreisser leer zu rendern.
-  const safeIndex = Math.max(0, Math.min(index, STEPS.length - 1));
-  const step = STEPS[safeIndex] as Step;
+  const safeIndex = Math.max(0, Math.min(index, steps.length - 1));
+  const step = steps[safeIndex] as Step;
   const pad = step.pad ?? 8;
   const [hole, setHole] = useState<Rect | null>(() => measure(root, step.anchor, pad));
   const [cardH, setCardH] = useState(190);
@@ -149,7 +152,7 @@ export function Tour({
   useEffect(() => {
     if (step.needs && !step.needs(state)) {
       let back = safeIndex - 1;
-      while (back > 0 && (STEPS[back] as Step).needs?.(state) === false) back--;
+      while (back > 0 && (steps[back] as Step).needs?.(state) === false) back--;
       onIndex(back);
     }
   }, [step, state, safeIndex, onIndex]);
@@ -183,9 +186,9 @@ export function Tour({
   }, [step, safeIndex]);
 
   const next = useCallback(() => {
-    if (safeIndex >= STEPS.length - 1) onClose();
+    if (safeIndex >= steps.length - 1) onClose();
     else onIndex(safeIndex + 1);
-  }, [safeIndex, onIndex, onClose]);
+  }, [safeIndex, steps, onIndex, onClose]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -258,8 +261,8 @@ export function Tour({
         {waiting && <p className="tour__waiting">{t('tourWaiting')}</p>}
 
         <div className="tour__foot">
-          <span className="tour__dots" aria-label={t('tourStepOf', safeIndex + 1, STEPS.length)}>
-            {STEPS.map((s, i) => (
+          <span className="tour__dots" aria-label={t('tourStepOf', safeIndex + 1, steps.length)}>
+            {steps.map((s, i) => (
               <span key={s.title} className={`tour__dot${i === safeIndex ? ' tour__dot--on' : ''}`} />
             ))}
           </span>
@@ -271,7 +274,7 @@ export function Tour({
             )}
             {!waiting && (
               <button className="tour__btn tour__btn--primary" onClick={next}>
-                {safeIndex >= STEPS.length - 1 ? t('tourDone') : t('tourNext')}
+                {safeIndex >= steps.length - 1 ? t('tourDone') : t('tourNext')}
               </button>
             )}
           </span>

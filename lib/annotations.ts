@@ -44,6 +44,75 @@ export interface ElementRef {
   anchorY?: number;
 }
 
+/** Eine vom Element-Picker vorgeschlagene Stil-Aenderung (Sollwert fuers Feedback). */
+export interface StyleChange {
+  /** CSS-Eigenschaft, z. B. `padding-top` oder Kurzform `margin`. */
+  prop: string;
+  /** Ausgangswert (`8px`). */
+  from: string;
+  /** Zielwert (`12px`). */
+  to: string;
+}
+
+/**
+ * Im Element-Picker geaenderter Text des markierten Elements (Sollwert fuers
+ * Feedback). Betrifft nur den direkten Textknoten — Kind-Elemente bleiben
+ * unangetastet.
+ */
+export interface TextChange {
+  /** Ausgangstext auf der Seite. */
+  from: string;
+  /** Vorgeschlagener Text. */
+  to: string;
+}
+
+/** Vier Seiten einer Box (top/right/bottom/left) — Werte in CSS-Pixeln. */
+export interface BoxEdges<T = number> {
+  t: T;
+  r: T;
+  b: T;
+  l: T;
+}
+
+/** Bounding-Box, Label, CSS-Pfad und Box-Model des Elements unterm Cursor (Dokumentraum). */
+export interface ElementTarget {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+  selector: string;
+  margin: BoxEdges;
+  padding: BoxEdges;
+}
+
+/**
+ * Fixiertes Element des Pickers: wie `ElementTarget`, zusaetzlich der lebende
+ * DOM-Bezug (fuer Live-Edits per `element.style`) und der Font-Zustand. Font
+ * wird nur bearbeitbar, wenn das Element direkten Text enthaelt.
+ */
+export interface SelectedTarget extends ElementTarget {
+  el: HTMLElement;
+  /** Tag-Name in Kleinschreibung (`h1`, `p`, `span`) — steht am Textfeld. */
+  tag: string;
+  /**
+   * Seiten, deren Margin im CSS `auto` ist. Die Messung liefert dort nur den
+   * *berechneten* Wert (bei `margin: 0 auto` die halbe Restbreite) — wer den
+   * als Zahl zurueckschreibt, ersetzt die Zentrierung durch einen festen Wert.
+   */
+  autoMargin: BoxEdges<boolean>;
+  /** Geltendes `max-width` in px — null, wenn keines gilt oder es keine px sind. */
+  maxWidth: number | null;
+  /** Roher `max-width`-Wert (`80%`, `60ch`) — null ohne Begrenzung. */
+  maxWidthRaw: string | null;
+  fontWeight: number;
+  fontSize: number;
+  /** Direktes Text-Kind vorhanden — dann sind Font-Regler und Textfeld sinnvoll. */
+  hasText: boolean;
+  /** Aktueller Text des Elements (getrimmt) — im Popup bearbeitbar. */
+  text: string;
+}
+
 /**
  * Per Element-Picker markiertes DOM-Element: Bounding-Box zum Zeitpunkt des
  * Klicks plus lesbares Label (`button#menuBtn`) fuers Panel.
@@ -61,6 +130,13 @@ export interface ElementShape {
   selector?: string;
   /** Optionaler Freitext zum Marker. */
   note?: string;
+  /** Im Picker vorgenommene Stil-Aenderungen — im Feedback als Sollwerte gelistet. */
+  styleChanges?: StyleChange[];
+  /** Im Picker geaenderter Text des Elements — ebenfalls Sollwert fuers Feedback. */
+  textChange?: TextChange;
+  /** Worauf sich die Aenderungen beziehen: Klassen-Selektor (`.card`) oder das Element. */
+  styleTarget?: string;
+  styleScope?: 'class' | 'element';
   /**
    * Gemeinsame Id der auf alle Devices replizierten Element-Marker — Notiz-
    * Aenderungen laufen ueber sie auf alle Kopien.
@@ -175,7 +251,10 @@ export interface TextShape extends ElementRef {
 
 export type Shape = ElementShape | PinShape | PenShape | BoxShape | LineShape | TextShape;
 
-/** Werkzeug-Reihenfolge in der Leiste, bevor der Nutzer sie umsortiert. */
+/**
+ * Reihenfolge der Werkzeuge in Leiste und Palette — zugleich die Belegung
+ * der Zifferntasten. Alle Werkzeuge stehen jedem zur Verfuegung.
+ */
 export const DEFAULT_TOOL_ORDER: Tool[] = [
   'element',
   'pin',
@@ -188,7 +267,17 @@ export const DEFAULT_TOOL_ORDER: Tool[] = [
   'text',
 ];
 
-export const ANNOTATION_COLORS = ['#ff5d5d', '#ffb340', '#3ecf6e', '#5b8cff'] as const;
+/**
+ * Standardfarbe ist ein gedaempftes Blaustift-Blau, nicht Signalrot: die
+ * Markierungen sollen wie eine Anmerkung auf einem Ausdruck wirken und die
+ * Seite nicht ueberschreien. Bewusst mittelhell — so hebt es sich sowohl auf
+ * hellen als auch auf dunklen Seiten ab. Die uebrigen Farben bleiben zum
+ * Einsortieren.
+ */
+export const ANNOTATION_COLORS = ['#6d8cc0', '#ffb340', '#3ecf6e', '#5b8cff'] as const;
+
+/** Fruehere Standardfarbe (Signalrot) — Bestandsmarkierungen ziehen nach. */
+export const LEGACY_DEFAULT_COLOR = '#ff5d5d';
 
 export const TOOL_LABELS: Record<Tool, string> = {
   element: 'Mark element',

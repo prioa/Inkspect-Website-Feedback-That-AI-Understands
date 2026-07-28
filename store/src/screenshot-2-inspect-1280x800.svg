@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 800" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0e1014"/><stop offset="1" stop-color="#141824"/>
+    </linearGradient>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#8fb0ff"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.6" cy="0.5" r="0.65">
+      <stop offset="0" stop-color="#5b8cff" stop-opacity="0.13"/><stop offset="1" stop-color="#5b8cff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ds" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="800" fill="url(#bg)"/>
+  <rect width="1280" height="800" fill="url(#glow)"/>
+
+  <text x="80" y="96" font-size="44" font-weight="800" fill="#e8eaf0">Change it on the page. Keep the values.</text>
+  <text x="80" y="138" font-size="20" fill="#a9b0bf">Rewrite text, set font weight and size, drag padding and margins — for one element or every .class.</text>
+
+  <!-- Page with the picked element -->
+  <g filter="url(#ds)"><rect x="80" y="190" width="640" height="470" rx="14" fill="#151820" stroke="#262c38" stroke-width="1.5"/></g>
+  <text x="94" y="214" font-size="13" font-weight="600" fill="#a9b0bf">Desktop HD</text>
+  <text x="706" y="214" font-size="11" fill="#6f7686" text-anchor="end">1440×900</text>
+  <rect x="81.5" y="226" width="637" height="432" rx="10" fill="#ffffff"/>
+  <rect x="81.5" y="226" width="637" height="44" rx="10" fill="#f6f8fc"/>
+  <rect x="81.5" y="252" width="637" height="18" fill="#f6f8fc"/>
+  <circle cx="110" cy="248" r="8" fill="#5b8cff"/>
+  <rect x="126" y="243" width="46" height="10" rx="5" fill="#8d97a8"/>
+  <rect x="560" y="245" width="30" height="5" rx="2.5" fill="#9aa4b5"/>
+  <rect x="602" y="245" width="30" height="5" rx="2.5" fill="#9aa4b5"/>
+  <rect x="644" y="245" width="30" height="5" rx="2.5" fill="#9aa4b5"/>
+
+  <rect x="100" y="286" width="600" height="210" rx="12" fill="url(#hero)"/>
+  <rect x="130" y="320" width="252" height="16" rx="8" fill="#fff" opacity="0.95"/>
+  <rect x="130" y="350" width="186" height="14" rx="7" fill="#fff" opacity="0.85"/>
+  <rect x="440" y="312" width="230" height="158" rx="10" fill="#ffffff" opacity="0.25"/>
+  <rect x="130" y="400" width="170" height="44" rx="22" fill="#ffffff"/>
+  <rect x="152" y="418" width="126" height="9" rx="4.5" fill="#5b8cff"/>
+
+  <rect x="100" y="524" width="560" height="9" rx="4.5" fill="#e2e6ee"/>
+  <rect x="100" y="542" width="470" height="9" rx="4.5" fill="#e2e6ee"/>
+  <rect x="100" y="572" width="282" height="66" rx="10" fill="#eef1f6"/>
+  <rect x="112" y="584" width="150" height="10" rx="5" fill="#dbe1ec"/>
+  <rect x="112" y="608" width="222" height="7" rx="3.5" fill="#dbe1ec"/>
+  <rect x="418" y="572" width="282" height="66" rx="10" fill="#eef1f6"/>
+  <rect x="430" y="584" width="150" height="10" rx="5" fill="#dbe1ec"/>
+  <rect x="430" y="608" width="222" height="7" rx="3.5" fill="#dbe1ec"/>
+
+  <!-- picker overlay on the CTA: padding band + outline + label -->
+  <rect x="130" y="400" width="170" height="14" fill="#3ecf6e" fill-opacity="0.22"/>
+  <rect x="130" y="430" width="170" height="14" fill="#3ecf6e" fill-opacity="0.22"/>
+  <rect x="130" y="414" width="32" height="16" fill="#3ecf6e" fill-opacity="0.22"/>
+  <rect x="268" y="414" width="32" height="16" fill="#3ecf6e" fill-opacity="0.22"/>
+  <rect x="127" y="397" width="176" height="50" fill="none" stroke="#3ecf6e" stroke-width="2" stroke-dasharray="6 4"/>
+  <rect x="127" y="366" width="184" height="24" rx="6" fill="rgba(14,16,20,0.94)" stroke="#3ecf6e" stroke-width="1.2"/>
+  <text x="139" y="383" font-size="12" font-weight="700" fill="#3ecf6e" font-family="ui-monospace, Menlo, monospace">a.btn--primary <tspan fill="#8b93a5" font-weight="400">170 × 44</tspan></text>
+  <rect x="312" y="395" width="92" height="26" rx="6" fill="rgba(14,16,20,0.94)" stroke="#3ecf6e" stroke-width="1.2"/>
+  <path d="M 328,402 L 328,414 M 324.5,405.5 L 328,402 L 331.5,405.5 M 324.5,410.5 L 328,414 L 331.5,410.5" fill="none" stroke="#3ecf6e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="342" y="413" font-size="12" font-weight="700" fill="#3ecf6e" font-family="ui-monospace, Menlo, monospace">14 px</text>
+
+  <!-- Inspector popup -->
+  <g filter="url(#ds)"><rect x="756" y="180" width="452" height="592" rx="14" fill="#151820" stroke="#3ecf6e" stroke-width="1.5"/></g>
+
+  <circle cx="792" cy="205" r="5.5" fill="#3ecf6e"/>
+  <text x="808" y="210" font-size="14" font-weight="700" fill="#e8eaf0" font-family="ui-monospace, Menlo, monospace">a.btn--primary</text>
+  <text x="1160" y="210" font-size="11.5" fill="#6f7686" text-anchor="end" font-family="ui-monospace, Menlo, monospace">170 × 44</text>
+  <path d="M 1174,199 L 1186,211 M 1186,199 L 1174,211" stroke="#6f7686" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="776" y1="228" x2="1188" y2="228" stroke="#262c38"/>
+
+  <!-- scope -->
+  <rect x="776" y="242" width="132" height="28" rx="8" fill="#0f1218" stroke="#2c3342"/>
+  <rect x="777.5" y="243.5" width="64" height="25" rx="7" fill="#26314a"/>
+  <text x="809" y="260" font-size="12" font-weight="600" fill="#8fb0ff" text-anchor="middle">Class</text>
+  <text x="875" y="260" font-size="12" font-weight="600" fill="#8b93a5" text-anchor="middle">Element</text>
+  <text x="922" y="260" font-size="12" fill="#a9b0bf" font-family="ui-monospace, Menlo, monospace">.btn--primary<tspan fill="#6f7686" font-style="italic"> · 6×</tspan></text>
+
+  <!-- text -->
+  <rect x="776" y="290" width="40" height="24" rx="6" fill="#0f1218" stroke="#2c3342"/>
+  <text x="796" y="307" font-size="11.5" fill="#8b93a5" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">&lt;a&gt;</text>
+  <rect x="828" y="284" width="360" height="52" rx="8" fill="#0f1218" stroke="#37404f"/>
+  <text x="843" y="315" font-size="13.5" fill="#e8eaf0">Kostenlos testen</text>
+  <line x1="948" y1="302" x2="948" y2="320" stroke="#5b8cff" stroke-width="1.6"/>
+
+  <!-- font -->
+  <text x="776" y="374" font-size="12" fill="#6f7686">Font</text>
+  <rect x="828" y="354" width="184" height="30" rx="8" fill="#0f1218" stroke="#2c3342"/>
+  <text x="843" y="374" font-size="12.5" fill="#e8eaf0">700 · Bold</text>
+  <path d="M 986,368 L 992,374 L 998,368" fill="none" stroke="#8b93a5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="1024" y="354" width="94" height="30" rx="8" fill="#0f1218" stroke="#2c3342"/>
+  <text x="1041" y="374" font-size="12.5" fill="#e8eaf0" font-family="ui-monospace, Menlo, monospace">16</text>
+  <text x="1100" y="374" font-size="11.5" fill="#6f7686" text-anchor="end">px</text>
+
+  <!-- box model -->
+  <text x="776" y="440" font-size="12" fill="#6f7686">Box</text>
+  <rect x="828" y="400" width="360" height="140" rx="8" fill="#0f1218" stroke="#2c3342"/>
+  <text x="842" y="416" font-size="10" fill="#6f7686" font-family="ui-monospace, Menlo, monospace">margin</text>
+  <text x="1008" y="416" font-size="11" fill="#a9b0bf" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">24</text>
+  <text x="1008" y="532" font-size="11" fill="#a9b0bf" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">24</text>
+  <text x="852" y="474" font-size="11" fill="#a9b0bf" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">0</text>
+  <text x="1164" y="474" font-size="11" fill="#a9b0bf" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">0</text>
+
+  <rect x="874" y="424" width="268" height="92" rx="6" fill="#151a22" stroke="#37404f"/>
+  <text x="888" y="440" font-size="10" fill="#6f7686" font-family="ui-monospace, Menlo, monospace">padding</text>
+  <text x="1008" y="441" font-size="11.5" font-weight="700" fill="#3ecf6e" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">14</text>
+  <text x="1008" y="509" font-size="11" fill="#a9b0bf" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">14</text>
+  <text x="894" y="474" font-size="11" fill="#a9b0bf" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">32</text>
+  <text x="1122" y="474" font-size="11" fill="#a9b0bf" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">32</text>
+  <rect x="944" y="454" width="128" height="40" rx="5" fill="#26314a"/>
+  <text x="1008" y="479" font-size="11.5" fill="#8fb0ff" text-anchor="middle" font-family="ui-monospace, Menlo, monospace">170 × 44</text>
+
+  <!-- link toggle for padding -->
+  <g transform="translate(1118,428) scale(0.62)" fill="none" stroke="#3ecf6e" stroke-width="2.6" stroke-linecap="round">
+    <path d="M9 15a4 4 0 0 1 0-6l3-3a4 4 0 0 1 6 6l-1.5 1.5"/>
+    <path d="M15 9a4 4 0 0 1 0 6l-3 3a4 4 0 0 1-6-6l1.5-1.5"/>
+  </g>
+
+  <!-- changes -->
+  <text x="776" y="574" font-size="11.5" font-weight="600" fill="#6f7686">3 CHANGES</text>
+  <line x1="850" y1="570" x2="1188" y2="570" stroke="#262c38"/>
+
+  <text x="776" y="600" font-size="12" fill="#a9b0bf" font-family="ui-monospace, Menlo, monospace">padding-top</text>
+  <text x="1176" y="600" font-size="12" text-anchor="end" fill="#6f7686" font-family="ui-monospace, Menlo, monospace">8px <tspan fill="#3ecf6e">→ 14px</tspan></text>
+  <text x="776" y="624" font-size="12" fill="#a9b0bf" font-family="ui-monospace, Menlo, monospace">font-weight</text>
+  <text x="1176" y="624" font-size="12" text-anchor="end" fill="#6f7686" font-family="ui-monospace, Menlo, monospace">500 <tspan fill="#3ecf6e">→ 700</tspan></text>
+  <text x="776" y="648" font-size="12" fill="#a9b0bf" font-family="ui-monospace, Menlo, monospace">text</text>
+  <text x="1176" y="648" font-size="12" text-anchor="end" fill="#6f7686" font-family="ui-monospace, Menlo, monospace">"Jetzt starten" <tspan fill="#3ecf6e">→ "Kostenlos testen"</tspan></text>
+
+  <!-- note -->
+  <text x="776" y="694" font-size="12" fill="#6f7686">Note</text>
+  <rect x="828" y="670" width="360" height="48" rx="8" fill="#0f1218" stroke="#2c3342"/>
+  <text x="843" y="699" font-size="13" fill="#e8eaf0">Make the CTA full width</text>
+
+  <!-- footer -->
+  <circle cx="784" cy="746" r="9" fill="none" stroke="#6f7686" stroke-width="1.4"/>
+  <text x="784" y="751" font-size="11" fill="#6f7686" text-anchor="middle">?</text>
+  <rect x="990" y="730" width="88" height="32" rx="8" fill="#151820" stroke="#37404f"/>
+  <text x="1034" y="751" font-size="12.5" font-weight="600" fill="#a9b0bf" text-anchor="middle">Reset</text>
+  <rect x="1090" y="730" width="98" height="32" rx="8" fill="#5b8cff"/>
+  <text x="1139" y="751" font-size="12.5" font-weight="600" fill="#fff" text-anchor="middle">Save</text>
+</svg>

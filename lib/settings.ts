@@ -33,6 +33,20 @@ export interface UiSettings {
   autoFit: boolean;
   /** Inkspect direkt im Vollbild-Modus oeffnen. */
   startFullscreen: boolean;
+  /**
+   * Schwebendes Smartphone-Mockup im Vollbild eingeblendet. Optional und
+   * standardmaessig aus — wer die Mobile-Ansicht braucht, holt sie ueber den
+   * Phone-Knopf der Werkzeugleiste dazu.
+   */
+  phonePreview: boolean;
+  /**
+   * Markierungen dauerhaft eingeblendet (Auge im Panel). Aus ist der Default:
+   * so sieht man das Ergebnis der Korrekturen ungestoert, und ein Zeiger ueber
+   * dem Panel blendet sie kurz ein.
+   */
+  showMarkings: boolean;
+  /** Die per Element-Picker gespeicherten CSS-Aenderungen auf die Seite anwenden. */
+  applyChanges: boolean;
   /** Wie viele der Feedback-Farben die Werkzeugleiste anbietet (2 oder 4). */
   paletteColorCount: number;
   /**
@@ -43,6 +57,14 @@ export interface UiSettings {
   /** Freie Position (linke obere Ecke der Leiste, Fenster-Koordinaten). */
   toolbarX: number;
   toolbarY: number;
+  /**
+   * Verschobene Position des Feedback-Knopfs im Vollbild (linke obere Ecke,
+   * Fenster-Koordinaten). `null` heisst: unveraendert am Standardplatz unten
+   * rechts — der bleibt an der Fensterecke kleben, auch wenn sich die Groesse
+   * aendert.
+   */
+  fabX: number | null;
+  fabY: number | null;
   /**
    * Origins, fuer die der Nutzer dem Entfernen der Framing-Header zugestimmt
    * hat. Gefragt wird einmal pro Origin; danach laedt eine blockierte Seite
@@ -76,12 +98,26 @@ export const DEFAULT_SETTINGS: UiSettings = {
   tourDone: false,
   autoFit: true,
   startFullscreen: false,
+  phonePreview: false,
+  showMarkings: false,
+  applyChanges: true,
   paletteColorCount: 2,
-  toolbarDock: 'left',
+  // Unten mittig — dieselbe Stelle, an der die Leiste auch in der
+  // Device-Ansicht sitzt; der Wechsel ins Vollbild verschiebt sie so nicht.
+  toolbarDock: 'bottom',
   toolbarX: 14,
   toolbarY: 80,
+  fabX: null,
+  fabY: null,
   framingAllowed: [],
 };
+
+/** Optionale Fenster-Koordinate: alles Unbrauchbare wird zu `null`. */
+function coord(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(10000, Math.max(0, value))
+    : null;
+}
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value)
@@ -102,12 +138,22 @@ export async function loadSettings(): Promise<UiSettings> {
       // Vorbelegt an: alte Staende ohne das Feld bekommen die Automatik.
       autoFit: raw.autoFit !== false,
       startFullscreen: raw.startFullscreen === true,
+      phonePreview: raw.phonePreview === true,
+      showMarkings: raw.showMarkings === true,
+      // Vorbelegt an: alte Staende ohne das Feld behalten die Wirkung.
+      applyChanges: raw.applyChanges !== false,
       // Nur 2 oder 4 — alles andere (auch Alt-Staende) faellt auf 2 zurueck.
       paletteColorCount: raw.paletteColorCount === 4 ? 4 : DEFAULT_SETTINGS.paletteColorCount,
       toolbarDock:
-        raw.toolbarDock === 'bottom' || raw.toolbarDock === 'free' ? raw.toolbarDock : 'left',
+        raw.toolbarDock === 'left' || raw.toolbarDock === 'free'
+          ? raw.toolbarDock
+          : DEFAULT_SETTINGS.toolbarDock,
       toolbarX: clamp(raw.toolbarX, 0, 10000, DEFAULT_SETTINGS.toolbarX),
       toolbarY: clamp(raw.toolbarY, 0, 10000, DEFAULT_SETTINGS.toolbarY),
+      // Alt-Staende kennen die Felder nicht: null laesst den Knopf an seinem
+      // angestammten Platz unten rechts.
+      fabX: coord(raw.fabX),
+      fabY: coord(raw.fabY),
       framingAllowed: Array.isArray(raw.framingAllowed)
         ? raw.framingAllowed.filter((o): o is string => typeof o === 'string')
         : [],

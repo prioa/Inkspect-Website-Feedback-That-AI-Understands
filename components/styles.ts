@@ -135,7 +135,13 @@ input::placeholder { color: var(--text-2); }
 
 /* ---------- Toolbar ---------- */
 
+/* Ueber dem Feedback-Panel (35): die Toolbar bildet mit position+z-index
+   einen eigenen Stacking-Context, in dem ihr ⋯-Menue gefangen bleibt. Bei
+   gleichem z-index gewinnt das spaeter im DOM stehende Panel — das Menue
+   verschwaende dann dahinter, sobald das Panel offen ist. */
 .toolbar {
+  position: relative;
+  z-index: 38;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -154,6 +160,100 @@ input::placeholder { color: var(--text-2); }
 }
 .toolbar__brand em { font-style: normal; color: var(--accent); }
 .toolbar__group { display: flex; align-items: center; gap: 2px; }
+
+
+/* Smartphone-Mockup fliegt beim Ausblenden zum Phone-Knopf der Leiste. */
+.phone-prev--flight {
+  transition: transform .5s cubic-bezier(.4, 0, .2, 1), opacity .32s ease .18s;
+  pointer-events: none;
+}
+/* ---------- Smartphone-Mockup (Mobile-Ansicht im Feedback-Vollbild) ---------- */
+
+/* Vor dem Feedback-Panel (44); Dock-Wechsel gleitet animiert. Die
+   Ruhe-Abdunklung steuern Timer in der Komponente (5 s nach Start, 2 s nach
+   Hover-Ende) — hier stehen nur die beiden Uebergaenge: einblenden .25 s,
+   abdunkeln .7 s. */
+.phone-prev {
+  position: fixed;
+  z-index: 45;
+  opacity: 1;
+  transition:
+    left .55s cubic-bezier(.4, 0, .2, 1),
+    top .55s cubic-bezier(.4, 0, .2, 1),
+    opacity .25s ease;
+}
+.phone-prev--dim {
+  opacity: .3;
+  transition:
+    left .55s cubic-bezier(.4, 0, .2, 1),
+    top .55s cubic-bezier(.4, 0, .2, 1),
+    opacity .7s ease;
+}
+.phone-prev--dragging {
+  opacity: 1;
+  transition: none;
+}
+.phone-prev__frame {
+  position: relative;
+  padding: 26px 10px 24px;
+  background: #101318;
+  border: 1px solid #2b323d;
+  border-radius: 30px;
+  box-shadow: var(--shadow-l);
+  cursor: grab;
+  touch-action: none;
+}
+.phone-prev--dragging .phone-prev__frame { cursor: grabbing; box-shadow: 0 22px 60px rgba(0, 0, 0, .55), 0 0 0 2px var(--accent); }
+.phone-prev__notch {
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 8px;
+  border-radius: 999px;
+  background: #2b323d;
+}
+.phone-prev__home {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 64px;
+  height: 4px;
+  border-radius: 999px;
+  background: #2b323d;
+}
+.phone-prev__close {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  display: grid;
+  place-items: center;
+  /* Ohne das Zuruecksetzen draengt das Button-Padding aus der Basisregel das
+     Icon aus der Mitte des runden Knopfs. */
+  padding: 0;
+  line-height: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--text-1);
+  cursor: pointer;
+  box-shadow: var(--shadow-l);
+}
+.phone-prev__close:hover { color: var(--text-0); background: var(--bg-3); }
+.phone-prev__screen {
+  overflow: hidden;
+  border-radius: 16px;
+  background: #fff;
+}
+.phone-prev__screen iframe {
+  display: block;
+  border: 0;
+  transform-origin: top left;
+}
 .toolbar__sep {
   width: 1px;
   height: 22px;
@@ -619,6 +719,8 @@ input::placeholder { color: var(--text-2); }
 /* ---------- Feedback-Panel (rechtes Panel) ---------- */
 
 .panel {
+  position: relative;
+  z-index: 35;
   width: 320px;
   flex: 0 0 auto;
   display: flex;
@@ -657,6 +759,69 @@ input::placeholder { color: var(--text-2); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Dev-Steuerzeile: beschriftete Umschalter fuer Aenderungen & Markierungen. */
+.panel__devbar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.devtoggle {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-m);
+  background: var(--bg-1);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color .12s ease, color .12s ease, background .12s ease;
+}
+.devtoggle:hover { color: var(--text-0); }
+
+/* Nachdem eine frisch gezeichnete Markierung weggeblendet ist: zwei ruhige
+   Ringe laufen aus dem Schalter heraus und das Auge nickt kurz — das zeigt,
+   wo die Markierung wieder auftaucht, ohne den Blick zu reissen. */
+.devtoggle--hint {
+  animation: ink-mark-hint 1.7s cubic-bezier(.22, 1, .36, 1);
+}
+@keyframes ink-mark-hint {
+  0% { box-shadow: 0 0 0 0 var(--accent-dim); border-color: var(--accent); }
+  35% { box-shadow: 0 0 0 8px rgba(91, 140, 255, 0); border-color: var(--accent); }
+  45% { box-shadow: 0 0 0 0 var(--accent-dim); border-color: var(--accent); }
+  80% { box-shadow: 0 0 0 8px rgba(91, 140, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(91, 140, 255, 0); border-color: var(--border-strong); }
+}
+.devtoggle--hint svg { animation: ink-mark-hint-eye 1.7s cubic-bezier(.22, 1, .36, 1); }
+@keyframes ink-mark-hint-eye {
+  0%, 30%, 60%, 100% { transform: none; }
+  14% { transform: scale(1.22); }
+  46% { transform: scale(1.14); }
+}
+.devtoggle.is-on {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--text-0);
+}
+.devtoggle > span:not(.devtoggle__state) { flex: 1 1 auto; text-align: left; }
+/* Deutlicher On/Off-Status als Pille rechts im Knopf. */
+.devtoggle__state {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  background: var(--bg-3);
+  color: var(--text-2);
+}
+.devtoggle.is-on .devtoggle__state { background: var(--accent); color: #fff; }
 .panel__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; }
 .panel__empty {
   flex: 1 1 auto;
@@ -793,13 +958,47 @@ input::placeholder { color: var(--text-2); }
   font-size: 10px;
   white-space: nowrap;
 }
+/* Vom Element-Picker vorgeschlagene Stil-Aenderungen. */
+.fb-item__changes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.fb-chg-target {
+  color: var(--text-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+.fb-chg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.fb-chg-prop { color: var(--text-1); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.fb-chg-from { color: var(--text-2); text-decoration: line-through; }
+.fb-chg-arr { color: var(--text-2); }
+.fb-chg-to { color: var(--accent); font-weight: 600; }
+/* Textaenderungen sind laenger als Zahlenwerte — sie duerfen umbrechen. */
+.fb-chg--text { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+
 .fb-item__actions {
   display: flex;
   gap: 2px;
   flex: 0 0 auto;
   visibility: hidden;
 }
-.fb-item:hover .fb-item__actions,
+/* Bewusst kein :hover — der Zustand kommt aus React, weil Chrome :hover
+   haengen laesst, wenn der Zeiger die Seite oder das Panel unbemerkt
+   verlaesst (dann blieben die Knoepfe stehen). */
+.fb-item--hover .fb-item__actions,
 .fb-item--editing .fb-item__actions { visibility: visible; }
 .fb-item--editing { cursor: default; }
 .fb-item__edit {
@@ -949,6 +1148,7 @@ input::placeholder { color: var(--text-2); }
 }
 
 .device {
+  position: relative;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -961,6 +1161,14 @@ input::placeholder { color: var(--text-2); }
   container-type: inline-size;
 }
 .device--annotating { border-color: var(--accent); }
+
+/* Fokus: nur die gewaehlte Karte steht in der Reihe, mittig. Die uebrigen
+   werden ausgeblendet statt ausgehaengt — ein Unmount wuerde beim Verlassen
+   des Fokus jeden Frame neu laden. Die Karte selbst gleitet per FLIP
+   (Web-Animations-API in App.tsx) an ihren neuen Platz. */
+.grid--focus { justify-content: center; }
+.grid--focus .device:not(.device--focused) { display: none; }
+.device--focused { border-color: var(--accent); }
 .device__bar {
   display: flex;
   align-items: center;
@@ -973,18 +1181,31 @@ input::placeholder { color: var(--text-2); }
   cursor: grab;
   user-select: none;
 }
-/* Schmale Karten (niedriger Zoom / kleine Viewports): sekundaere Titel-
+/* Schmale Karten (niedriger Zoom / Handy-Viewports): sekundaere Titel-
    Elemente weichen der Reihe nach, damit Name + Schliessen immer passen und
    der Name nicht auf Null kollabiert. */
-@container (max-width: 280px) {
+.device__acts { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; }
+/* Breite Karten brauchen kein Menue — dort stehen die Aktionen in der Reihe. */
+.device__more { display: none; }
+@container (max-width: 300px) {
   .device__size { display: none; }
-}
-@container (max-width: 210px) {
-  .device__touch,
-  .device__eye,
-  .device__rotate { display: none; }
+  /* Statt die Aktionen wegfallen zu lassen (frueher ab 210px), wandern sie
+     geschlossen hinter das Menue — erreichbar bleiben sie so immer. */
+  .device__acts { display: none; }
+  .device__more { display: inline-grid; }
 }
 .device__bar:active { cursor: grabbing; }
+
+/* Menue der Nebenaktionen. Sitzt in der Karte, nicht in der Titelleiste:
+   die haelt overflow:hidden und wuerde es abschneiden. */
+.device__menu.menu {
+  top: 34px;
+  right: 8px;
+  min-width: 0;
+  width: max-content;
+  max-width: calc(100% - 16px);
+  z-index: 12;
+}
 
 /* Karte wird gezogen: transparent lassen, Ziel-Layout entsteht live. */
 .device--dragging { opacity: .4; }
@@ -1040,12 +1261,70 @@ input::placeholder { color: var(--text-2); }
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-s);
 }
-.device--annotating .device__viewport { box-shadow: 0 0 0 2px var(--accent); }
 .device__viewport iframe {
   border: 0;
   display: block;
   transform-origin: top left;
 }
+
+/* ---------- Full-Page-Modus: Falz & echter Viewport ---------- */
+
+/* Der Kasten ueber dem oberen Teil der Seite ist der Viewport, der auf dem
+   Geraet wirklich greifen wuerde. Alles rein dekorativ: Zeichnen, Klicken und
+   Hovern gehen hindurch. */
+/* Bewusst ohne z-index: positioniert reicht, um ueber dem Frame zu liegen,
+   und die Reihenfolge im DOM haelt das Annotations-Overlay darueber — sonst
+   dimmte der Schleier die Markierungen unterhalb der Falz mit. */
+.fold,
+.fold-rest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+.fold {
+  top: 0;
+  box-shadow: inset 0 0 0 1px var(--accent);
+  border-bottom: 2px dashed var(--accent);
+}
+/* Unterhalb der Falz: leicht abgesetzt, damit auf einen Blick klar ist, was
+   erst nach dem Scrollen kommt. Bewusst schwach — die Seite soll darunter
+   noch beurteilbar bleiben. */
+.fold-rest {
+  bottom: 0;
+  background: color-mix(in srgb, var(--bg-0) 10%, transparent);
+}
+.fold__tag {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* Die beiden Kanten-Labels sitzen an der Falz — oben drueber bzw. drunter. */
+.fold__tag--line {
+  top: auto;
+  bottom: 4px;
+  left: auto;
+  right: 4px;
+  background: color-mix(in srgb, var(--accent) 88%, black);
+}
+.fold__tag--rest {
+  top: 4px;
+  left: auto;
+  right: 4px;
+  background: var(--border-strong);
+  color: var(--text-1);
+}
+/* Sehr kleiner Zoom: die Labels wuerden den Kasten zupflastern. */
+.device__viewport--full .fold__tag { max-width: calc(100% - 8px); overflow: hidden; }
 
 /* ---------- Annotations-Overlay ---------- */
 
@@ -1105,6 +1384,16 @@ input::placeholder { color: var(--text-2); }
 /* Der gezogene Marker haengt sichtbar an der Maus. */
 .anno__moving { opacity: .85; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .45)); }
 /* Doppelter Puls um den per Panel-Klick angesprungenen Marker. */
+/* Frisch gezeichnet, waehrend „Show markings" aus steht: die Markierung
+   bleibt kurz stehen, damit man sie noch sieht, und blendet dann weich aus,
+   statt hart zu verschwinden. Dauer deckt sich mit FADE_MS in App.tsx. */
+.anno__fade { animation: ink-mark-fade 1.2s cubic-bezier(.4, 0, .2, 1) forwards; }
+@keyframes ink-mark-fade {
+  0% { opacity: 1; }
+  45% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 .anno__flash { animation: ink-anno-flash 1.8s ease-out forwards; }
 @keyframes ink-anno-flash {
   0% { opacity: 0; }
@@ -1130,6 +1419,55 @@ input::placeholder { color: var(--text-2); }
   font-weight: 600;
   box-shadow: var(--shadow-l);
 }
+/* Aktions-Knoepfe am gehoverten Element-Marker (Bearbeiten / Loeschen). */
+/* Aktions-Leiste der gehoverten Markierung: sitzt mittig *in* ihr — dort
+   sucht der Blick, und sie ueberdeckt die Kontur nicht. Runde Kapsel mit
+   weichem Glas-Hintergrund, damit die Markierung darunter durchscheint. */
+.anno__acts {
+  position: absolute;
+  z-index: 8;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  /* Deckender Fallback zuerst — aeltere Engines verwerfen color-mix und
+     stuenden sonst ohne Hintergrund da. */
+  background: var(--bg-2);
+  background: color-mix(in srgb, var(--bg-2) 88%, transparent);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-l);
+  pointer-events: auto;
+  animation: ink-acts-in .14s cubic-bezier(.22, 1, .36, 1);
+}
+@keyframes ink-acts-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(.88); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+.anno__act {
+  display: grid;
+  place-items: center;
+  /* Basis-Button-Padding zuruecksetzen, sonst sitzt das Icon aussermittig. */
+  padding: 0;
+  line-height: 0;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease, transform .12s ease;
+}
+.anno__act:hover { background: var(--bg-3); color: var(--text-0); transform: scale(1.08); }
+.anno__act--danger:hover { background: var(--danger-dim); color: var(--danger); }
+
+/* Grosse Variante: im Viereck des Element-Markers ist Platz dafuer, und die
+   Knoepfe sind so auch bei kleinem Zoom sicher zu treffen. */
+.anno__acts--lg { gap: 6px; padding: 5px; }
+.anno__acts--lg .anno__act { width: 40px; height: 40px; }
+
 .anno__note {
   position: absolute;
   pointer-events: auto;
@@ -1176,6 +1514,440 @@ input::placeholder { color: var(--text-2); }
   font-size: 11px;
 }
 
+/* ---------- Element-Picker: Bearbeiten-Popup (Box-Model/Font) ---------- */
+
+/* Fix im Viewport (per Portal im App-Root) und ueber der schwebenden
+   Werkzeugleiste (z 45) — das Popup darf nie verdeckt werden. Der Innenabstand
+   sitzt links/rechts/unten; oben uebernimmt ihn der klebende Kopf. */
+.anno__inspect {
+  position: fixed;
+  z-index: 56;
+  pointer-events: auto;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-l);
+  padding: 0 9px 9px;
+  font-size: 12px;
+  color: var(--text-1);
+  animation: ink-bubble-in .12s ease-out;
+}
+.anno__inspect.is-dragging {
+  animation: none;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, .55), 0 0 0 2px var(--accent);
+}
+
+/* Kopf (Identitaet + Scope) bleibt stehen, falls der Inhalt doch mal laenger
+   ist als der Bildschirm — sonst scrollt der Schliessen-Knopf davon. */
+.anno__inspect-top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0 -9px 9px;
+  padding: 9px 9px 8px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+/* Kopfzeile ist der Drag-Griff. */
+.anno__inspect-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.anno__inspect.is-dragging .anno__inspect-head { cursor: grabbing; }
+.anno__inspect-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.anno__inspect-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: var(--text-0);
+}
+.anno__inspect-dims {
+  flex: none;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.anno__ibtn {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+.anno__ibtn:hover:not(:disabled) {
+  background: var(--bg-3);
+  color: var(--text-0);
+}
+
+/* Scope-Umschalter: ganze Klasse (Standard) vs. nur dieses Element. */
+.anno__scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.anno__seg {
+  flex: none;
+  display: flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+}
+.anno__seg button {
+  padding: 3px 10px;
+  font-size: 11px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-1);
+}
+.anno__seg button + button { border-left: 1px solid var(--border-strong); }
+.anno__seg button:hover:not(:disabled):not(.is-active) { background: var(--bg-3); }
+.anno__seg button.is-active { background: var(--accent); color: #fff; }
+.anno__scope-sel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-1);
+}
+/* Trefferzahl der Klassenregel — sagt, wie weit eine Aenderung reicht. */
+.anno__scope-count { font-style: normal; color: var(--text-2); }
+
+/* Abstaende als schmale Tabelle: Kopfzeile (Einheit + Seiten), darunter je
+   eine Zeile fuer Margin und Padding mit eigenem Ketten-Knopf. */
+.anno__spacing {
+  display: grid;
+  grid-template-columns: auto repeat(4, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+}
+.anno__sp-unit,
+.anno__sp-h {
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: var(--text-2);
+}
+.anno__sp-unit { text-transform: uppercase; }
+.anno__sp-h { text-align: center; }
+.anno__sp-lab {
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+  font-size: 11.5px;
+  text-transform: capitalize;
+  color: var(--text-1);
+}
+.anno__sp-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+/* Gleiche Toene wie die Baender im Overlay — Zeile und Rahmen gehoeren zusammen. */
+.anno__sp-dot--m { background: rgba(246, 178, 107, .95); }
+.anno__sp-dot--p { background: rgba(147, 196, 125, .95); }
+.anno__link {
+  justify-self: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  background: transparent;
+  border-color: transparent;
+}
+.anno__link:hover:not(:disabled) { background: var(--bg-3); color: var(--text-1); }
+.anno__link.is-active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.anno__sp-in {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 2px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  cursor: ew-resize; /* Ziehen aendert den Wert */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.anno__sp-in::-webkit-inner-spin-button,
+.anno__sp-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.anno__sp-in.is-zero { color: var(--text-2); }
+.anno__sp-in:focus,
+.anno__sp-in:focus-visible { border-color: var(--accent); outline: none; cursor: text; }
+
+/* Auto-Margin: kein Zahlenfeld, weil die Messung dort nur das Ergebnis der
+   Zentrierung ist. Klick gibt die Seite bewusst als Zahl frei. */
+.anno__sp-auto {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 2px;
+  border-radius: var(--radius-s);
+  background: var(--warn-bg);
+  border: 1px dashed var(--warn-border);
+  color: var(--warn-text);
+  font-size: 11px;
+  font-style: italic;
+  cursor: not-allowed;
+}
+.anno__sp-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 7px 0 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-s);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn-text);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.anno__sp-warn svg { flex: none; margin-top: 1px; }
+.anno__sp-warn b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+
+/* Eigenschaftsname in einer Wertzeile (z. B. max-width). */
+.anno__inspect-prop {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-1);
+}
+/* Wert, der sich hier nicht bearbeiten laesst (Prozent, ch, vw …). */
+.anno__inspect-static {
+  flex: none;
+  padding: 4px 7px;
+  border-radius: var(--radius-s);
+  background: var(--bg-0);
+  border: 1px dashed var(--border-strong);
+  color: var(--text-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+/* Text- und Notizfeld — gleicher Aufbau, damit die beiden dunklen Kaesten
+   auch mit Inhalt auseinanderzuhalten sind. */
+.anno__inspect-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 9px;
+}
+.anno__text-in {
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: vertical;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-0);
+  background: var(--bg-0);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  padding: 5px 7px;
+}
+.anno__text-in:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* Font-Zeile — erscheint nur bei direktem Text. */
+.anno__inspect-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+}
+/* Feste Breite, damit Element/Font/Note untereinander fluchten. */
+.anno__inspect-row-label {
+  flex: none;
+  width: 46px;
+  padding-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.anno__inspect-row .anno__inspect-row-label { padding-top: 0; }
+/* Tag des bearbeiteten Elements statt der Beschriftung „Text“. */
+.anno__tag-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-1);
+}
+.anno__inspect-weight {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 6px;
+}
+.anno__inspect-size {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.anno__font-in {
+  width: 52px;
+  padding: 5px 6px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  cursor: ew-resize;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.anno__font-in::-webkit-inner-spin-button,
+.anno__font-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.anno__font-in:focus,
+.anno__font-in:focus-visible { border-color: var(--accent); outline: none; cursor: text; }
+.anno__inspect-unit { color: var(--text-2); font-size: 11px; }
+
+/* Ausstehende Aenderungen — Vorschau dessen, was ins Feedback wandert. */
+.anno__changes {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border-strong);
+}
+.anno__changes-cap {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+/* Eine Aenderung pro Zeile ueber die volle Breite — das Zuruecknehmen sitzt
+   dadurch immer an derselben Stelle ganz rechts. */
+.anno__changes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.anno__chg {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 3px 3px 7px;
+  border-radius: var(--radius-s);
+  background: var(--bg-0);
+  border: 1px solid var(--border-strong);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.anno__chg-prop {
+  flex: none;
+  color: var(--text-1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.anno__chg-from { color: var(--text-2); text-decoration: line-through; }
+.anno__chg-arr { flex: none; color: var(--text-2); }
+.anno__chg-to { color: var(--accent); font-weight: 600; }
+/* Textaenderungen sind laenger als Zahlenwerte — sie duerfen umbrechen. */
+.anno__chg--text { align-items: flex-start; overflow-wrap: anywhere; }
+.anno__chg--text .anno__chg-prop,
+.anno__chg--text .anno__chg-arr { padding-top: 1px; }
+/* Einzelne Aenderung zuruecknehmen, ohne den Rest anzufassen. */
+.anno__chg-x {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-left: auto; /* immer buendig rechts, egal wie lang die Werte sind */
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  color: var(--text-2);
+}
+.anno__chg-x:hover:not(:disabled) { background: var(--danger-dim); color: var(--danger); }
+.anno__chg-more {
+  margin-top: 5px;
+  padding: 2px 7px;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text-1);
+  font-size: 11px;
+}
+.anno__chg-more:hover:not(:disabled) { background: var(--bg-3); color: var(--text-0); }
+
+/* Aktionen bleiben unten stehen, auch wenn der Inhalt scrollt. */
+.anno__inspect-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px -9px -9px;
+  padding: 8px 9px 9px;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+}
+.anno__inspect-hint {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  cursor: help;
+}
+.anno__inspect-hint:hover { color: var(--text-1); }
+.anno__inspect-actions {
+  flex: none;
+  display: flex;
+  gap: 6px;
+}
+.anno__inspect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+}
+.anno__inspect-mark {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.anno__inspect-mark:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+
 /* ---------- Werkzeug-Palette (Kontextmenue per Rechtsklick) ---------- */
 
 .palette-backdrop {
@@ -1202,6 +1974,41 @@ input::placeholder { color: var(--text-2); }
   to { opacity: 1; transform: none; }
 }
 .palette__sep { width: 1px; height: 20px; background: var(--border-strong); margin: 0 3px; flex: 0 0 auto; }
+
+/* „Draw"-Gruppe: der Knopf traegt das zuletzt benutzte Zeichen-Werkzeug, das
+   Flyout die uebrigen. Haelt die Leiste kurz — direkt stehen nur noch
+   Element-Picker und Pin. */
+.tool-group { position: relative; display: inline-flex; }
+/* Kleine Ecke unten rechts — macht den Knopf als Gruppe erkennbar. */
+.tool-group__caret {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-bottom: 3.5px solid currentColor;
+  opacity: .5;
+}
+.tool-group__btn--open .tool-group__caret,
+.tool-group__btn.icon-btn--active .tool-group__caret { opacity: 1; }
+
+/* Das Flyout haengt im Shell-Root, nicht in der Leiste: die schwebende
+   Leiste scrollt bei wenig Platz und wuerde es sonst abschneiden. Position
+   rechnet die Komponente (ToolButtons) neben den Knopf. */
+.tool-group__menu {
+  position: fixed;
+  z-index: 52;
+  display: flex;
+  gap: 3px;
+  padding: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-l);
+  animation: ink-hint-in .12s ease-out;
+}
+.tool-group__menu--col { flex-direction: column; }
 
 .swatch {
   width: 20px;
@@ -1366,7 +2173,10 @@ input::placeholder { color: var(--text-2); }
 .fsbar-shield {
   position: fixed;
   inset: 0;
-  z-index: 43;
+  /* Ueber allem schwebenden Chrome (Panel 44, Leiste/FAB/Phone 45–47):
+     waehrend eines Zugs duerfen Release-Klicks keine fremden Knoepfe
+     treffen — sonst schliessen sich Panel oder Mockup beim Drueberziehen. */
+  z-index: 59;
   cursor: grabbing;
 }
 
@@ -1410,11 +2220,30 @@ input::placeholder { color: var(--text-2); }
 .fsbar__hint--above { transform: translate(-50%, -100%); }
 @keyframes ink-hint-in { from { opacity: 0; } to { opacity: 1; } }
 
-/* Feedback-Knopf unten rechts. */
+/* Mehrzeilige Hint-Karte (Bereichs-Toggle): Label oben, Bullets darunter. */
+.fsbar__hint--rows {
+  display: block;
+  white-space: normal;
+  width: 230px;
+  padding: 8px 11px;
+}
+.fsbar__hint-rows {
+  margin: 5px 0 0;
+  padding-left: 15px;
+  color: var(--text-1);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.fsbar__hint-rows li + li { margin-top: 3px; }
+
+/* Feedback-Knopf: standardmaessig unten rechts, per Zug frei plazierbar
+   (dann setzt der Knopf left/top inline). */
 .fs-fab {
   position: fixed;
   right: 18px;
   bottom: 18px;
+  /* Der Zug soll nicht als Scroll-/Zoom-Geste beim Browser landen. */
+  touch-action: none;
   z-index: 45;
   display: grid;
   place-items: center;
@@ -1428,6 +2257,13 @@ input::placeholder { color: var(--text-2); }
   box-shadow: var(--shadow-l);
 }
 .fs-fab:hover:not(:disabled) { background: var(--accent-hover); }
+/* Am Zeiger haengend: ueber den Schild heben und leicht anheben. */
+.fs-fab--dragging {
+  z-index: 60;
+  cursor: grabbing;
+  transform: scale(1.06);
+  box-shadow: var(--shadow-l), 0 0 0 6px rgba(91, 140, 255, .22);
+}
 /* Statt das Panel aufzudraengen: der Knopf meldet sich kurz. */
 .fs-fab--pulse { animation: fs-fab-pulse .6s ease-out 2; }
 @keyframes fs-fab-pulse {
@@ -1476,6 +2312,195 @@ input::placeholder { color: var(--text-2); }
 .menu__swatches { display: flex; gap: 2px; }
 .menu__swatches i { width: 6px; height: 12px; border-radius: 2px; }
 
+/* ---------- Screenshot-Export ---------- */
+
+/* captureVisibleTab fotografiert den sichtbaren Tab, also auch alles, was
+   das Addon ueber die Seite legt. Waehrend des Exports haelt sich dieses
+   Chrome heraus — im Vollbild laege die Werkzeugleiste sonst auf jedem
+   einzelnen Slice. Der Frame selbst bleibt unangetastet, damit sich der
+   Zuschnitt nicht verschiebt. */
+.root--capturing .fsbar,
+.root--capturing .fs-fab,
+.root--capturing .phone-prev,
+.root--capturing .tool-group__menu,
+.root--capturing .anno__acts,
+.root--capturing .fsbar__hint { display: none !important; }
+/* Im Vollbild schwebt das Panel ueber der Seite. Im Grid steht es daneben —
+   dort muss es bleiben, sonst aendert sich die Breite der Karten mitten im
+   Export und der Zuschnitt passt nicht mehr. */
+.root--capturing.root--fs .panel { display: none !important; }
+/* Waehrend der Aufnahme scrollt der Frame selbst durch die Seite — ein
+   Mausrad des Nutzers wuerde die Slices gegeneinander verschieben. Die Seite
+   nimmt deshalb keine Zeiger-Events mehr an. */
+.root--capturing .device__viewport iframe { pointer-events: none; }
+/* Ecken fuer die Aufnahme begradigen. Der Radius beschneidet zusammen mit
+   overflow:hidden den Frame-Inhalt an allen vier Ecken; jeder Slice traegt
+   dort den dunklen Kartenhintergrund. Gestitcht ergibt das an *jeder* Naht
+   eine gerundete Kerbe quer durchs Bild. */
+.root--capturing .device__viewport { border-radius: 0 !important; }
+
+/* Ueberblendung ueber dem gerade abgescannten Frame. Sie weicht fuer den
+   Moment jeder Aufnahme (is-away), sonst laege sie im Bild. */
+/* ---------- Seitenauswahl am Screenshot-Knopf ---------- */
+
+/* Die Liste faehrt aus dem Knopf heraus statt als Dialog in der Mitte zu
+   erscheinen: derselbe Knopf loest danach aus, die Maus bleibt, wo sie ist. */
+.share-row--pick { position: relative; }
+.shotpick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  padding: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-l);
+  transform-origin: bottom center;
+  animation: ink-shotpick-in .14s cubic-bezier(.22, 1, .36, 1);
+}
+@keyframes ink-shotpick-in {
+  from { opacity: 0; transform: translateY(6px) scale(.96); }
+  to { opacity: 1; transform: none; }
+}
+.shotpick__head {
+  display: flex;
+  white-space: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.shotpick__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+.shotpick__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-0);
+}
+.shotpick__row:hover { background: var(--bg-3); }
+.shotpick__row--fixed { cursor: default; }
+.shotpick__row--fixed:hover { background: transparent; }
+/* Das echte Feld traegt die Bedienung, sichtbar ist die gestylte Box. */
+.shotpick__input { position: absolute; opacity: 0; width: 0; height: 0; }
+.shotpick__box {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: #fff;
+}
+.shotpick__box.is-on { background: var(--accent); border-color: var(--accent); }
+.shotpick__path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shotpick__meta {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.shotpick__tag {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+}
+/* „Scharfer" Zustand: der naechste Klick loest aus. */
+.share-btn--armed {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.share-btn--armed:hover:not(:disabled) { background: var(--accent-hover); }
+
+/* Abdunklung *um* den abgescannten Frame: die vier Flaechen daneben liegen
+   ausserhalb des fotografierten Ausschnitts und bleiben deshalb die ganze
+   Aufnahme ueber stehen — nichts blinkt. */
+.shot-spot { position: fixed; inset: 0; z-index: 58; pointer-events: auto; }
+.shot-spot__pane { position: fixed; background: rgba(8, 10, 15, .62); }
+.shot-spot__ring {
+  position: fixed;
+  pointer-events: none;
+  /* Der Schatten wird *ausserhalb* der Box gezeichnet, liegt also neben dem
+     Ausschnitt und nicht darin. */
+  box-shadow: 0 0 0 3px var(--accent), 0 0 26px 6px rgba(91, 140, 255, .35);
+}
+
+/* Fuer die Aufnahme aus dem Rendering nehmen (nur die Anzeige im Vollbild,
+   die zwangslaeufig im Bild liegt). Ein blosses opacity:0 reicht nicht
+   verlaesslich — backdrop-filter laeuft ueber den Compositor. */
+.shot-badge--inside.is-away { display: none !important; }
+
+/* Laufanzeige. Ausserhalb des Frames (Device-Ansicht) bleibt sie stehen. */
+.shot-badge {
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 59;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 20px);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: var(--shadow-l);
+}
+/* Vollbild: es gibt kein Aussen, also mittig in die Flaeche — dort blinkt
+   sie mit dem Schleier mit. */
+/* Vollbild: der Frame ist das ganze Fenster, es gibt kein Aussen. Die
+   Anzeige sitzt dann absolut im Frame und weicht mit jeder Aufnahme. */
+.shot-badge--inside {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 7px 14px;
+  font-size: 13px;
+}
+.shot-badge__spinner {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .35);
+  border-top-color: #fff;
+  animation: ink-shot-spin .8s linear infinite;
+}
+@keyframes ink-shot-spin { to { transform: rotate(360deg); } }
+
 /* ---------- Reduzierte Bewegung ---------- */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1494,7 +2519,12 @@ input::placeholder { color: var(--text-2); }
   .root--fs.root--panel-closing .panel--right,
   .tour__card,
   .tour__shade,
+  .devtoggle--hint,
+  .devtoggle--hint svg,
   .overlay-backdrop { animation: none !important; }
+  /* Ausblenden bleibt — nur ohne Verlauf, sonst stuende die Markierung
+     dauerhaft im Bild, obwohl sie ausgeblendet sein soll. */
+  .anno__fade { animation-duration: .01ms !important; }
   .fsbar { transition: none !important; }
   .tour__ring { transition: none !important; }
 }

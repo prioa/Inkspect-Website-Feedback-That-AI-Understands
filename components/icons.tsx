@@ -317,6 +317,17 @@ export const IconCollapse = ({ size }: IconProps) => (
   </Icon>
 );
 
+/** Fokus: Zielkreuz — stellt ein Device allein in die Reihe. */
+export const IconFocus = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v3" />
+    <path d="M12 19v3" />
+    <path d="M2 12h3" />
+    <path d="M19 12h3" />
+  </Icon>
+);
+
 /** Touch-Modus: tippender Finger. */
 export const IconTouch = ({ size }: IconProps) => (
   <Icon size={size}>
@@ -387,6 +398,18 @@ export const IconLayers = ({ size }: IconProps) => (
     <path d="M12 2 2 7l10 5 10-5-10-5Z" />
     <path d="m2 12 10 5 10-5" />
     <path d="m2 17 10 5 10-5" />
+  </Icon>
+);
+
+/**
+ * Full-Page-Modus: ein Geraet, dessen Inhalt ueber den Rahmen hinausragt —
+ * die gestrichelte Linie ist die Falz (Unterkante des echten Viewports).
+ */
+export const IconFullPage = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <rect x="5" y="2" width="14" height="20" rx="2" />
+    <path d="M5 14h14" strokeDasharray="3 2.5" />
+    <path d="M12 6v5m0 0 2-2m-2 2-2-2" />
   </Icon>
 );
 

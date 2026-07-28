@@ -26,11 +26,21 @@ export interface CaptureRequest {
   type: 'ink:capture';
 }
 
+/**
+ * UI in diesem Tab geoeffnet/geschlossen — der Background setzt daraufhin
+ * das Badge am Toolbar-Icon („ON"), damit der aktive Zustand sichtbar ist.
+ */
+export interface UiStateMessage {
+  type: 'ink:ui-state';
+  open: boolean;
+}
+
 export type BackgroundRequest =
   | FetchCssRequest
   | FrameBypassRequest
   | FrameCheckRequest
-  | CaptureRequest;
+  | CaptureRequest
+  | UiStateMessage;
 
 export type FetchCssResponse = { ok: true; text: string } | { ok: false; error: string };
 export type FrameBypassResponse = { ok: true } | { ok: false; error: string };

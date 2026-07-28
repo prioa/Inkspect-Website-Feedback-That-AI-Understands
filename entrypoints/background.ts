@@ -172,6 +172,21 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (request?.type === 'ink:ui-state') {
+      // Sichtbarer Aktiv-Zustand am Toolbar-Icon: Badge, solange die UI in
+      // diesem Tab offen ist. Chrome raeumt Tab-Badges bei Navigation selbst
+      // auf; das Content-Script meldet sich nach einem Reload ohnehin neu.
+      const tabId = sender.tab?.id;
+      if (tabId != null) {
+        void browser.action.setBadgeText({ tabId, text: request.open ? 'ON' : '' });
+        if (request.open) {
+          void browser.action.setBadgeBackgroundColor({ tabId, color: '#5b8cff' });
+          void browser.action.setBadgeTextColor?.({ tabId, color: '#ffffff' });
+        }
+      }
+      return false;
+    }
+
     if (request?.type === 'ink:frame-bypass') {
       const tabId = sender.tab?.id;
       if (tabId == null) {

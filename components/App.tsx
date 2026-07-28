@@ -1,14 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { browser } from 'wxt/browser';
 import { Toolbar, type SyncKey, type SyncPrefs } from './Toolbar';
 import { CssEditor } from './CssEditor';
 import { DeviceFrame } from './DeviceFrame';
 import { AnnotationPalette, FeedbackBar } from './AnnotationPalette';
+import { PhonePreview } from './PhonePreview';
 import { FeedbackPanel } from './FeedbackPanel';
 import { ShortcutsOverlay } from './ShortcutsOverlay';
 import { Tour } from './Tour';
 import { ConfirmDialog } from './ConfirmDialog';
-import { IconClose, IconMessage, IconWarning } from './icons';
+import { IconWarning } from './icons';
+import { clampFabPos, fabPanelAnchor, FeedbackFab, type FabPos } from './FeedbackFab';
 import {
   createCustomPreset,
   createWorkspace,
@@ -44,6 +54,7 @@ import { InteractionSync } from '@/lib/interactionSync';
 import {
   ANNOTATION_COLORS,
   DEFAULT_TOOL_ORDER,
+  LEGACY_DEFAULT_COLOR,
   hitsShape,
   isMovableShape,
   penOverlaps,
@@ -54,7 +65,7 @@ import {
   type Shape,
   type Tool,
 } from '@/lib/annotations';
-import type { NoteEditRequest } from './AnnotationOverlay';
+import type { ElementShapePatch, NoteEditRequest } from './AnnotationOverlay';
 import { FrameGate } from './FrameGate';
 import {
   addItems,
@@ -75,7 +86,9 @@ import {
   reportContextError,
 } from '@/lib/extensionContext';
 import { buildShareUrl } from '@/lib/share';
-import { captureFullFrameShot, downloadBlob } from '@/lib/screenshot';
+import { captureFullFrameShot, downloadBlob, fitToBudget } from '@/lib/screenshot';
+import { renderBanner, type Banner } from '@/lib/shotBanner';
+import { buildPdf, type PdfImage, type PdfLink } from '@/lib/pdf';
 import { applyOverride, clearOverride, collectSheets, type SheetSource } from '@/lib/stylesheets';
 import type { FrameBypassResponse, FrameCheckResponse } from '@/lib/messages';
 import { createLogger } from '@/lib/log';
@@ -184,6 +197,100 @@ function scrollFrameToTarget(win: Window, target: { x: number; y: number }): voi
 /** Angedockt (Grid-Modus) sitzt die Werkzeugleiste fest unten mittig. */
 const DOCKED_PLACEMENT: ToolbarPlacement = { dock: 'bottom', x: 0, y: 0 };
 
+/** Seitenbreite des Export-PDFs in Punkten (1 pt = 1/72 Zoll). */
+const PDF_PAGE_W = 800;
+/** PDF-Seiten duerfen 14400 pt nicht ueberschreiten. */
+const PDF_MAX_H = 14000;
+
+/**
+ * Setzt Kopfleiste und Seitenaufnahme zu einem einseitigen PDF zusammen. Die
+ * Knoepfe der Leiste sind gezeichnet; hier kommen die Link-Flaechen darueber,
+ * damit sie im PDF anklickbar werden.
+ */
+async function buildShotPdf(
+  page: HTMLCanvasElement,
+  banner: Banner | null,
+  title: string,
+): Promise<Blob> {
+  const bannerH = banner ? (banner.canvas.height / banner.canvas.width) * PDF_PAGE_W : 0;
+  const pageH = (page.height / page.width) * PDF_PAGE_W;
+  // Sehr lange Seiten sonst ueber die zulaessige Seitenhoehe — dann schrumpft
+  // die ganze Seite mit, statt abgeschnitten zu werden.
+  const shrink = Math.min(1, PDF_MAX_H / (bannerH + pageH));
+  const width = PDF_PAGE_W * shrink;
+  const bh = bannerH * shrink;
+  const ph = pageH * shrink;
+
+  const images: PdfImage[] = [{ canvas: page, x: 0, y: bh, w: width, h: ph }];
+  const links: PdfLink[] = [];
+  if (banner) {
+    images.unshift({ canvas: banner.canvas, x: 0, y: 0, w: width, h: bh });
+    // Canvas-Pixel der Leiste in Seitenpunkte umrechnen.
+    const k = width / banner.canvas.width;
+    for (const b of banner.buttons) {
+      links.push({ x: b.x * k, y: b.y * k, w: b.w * k, h: b.h * k, url: b.url });
+    }
+  }
+  return buildPdf(width, bh + ph, images, links, `Inkspect feedback — ${title}`);
+}
+
+/**
+ * Sichtbarer Innenbereich eines Frame-Containers (Padding-Box, ohne Rahmen).
+ * Genau dieser Bereich wird vom `overflow: hidden` gezeigt — und nur er darf
+ * in den Screenshot, sonst wandert die Rahmenfarbe in jeden Slice.
+ */
+function frameClientRect(viewport: HTMLElement): DOMRect {
+  const r = viewport.getBoundingClientRect();
+  const cs = getComputedStyle(viewport);
+  const left = r.left + (parseFloat(cs.borderLeftWidth) || 0);
+  const top = r.top + (parseFloat(cs.borderTopWidth) || 0);
+  return new DOMRect(left, top, viewport.clientWidth, viewport.clientHeight);
+}
+
+/** Zuletzt in den Frames geoeffnete Seite (pro Tab, ueberlebt F5). */
+const PAGE_KEY = 'ink-ui-page';
+
+/**
+ * Die zuletzt in den Vorschauen geoeffnete Seite, gebunden an die Adresse des
+ * Tabs. Navigiert man in den Frames auf eine Unterseite, aendert das
+ * `location.href` des Tabs nicht — beim Neuladen stuende sonst wieder die
+ * Startseite in den Frames. Ist die Tab-Adresse beim Lesen unveraendert, war
+ * es ein Reload derselben Seite und die Unterseite wird wiederhergestellt;
+ * steht der Tab inzwischen woanders, gilt der Eintrag nicht mehr.
+ */
+interface TabSession {
+  /** Seite in den Vorschauen. */
+  page: string;
+  /** Vollbild aktiv — schlaegt beim Reload die `startFullscreen`-Einstellung. */
+  fullscreen: boolean;
+}
+
+function readSession(): TabSession | null {
+  try {
+    const raw = sessionStorage.getItem(PAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<TabSession> & { host?: string };
+    const { host, page, fullscreen } = parsed;
+    if (!host || !page || host !== normalizeUrl(location.href)) return null;
+    // Fremde Origins waeren cross-site — dieselbe Schranke wie beim Navigieren.
+    if (new URL(page).origin !== location.origin) return null;
+    return { page, fullscreen: fullscreen === true };
+  } catch {
+    return null; // Seite blockiert sessionStorage oder Eintrag unlesbar
+  }
+}
+
+function storeSession(session: TabSession): void {
+  try {
+    sessionStorage.setItem(
+      PAGE_KEY,
+      JSON.stringify({ host: normalizeUrl(location.href), ...session }),
+    );
+  } catch {
+    /* Seite blockiert sessionStorage */
+  }
+}
+
 export function App({
   shadowRoot,
   onClose,
@@ -197,7 +304,10 @@ export function App({
   // und beim Start wiederhergestellt (Setup soll Sessions ueberleben).
   const [presets, setPresets] = useState<readonly DevicePreset[]>(PRESETS);
   const [devices, setDevices] = useState<DeviceInstance[]>([]);
-  const [src, setSrc] = useState(location.href);
+  // Einmal beim Mount: der per Reload wiederhergestellte Tab-Zustand.
+  const [restored] = useState(readSession);
+  const [initialPage] = useState(() => restored?.page ?? location.href);
+  const [src, setSrc] = useState(initialPage);
   const [zoom, setZoom] = useState(0.6);
   const [reloadKey, setReloadKey] = useState(0);
   /** Erst nach dem Restore speichern — sonst ueberschreibt der Default den Stand. */
@@ -280,6 +390,16 @@ export function App({
     x: DEFAULT_SETTINGS.toolbarX,
     y: DEFAULT_SETTINGS.toolbarY,
   });
+  /**
+   * Abgelegte Position des Feedback-Knopfs im Vollbild. `null` heisst: nie
+   * verschoben — dann klebt er unten rechts an der Fensterecke.
+   */
+  const [fabPos, setFabPos] = useState<FabPos | null>(null);
+  /**
+   * Optionales Smartphone-Mockup im Vollbild. Standardmaessig aus; der
+   * Phone-Knopf der Werkzeugleiste holt es dazu und merkt sich die Wahl.
+   */
+  const [phoneVisible, setPhoneVisible] = useState(DEFAULT_SETTINGS.phonePreview);
   const settingsRestored = useRef(false);
   // Breiten-Refs: der pointerup-Handler des Splitters persistiert den finalen
   // Stand, ohne den Effekt an jedem Zwischenschritt neu aufzuhaengen.
@@ -298,11 +418,23 @@ export function App({
       if (!s.tourDone) setTourStep(0);
       setAutoFit(s.autoFit);
       setStartFullscreen(s.startFullscreen);
+      setPhoneVisible(s.phonePreview);
+      setMarksHidden(!s.showMarkings);
+      setEffectsApplied(s.applyChanges);
       setPaletteColorCount(s.paletteColorCount);
       setToolbarPlacement({ dock: s.toolbarDock, x: s.toolbarX, y: s.toolbarY });
+      // Der gespeicherte Platz kann aus einem groesseren Fenster stammen.
+      setFabPos(
+        s.fabX !== null && s.fabY !== null ? clampFabPos({ x: s.fabX, y: s.fabY }) : null,
+      );
       setFramingAllowed(s.framingAllowed.includes(location.origin));
       framingConsentLoaded.current = true;
-      if (s.startFullscreen) setFullscreen(true);
+      // Nach einem Reload gilt der Zustand von vorher — die Einstellung
+      // entscheidet nur ueber den Start einer frischen Sitzung.
+      if (s.startFullscreen && !restored) setFullscreen(true);
+      // Das Panel geht *nicht* pauschal auf — ob es gebraucht wird, entscheidet
+      // sich erst, wenn das Feedback geladen ist (siehe unten). Der Knopf bzw.
+      // das Vollbild-Tab bleiben davon unberuehrt und immer erreichbar.
       settingsRestored.current = true;
     });
     return () => {
@@ -322,7 +454,12 @@ export function App({
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
-  const darkUi = theme === 'dark' || (theme === 'system' && systemDark);
+  /**
+   * Wirksames UI-Theme (nur Addon-Elemente, nie die Seite): ohne explizite
+   * Wahl folgt es dem System; Light/Dark im Menue gewinnt.
+   */
+  const uiTheme: ThemePref = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
+  const darkUi = uiTheme === 'dark';
 
   const changeTheme = useCallback((next: ThemePref) => {
     setTheme(next);
@@ -335,7 +472,9 @@ export function App({
     void saveSettings({ tourDone: true });
   }, []);
   /** Aus dem „More"-Menue heraus noch einmal von vorn. */
-  const restartTour = useCallback(() => setTourStep(0), []);
+  const restartTour = useCallback(() => {
+    setTourStep(0);
+  }, []);
 
   // Eigene, benannte Grid-Layouts (Device-Sets).
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -402,15 +541,68 @@ export function App({
     });
   }, []);
   const [feedbackOpen, setFeedbackOpen] = useState(initialFeedbackOpen);
+  const feedbackOpenRef = useRef(feedbackOpen);
+  feedbackOpenRef.current = feedbackOpen;
   // Vollbild-Modus: die Seite fuellt das ganze Fenster (ein Frame, Zoom 1),
   // links schwebt die Werkzeugleiste, rechts unten der Panel-Knopf.
-  const [fullscreen, setFullscreen] = useState(false);
+  // Nach einem Reload zaehlt der Zustand von vorher, nicht die Einstellung.
+  const [fullscreen, setFullscreen] = useState(restored?.fullscreen ?? false);
   const fullscreenRef = useRef(fullscreen);
   fullscreenRef.current = fullscreen;
   // Im Vollbild schiebt sich das Panel nicht ungefragt ins Bild — stattdessen
   // pulsiert der Feedback-Knopf. Der Zaehler startet die Animation neu.
   const [fabPulse, setFabPulse] = useState(0);
   const pulseFab = useCallback(() => setFabPulse((n) => n + 1), []);
+  /** Screenshot-Export laeuft — das Addon-Chrome haelt sich solange raus. */
+  const [capturing, setCapturing] = useState(false);
+  /** Frame, der gerade Slice fuer Slice abgescannt wird (Ueberblendung). */
+  const [scanUid, setScanUid] = useState<string | null>(null);
+  /**
+   * Fenster-Rechteck dieses Frames. Die Abdunklung waehrend der Aufnahme legt
+   * sich *um* diesen Bereich statt darauf: fotografiert wird genau der Frame-
+   * Ausschnitt, alles ausserhalb landet nie im Bild. Dadurch kann sie stehen
+   * bleiben, statt fuer jede einzelne Aufnahme zu weichen.
+   */
+  const [scanRect, setScanRect] = useState<DOMRect | null>(null);
+
+  /**
+   * Frisch gezeichnete Markierung, waehrend „Show markings" aus steht: sie
+   * verschwindet nicht hart, sondern bleibt kurz stehen und blendet weich
+   * aus. Danach zeigt ein kurzer Puls auf den Schalter, der sie zurueckholt —
+   * sonst wirkt es, als waere die Markierung verloren gegangen.
+   */
+  const [fadingShapeId, setFadingShapeId] = useState<string | null>(null);
+  /** Zaehler startet die Hinweis-Animation am Schalter neu. */
+  const [marksHint, setMarksHint] = useState(0);
+  const fadeTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(fadeTimer.current), []);
+  /**
+   * Sind die Marker verborgen, *sobald* kein Werkzeug mehr aktiv ist? Genau
+   * das entscheidet ueber das Ausblenden: waehrend des Zeichnens sind sie
+   * ohnehin eingeblendet, und `addShape` schaltet das Werkzeug selbst ab.
+   * Weiter unten befuellt (dort stehen `marksHidden` und `panelHovered`).
+   */
+  const marksRestHiddenRef = useRef(false);
+
+  /** Dauer von Stehenbleiben + Ausblenden — deckungsgleich mit `ink-mark-fade`. */
+  const FADE_MS = 1200;
+
+  const fadeOutNewMark = useCallback(
+    (shapeId: string) => {
+      // Bleiben die Marker sichtbar, braucht es kein Ausblenden.
+      if (!marksRestHiddenRef.current) return;
+      window.clearTimeout(fadeTimer.current);
+      setFadingShapeId(shapeId);
+      fadeTimer.current = window.setTimeout(() => {
+        setFadingShapeId(null);
+        // Auf das zeigen, was die Markierung zurueckholt: den Schalter im
+        // Panel — oder, wenn das zu ist, den Knopf, der das Panel oeffnet.
+        if (feedbackOpenRef.current) setMarksHint((n) => n + 1);
+        else pulseFab();
+      }, FADE_MS);
+    },
+    [pulseFab],
+  );
   /**
    * Das Panel faehrt im Vollbild sichtbar in den Knopf zurueck, statt einfach
    * zu verschwinden. Solange die Animation laeuft, bleibt es montiert.
@@ -454,6 +646,12 @@ export function App({
     }),
     [fsSize],
   );
+  // Die Vollbild-Karte haengt am Feedback-Knopf — wandert der, wandert sie
+  // mit. `fsSize` haelt die Rechnung an der Fenstergroesse aktuell.
+  const panelAnchor = useMemo(
+    () => (fullscreen && fabPos ? fabPanelAnchor(fabPos, panelWidth) : undefined),
+    [fullscreen, fabPos, panelWidth, fsSize],
+  );
 
   // Zeilenfuellendes Grid: die Grid-Breite wird gemessen (reagiert auch auf
   // Panel-/Editor-Toggles), daraus ergibt sich der effektive Zoom pro Device.
@@ -471,6 +669,54 @@ export function App({
     gridRef.current = el;
     setGridEl(el);
   }, []);
+
+  /**
+   * Fokussiertes Device: es steht als einziges — mittig — in der Reihe, die
+   * uebrigen Karten weichen. Nur eine Ansichtssache; die Frames bleiben
+   * montiert (ausgeblendet statt entfernt), sonst laedt jede Rueckkehr aus
+   * dem Fokus alle Seiten neu.
+   */
+  const [focusUid, setFocusUid] = useState<string | null>(null);
+  /** Ausgangsposition der fokussierten Karte fuer die FLIP-Animation. */
+  const flipFrom = useRef<{ uid: string; left: number; top: number } | null>(null);
+
+  const toggleFocus = useCallback((uid: string) => {
+    const card = gridRef.current?.querySelector(`[data-uid="${CSS.escape(uid)}"]`);
+    if (card) {
+      const r = card.getBoundingClientRect();
+      flipFrom.current = { uid, left: r.left, top: r.top };
+    }
+    setFocusUid((current) => (current === uid ? null : uid));
+  }, []);
+
+  /**
+   * FLIP: die Karte springt durch den Layout-Wechsel sofort an ihren neuen
+   * Platz — hier wird die Differenz nachtraeglich weggetweent, sodass sie
+   * sichtbar in die Mitte (bzw. zurueck in die Reihe) gleitet.
+   */
+  useLayoutEffect(() => {
+    const from = flipFrom.current;
+    flipFrom.current = null;
+    if (!from) return;
+    const card = gridRef.current?.querySelector(
+      `[data-uid="${CSS.escape(from.uid)}"]`,
+    ) as HTMLElement | null;
+    if (!card) return;
+    const to = card.getBoundingClientRect();
+    const dx = from.left - to.left;
+    const dy = from.top - to.top;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+    card.animate(
+      [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }],
+      { duration: 340, easing: 'cubic-bezier(.22, 1, .36, 1)' },
+    );
+  }, [focusUid]);
+
+  // Ein entferntes Device darf den Fokus nicht festhalten.
+  useEffect(() => {
+    if (focusUid && !devices.some((d) => d.uid === focusUid)) setFocusUid(null);
+  }, [devices, focusUid]);
+
   const [gridWidth, setGridWidth] = useState(0);
   useEffect(() => {
     if (!gridEl || fullscreen) return;
@@ -551,6 +797,10 @@ export function App({
     setToolbarPlacement(next);
     void saveSettings({ toolbarDock: next.dock, toolbarX: next.x, toolbarY: next.y });
   }, []);
+  const placeFab = useCallback((next: FabPos) => {
+    setFabPos(next);
+    void saveSettings({ fabX: next.x, fabY: next.y });
+  }, []);
   const annotating = tool !== 'interact';
   const drawTool: Tool = tool === 'interact' ? 'element' : tool;
 
@@ -599,6 +849,18 @@ export function App({
     [pulseFab],
   );
 
+  /**
+   * Werkzeuge in Leisten und Palette — jeder hat alle. Zugleich die
+   * Belegung der Zifferntasten.
+   */
+  const toolOrder = DEFAULT_TOOL_ORDER;
+
+  /** Mobile-Mockup im Vollbild ein-/ausblenden; die Wahl bleibt gespeichert. */
+  const togglePhone = useCallback(() => {
+    setPhoneVisible((on) => !on);
+    void saveSettings({ phonePreview: !phoneVisible });
+  }, [phoneVisible]);
+
   // Die Werkzeug-Palette ist ein Kontextmenue: Rechtsklick (auf Grid,
   // Overlay oder in einer Vorschau) oeffnet sie neben der Maus.
   const [paletteAt, setPaletteAt] = useState<{ x: number; y: number } | null>(null);
@@ -616,8 +878,14 @@ export function App({
   // geladenen Frame-URL (auch bei Link-Klicks in den Previews). Der State
   // haelt *alle* Eintraege — angezeigt auf den Frames wird nur die aktuelle
   // Seite, das Panel gruppiert den Rest nach Seite.
-  const [activeUrl, setActiveUrl] = useState(() => normalizeUrl(location.href));
+  const [activeUrl, setActiveUrl] = useState(() => normalizeUrl(initialPage));
   const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
+
+  // Vorschau-Seite und Vollbild-Zustand pro Tab festhalten, damit ein Reload
+  // dort weitermacht, wo man war.
+  useEffect(() => {
+    storeSession({ page: activeUrl, fullscreen });
+  }, [activeUrl, fullscreen]);
 
   // Frame-Listener (dblclick) leben ausserhalb des Render-Zyklus.
   const feedbackRef = useRef(feedback);
@@ -639,7 +907,25 @@ export function App({
     let alive = true;
     loadAll()
       .then((items) => {
-        if (alive) setFeedback(items);
+        if (!alive) return;
+        // Bestandsmarkierungen im alten Signalrot auf die neue Standardfarbe
+        // ziehen — sonst bliebe die Seite rot, obwohl der Stil gewechselt hat.
+        // Bewusst gewaehlte Farben (Amber, Gruen, Blau) bleiben unberuehrt.
+        const recoloured = items
+          .filter((i) => i.shape.color === LEGACY_DEFAULT_COLOR)
+          .map((i) => ({ ...i, shape: { ...i.shape, color: ANNOTATION_COLORS[0] } }));
+        if (recoloured.length === 0) {
+          setFeedback(items);
+        } else {
+          const byId = new Map(recoloured.map((i) => [i.id, i]));
+          setFeedback(items.map((item) => byId.get(item.id) ?? item));
+          persist(replaceItems(recoloured), 'Markierungsfarbe angleichen');
+          log.info('Alte Markierungsfarbe angeglichen', recoloured.length);
+        }
+        // Das Panel zeigt sich nur, wenn es etwas zu zeigen gibt. Auf einer
+        // Seite ohne Markierungen waere es leerer Platz — der Knopf holt es
+        // jederzeit wieder her.
+        if (items.some((i) => i.url === activeUrlRef.current)) setFeedbackOpen(true);
       })
       .catch((e: unknown) => log.error('Feedback laden fehlgeschlagen', e));
     return () => {
@@ -1163,6 +1449,8 @@ export function App({
         const preset = presets.find((p) => p.id === id);
         return preset ? [instantiate(preset)] : [];
       });
+      // Schnell-Sets stehen immer vom groessten zum kleinsten Device.
+      instances.sort((a, b) => b.width - a.width);
       requestReplaceGrid(instances);
     },
     [presets, requestReplaceGrid],
@@ -1375,9 +1663,13 @@ export function App({
       const device = uid === FS_UID ? fsDevice : devices.find((d) => d.uid === uid);
       if (!device) return;
 
-      // Nach dem Absetzen zurueck zum Standardverhalten (Interagieren) —
-      // das ggf. offene Notizfeld bleibt davon unberuehrt bedienbar.
-      setTool('interact');
+      // Element-Picker und Pin sind Einmal-Griffe: nach dem Absetzen zurueck
+      // ins Interagieren (das ggf. offene Notizfeld bleibt davon unberuehrt
+      // bedienbar). Die Zeichenwerkzeuge bleiben dagegen scharf — mehrere
+      // Striche hintereinander sind der Normalfall; beendet wird der
+      // Zeichenmodus von Hand (Esc, erneuter Klick auf das Werkzeug oder
+      // „Interact").
+      if (shape.tool === 'element' || shape.tool === 'pin') setTool('interact');
 
       // Freihand: kreuzt oder ueberlappt der neue Zug bestehende Striche
       // gleicher Farbe auf diesem Device, gehoeren sie zu einer Korrektur.
@@ -1414,6 +1706,7 @@ export function App({
           );
           persist(replaceItem(merged), 'Feedback speichern');
           if (obsolete.size > 0) persist(removeItems([...obsolete]), 'Feedback speichern');
+          fadeOutNewMark(merged.id);
           return;
         }
       }
@@ -1429,8 +1722,9 @@ export function App({
       };
       setFeedback((current) => [...current, item]);
       persist(addItems([item]), 'Feedback speichern');
+      fadeOutNewMark(item.id);
     },
-    [devices, fsDevice, activeUrl, feedback],
+    [devices, fsDevice, activeUrl, feedback, fadeOutNewMark],
   );
 
   /** Entfernt den zuletzt gesetzten Marker der aktuellen Seite (egal welches Device). */
@@ -1446,6 +1740,14 @@ export function App({
     setFeedback((current) => current.filter((item) => item.id !== itemId));
     persist(removeItems([itemId]), 'Feedback loeschen');
   }, []);
+
+  /**
+   * Loesch-Knopf am Marker (Overlay) und im Feedback-Panel — beide fragen
+   * nach, da sich das Loeschen nicht rueckgaengig machen laesst. Eintrags- und
+   * Shape-Id sind identisch (siehe `addShape`), darum reicht eine Id.
+   */
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const askDeleteShape = useCallback((shapeId: string) => setConfirmDelete(shapeId), []);
 
   /** Erledigt-Status eines Eintrags umschalten (Review-Workflow). */
   const toggleDone = useCallback(
@@ -1492,6 +1794,23 @@ export function App({
       applyItemText(existing, note);
     },
     [feedback, applyItemText],
+  );
+
+  /**
+   * Element-Marker nach erneutem Oeffnen des Popups aktualisieren (Werte,
+   * Notiz, Geometrie). Nur eigene Eintraege — wie beim Verschieben.
+   */
+  const updateElementShape = useCallback(
+    (_uid: string, shapeId: string, patch: ElementShapePatch) => {
+      const existing = feedback.find((item) => item.shape.id === shapeId);
+      if (!existing || !isMine(existing) || existing.shape.tool !== 'element') return;
+      // Wie beim Anlegen: nach dem Speichern zurueck zum Interagieren.
+      setTool('interact');
+      const updated: FeedbackItem = { ...existing, shape: { ...existing.shape, ...patch } };
+      setFeedback((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      persist(replaceItem(updated), 'Feedback speichern');
+    },
+    [feedback],
   );
 
   /**
@@ -1653,10 +1972,29 @@ export function App({
     });
   }, []);
 
-  /** Marker auf den Frames global ein-/ausblenden (Auge im Panel-Kopf). */
-  const [markersVisible, setMarkersVisible] = useState(true);
-  const markersVisibleRef = useRef(markersVisible);
-  markersVisibleRef.current = markersVisible;
+  /**
+   * Markierungen sind standardmaessig ausgeblendet, damit man das Ergebnis
+   * der Korrekturen ungestoert sieht (Auge im Panel-Kopf schaltet um). Sie
+   * erscheinen, sobald das Feedback-Panel ueberfahren wird (`panelHovered`).
+   */
+  const [marksHidden, setMarksHidden] = useState(!DEFAULT_SETTINGS.showMarkings);
+  /** Zeiger ueber dem Feedback-Panel — blendet die Marker ein. */
+  const [panelHovered, setPanelHovered] = useState(false);
+  /**
+   * Die per Element-Picker gespeicherten CSS-Aenderungen (Fonts, Padding …)
+   * auf die Seite anwenden. Aus = Original zum Vergleich.
+   */
+  const [effectsApplied, setEffectsApplied] = useState(DEFAULT_SETTINGS.applyChanges);
+  /**
+   * Effektive Sichtbarkeit: ausgeblendete Marker erscheinen, solange der
+   * Zeiger ueber dem Panel steht — und solange ein Werkzeug aktiv ist. Wer
+   * gerade markiert, muss sehen, was schon markiert ist; sonst setzt man
+   * blind eine zweite Markierung auf dieselbe Stelle.
+   */
+  const effectiveMarkersVisible = !(marksHidden && !panelHovered && !annotating);
+  const markersVisibleRef = useRef(effectiveMarkersVisible);
+  markersVisibleRef.current = effectiveMarkersVisible;
+  marksRestHiddenRef.current = marksHidden && !panelHovered;
 
   // Panel-Klick auf einen Eintrag: Device und Marker anfliegen, dann kurz
   // aufflashen — Device-Rahmen und Marker pulsieren, damit klar ist, um
@@ -1688,7 +2026,7 @@ export function App({
             /* Frame nicht lesbar */
           }
         }
-        setMarkersVisible(true);
+        setMarksHidden(false);
         setFlash((prev) => ({
           uid: FS_UID,
           shapeId: item.shape.id,
@@ -1727,7 +2065,7 @@ export function App({
         }
       }
 
-      setMarkersVisible(true); // ausgeblendete Marker wuerden den Flash schlucken
+      setMarksHidden(false); // ausgeblendete Marker wuerden den Flash schlucken
       setFlash((prev) => ({
         uid: instance.uid,
         shapeId: item.shape.id,
@@ -1757,6 +2095,35 @@ export function App({
       });
     },
     [activeUrl, focusItemNow, handleNavigate, waitForPage],
+  );
+
+  /**
+   * Edit-Klick auf einen Element-Eintrag im Panel: zum Marker springen und
+   * dessen Bearbeiten-Popup wieder oeffnen. Laeuft ueber den noteEdit-Kanal —
+   * das Overlay entscheidet selbst, dass Element-Marker das Popup bekommen.
+   * Auf einer anderen Seite navigiert der Sprung erst; das Popup laesst sich
+   * dort dann per Doppelklick oeffnen.
+   */
+  const editElementItem = useCallback(
+    (item: FeedbackItem) => {
+      const shape = item.shape;
+      if (shape.tool !== 'element') return;
+      focusItem(item);
+      if (item.url !== activeUrl) return;
+      const uid =
+        item.deviceId === FULLSCREEN_ID
+          ? FS_UID
+          : devices.find((d) => d.id === item.deviceId)?.uid;
+      if (!uid) return;
+      setNoteEdit((prev) => ({
+        uid,
+        shapeId: shape.id,
+        x: shape.x,
+        y: shape.y,
+        nonce: (prev?.nonce ?? 0) + 1,
+      }));
+    },
+    [activeUrl, devices, focusItem],
   );
 
   // Hover ueber einen Panel-Eintrag: die zugehoerige Markierung im Viewport
@@ -1842,93 +2209,164 @@ export function App({
    * Ausgangsseite. `onProgress` meldet erledigte/gesamte Devices.
    */
   const exportScreenshots = useCallback(
-    async (onProgress?: (done: number, total: number) => void): Promise<number> => {
-      /** Dateiname-Slug aus Pfad + Query der Seite. */
-      const slugOf = (url: string): string => {
+    async (
+      onProgress?: (done: number, total: number) => void,
+      /** Zusaetzliche Seiten aus der Auswahl am Screenshot-Knopf. */
+      extraPages: string[] = [],
+    ): Promise<number> => {
+      /** Kurze Seitenkennung fuer die Bildunterschrift des QR-Badges. */
+      const pathOfUrl = (url: string): string => {
         try {
           const u = new URL(url);
-          const slug = (u.pathname + u.search).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
-          return slug || 'home';
+          return u.host + u.pathname + u.search;
         } catch {
-          return 'page';
+          return url;
+        }
+      };
+      /** Dateiname: feedback_domain_slug_DDMMYYYY.pdf */
+      const fileNameOf = (url: string, deviceId: string): string => {
+        const d = new Date();
+        const stamp =
+          String(d.getDate()).padStart(2, '0') +
+          String(d.getMonth() + 1).padStart(2, '0') +
+          d.getFullYear();
+        const clean = (v: string) => v.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+        try {
+          const u = new URL(url);
+          const slug = clean(u.pathname + u.search) || 'home';
+          return `feedback_${clean(u.host)}_${slug}_${clean(deviceId)}_${stamp}.pdf`;
+        } catch {
+          return `feedback_page_${stamp}.pdf`;
         }
       };
 
       const startUrl = activeUrl;
-      // Aktuelle Seite zuerst — sie ist schon geladen. Nur Seiten mit offenen
-      // Eintraegen; abgehaktes Feedback braucht keinen Screenshot mehr.
-      const open = feedback.filter((i) => sameOrigin(i.url, startUrl) && !i.done);
-      const pages = [...new Set(open.map((i) => i.url))].sort((a, b) =>
-        a === startUrl ? -1 : b === startUrl ? 1 : a.localeCompare(b),
-      );
+      /**
+       * Offenes Feedback der ganzen Domain — daraus ergibt sich, welche Frames
+       * auf welcher Seite etwas zu zeigen haben. Welche Seiten ueberhaupt
+       * drankommen, hat der Nutzer schon am Knopf gewaehlt.
+       */
+      const openAll = feedback.filter((i) => sameOrigin(i.url, startUrl) && !i.done);
 
-      // Gesamtzahl der Captures vorab — fuer die Fortschrittsanzeige.
-      const gridPresetIds = new Set(devices.map((d) => d.id));
-      const total = pages.reduce(
-        (sum, pageUrl) =>
-          sum +
-          new Set(
-            open
-              .filter((i) => i.url === pageUrl && gridPresetIds.has(i.deviceId))
-              .map((i) => i.deviceId),
-          ).size,
-        0,
-      );
+      const pages = [startUrl, ...extraPages.filter((u) => u !== startUrl)];
+      let currentPage = startUrl;
+
+      /**
+       * Was fotografiert wird. Im Vollbild ist das der eine grosse Frame —
+       * die Grid-Karten sind dort gar nicht montiert, und das Feedback haengt
+       * an der Vollbild-Id. Ohne diese Unterscheidung fand der Export im
+       * Vollbild kein einziges Ziel und lud kommentarlos nichts herunter.
+       */
+      const targets = fullscreenRef.current
+        ? [{ id: FULLSCREEN_ID, uid: FS_UID, name: 'Full window', zoom: 1 }]
+        : devices.map((d) => ({
+            id: d.id,
+            uid: d.uid,
+            name: d.name,
+            zoom: effZoomsRef.current.get(d.uid) ?? zoom,
+          }));
+
+      /** Welche Frames auf einer bestimmten Seite etwas zu zeigen haben. */
+      const shootFor = (url: string) =>
+        targets.filter(
+          (t) =>
+            openAll.some((i) => i.url === url && i.deviceId === t.id) &&
+            frames.current.get(t.uid)?.parentElement != null,
+        );
+
+      const total = pages.reduce((sum, url) => sum + shootFor(url).length, 0);
       let done = 0;
       onProgress?.(done, total);
+      if (total === 0) return 0;
 
       let downloads = 0;
-      let currentPage = startUrl;
       setShowNotes(true);
+      // Der Capture fotografiert den sichtbaren Tab — alles, was ueber der
+      // Seite schwebt (Werkzeugleiste, Feedback-Knopf, Panel, Mockup), waere
+      // sonst mit im Bild. Im Vollbild deckt die Leiste sogar jeden Slice ab.
+      setCapturing(true);
       try {
-        // Notizen-Sprechblasen erst rendern lassen.
+        // Notizen-Sprechblasen erst rendern und das Chrome verschwinden lassen.
         await new Promise((r) => setTimeout(r, 150));
 
         for (const pageUrl of pages) {
-          if (pageUrl !== currentPage) {
-            handleNavigate(pageUrl);
-            currentPage = pageUrl;
-            const loaded = await waitForPage(pageUrl);
-            // Auch nach Timeout weitermachen: die Frames zeigen mit hoher
-            // Wahrscheinlichkeit die richtige Seite (Redirect/Query-Drift) —
-            // ein Capture ist besser als eine kommentarlos fehlende Datei.
-            if (!loaded) log.warn('Seite evtl. nicht fertig geladen — Capture trotzdem', pageUrl);
-            await new Promise((r) => setTimeout(r, 250));
-          }
+        if (pageUrl !== currentPage) {
+          // Andere Seite: die Vorschauen dorthin schicken und warten, bis sie
+          // steht — sonst fotografiert der Export die alte Seite.
+          handleNavigate(pageUrl);
+          currentPage = pageUrl;
+          const loaded = await waitForPage(pageUrl);
+          if (!loaded) log.warn('Seite evtl. nicht fertig geladen — Capture trotzdem', pageUrl);
+          await new Promise((r) => setTimeout(r, 400));
+        }
 
-          const captured = new Set<string>();
-          for (const device of devices) {
-            if (captured.has(device.id)) continue;
-            const hasOpen = open.some(
-              (item) => item.url === pageUrl && item.deviceId === device.id,
+        // Der Share-Link traegt die Markierungen genau dieser Seite.
+        let shareUrl: string | null = null;
+        try {
+          shareUrl = await buildShareUrl(
+            pageUrl,
+            feedback.filter((i) => i.url === pageUrl),
+          );
+        } catch (e) {
+          log.warn('Share-Link fuer den Knopf nicht erzeugbar', e);
+        }
+
+        for (const target of shootFor(pageUrl)) {
+          const iframe = frames.current.get(target.uid)!;
+          const viewport = iframe.parentElement!;
+          viewport.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          setScanUid(target.uid);
+          // Nur ausserhalb des Vollbilds gibt es Flaeche um den Frame herum,
+          // auf der die Abdunklung liegen kann.
+          setScanRect(fullscreenRef.current ? null : frameClientRect(viewport));
+          // Die Ueberblendung muss stehen, bevor der erste Slice ausgeloest wird.
+          await new Promise((r) => setTimeout(r, 60));
+
+          try {
+            // Die Ueberblendung liegt genau ueber diesem Frame und weicht nur
+            // fuer den Moment der Aufnahme.
+            // Nur was *im* Ausschnitt liegt, muss fuer die Aufnahme weichen:
+            // im Vollbild die Laufanzeige, sonst nichts — die Abdunklung liegt
+            // dort um den Frame herum und bleibt durchgehend stehen.
+            const hidden = [...shadowRoot.querySelectorAll<HTMLElement>('.shot-badge--inside')];
+            const raw = await captureFullFrameShot(
+              iframe,
+              // Die *Padding-Box* der Karte, nicht ihre Rahmen-Box und auch
+              // nicht der iframe: durch `box-sizing: border-box` ist die
+              // Content-Box 2px kuerzer als der skalierte iframe, dessen
+              // Layout-Rect ragt also in den 1px-Rahmen hinein. Der landete
+              // dadurch am Fuss jedes Slices und ergab die dunklen Linien.
+              // `clientWidth/Height` ist genau der sichtbare, geclippte Bereich.
+              () => frameClientRect(viewport),
+              target.zoom,
+              undefined,
+              {
+                hide: () => hidden.forEach((el) => el.classList.add('is-away')),
+                show: () => hidden.forEach((el) => el.classList.remove('is-away')),
+              },
             );
-            const iframe = frames.current.get(device.uid);
-            const viewport = iframe?.parentElement;
-            if (!hasOpen || !iframe || !viewport) continue;
-            captured.add(device.id);
-
-            viewport.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-
-            try {
-              const blob = await captureFullFrameShot(
-                iframe,
-                () => viewport.getBoundingClientRect(),
-                effZoomsRef.current.get(device.uid) ?? zoom,
-              );
-              if (blob) {
-                downloadBlob(blob, `inkspect-feedback-${slugOf(pageUrl)}-${device.id}.png`);
-                downloads += 1;
-              }
-            } catch (e) {
-              log.warn('Screenshot fehlgeschlagen', device.name, e);
+            if (!raw) {
+              log.warn('Kein Bild fuer dieses Device', target.name);
+            } else {
+              const page = fitToBudget(raw);
+              const banner = await renderBanner(page.width, shareUrl, pathOfUrl(pageUrl));
+              const blob = await buildShotPdf(page, banner, pathOfUrl(pageUrl));
+              downloadBlob(blob, fileNameOf(pageUrl, target.id));
+              downloads += 1;
             }
-
-            done += 1;
-            onProgress?.(done, total);
+          } catch (e) {
+            log.warn('Screenshot fehlgeschlagen', target.name, e);
           }
+
+          done += 1;
+          onProgress?.(done, total);
+        }
         }
       } finally {
         setShowNotes(false);
+        setCapturing(false);
+        setScanUid(null);
+        setScanRect(null);
         // Zurueck zur Ausgangsseite, falls fuer andere Seiten navigiert wurde.
         if (currentPage !== startUrl) handleNavigate(startUrl);
       }
@@ -1985,15 +2423,16 @@ export function App({
         toggleInspector();
         return;
       }
+      // Ziffern folgen der Reihenfolge in der Werkzeugleiste.
       const idx = Number(e.key) - 1;
-      const next = DEFAULT_TOOL_ORDER[idx];
+      const next = toolOrder[idx];
       if (next) selectTool(next);
     };
 
     shortcutKeyRef.current = onKey;
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [annotating, undoShape, selectTool, toggleInspector]);
+  }, [annotating, undoShape, selectTool, toggleInspector, toolOrder]);
 
   // Nur Feedback der aktuellen Domain im Hauptbereich — fremde Domains
   // bekommen im Panel einen eigenen, einklappbaren Bereich. Die Badges
@@ -2034,8 +2473,10 @@ export function App({
 
   return (
     <div
-      className={`root${fullscreen ? ' root--fs' : ''}${panelClosing ? ' root--panel-closing' : ''}`}
-      data-theme={theme}
+      className={`root${fullscreen ? ' root--fs' : ''}${panelClosing ? ' root--panel-closing' : ''}${
+        capturing ? ' root--capturing' : ''
+      }`}
+      data-theme={uiTheme}
     >
       {!fullscreen && (
         <Toolbar
@@ -2169,7 +2610,9 @@ export function App({
               tool={drawTool}
               color={color}
               showNotes={showNotes}
-              markersVisible={markersVisible}
+              markersVisible={effectiveMarkersVisible}
+              fadingShapeId={fadingShapeId}
+              scanning={scanUid === FS_UID}
               flashShapeId={flash?.uid === FS_UID ? flash.shapeId : null}
               flashNonce={flash?.nonce ?? 0}
               flashActive={false}
@@ -2183,6 +2626,9 @@ export function App({
               onBadgeClick={showDeviceFeedback}
               onAddShape={addShape}
               onSetShapeNote={setShapeNote}
+              onUpdateShape={updateElementShape}
+              onDeleteShape={askDeleteShape}
+              applyChanges={effectsApplied}
               onMoveShape={moveShape}
               onResizeShape={resizeShape}
               onSetLineGap={setLineGap}
@@ -2197,7 +2643,9 @@ export function App({
         {gateOpen && !fullscreen && (
         <div
           ref={attachGrid}
-          className={`grid${dragUid ? ' grid--dragging' : ''}`}
+          className={`grid${dragUid ? ' grid--dragging' : ''}${
+            focusUid ? ' grid--focus' : ''
+          }`}
           onContextMenu={(e) => {
             e.preventDefault();
             openPalette(e.clientX, e.clientY);
@@ -2212,6 +2660,8 @@ export function App({
               reloadKey={reloadKey}
               annotating={annotating}
               previewBlocked={frameBlocked}
+              focused={focusUid === device.uid}
+              onToggleFocus={toggleFocus}
               shapes={itemsFor(device.id).map((item) => item.shape)}
               dimmedIds={
                 new Set(
@@ -2230,7 +2680,9 @@ export function App({
               tool={drawTool}
               color={color}
               showNotes={showNotes}
-              markersVisible={markersVisible}
+              markersVisible={effectiveMarkersVisible}
+              fadingShapeId={fadingShapeId}
+              scanning={scanUid === device.uid}
               flashShapeId={flash?.uid === device.uid ? flash.shapeId : null}
               flashNonce={flash?.nonce ?? 0}
               flashActive={flash?.uid === device.uid}
@@ -2245,6 +2697,9 @@ export function App({
               onBadgeClick={showDeviceFeedback}
               onAddShape={addShape}
               onSetShapeNote={setShapeNote}
+              onUpdateShape={updateElementShape}
+              onDeleteShape={askDeleteShape}
+              applyChanges={effectsApplied}
               onMoveShape={moveShape}
               onResizeShape={resizeShape}
               onSetLineGap={setLineGap}
@@ -2275,16 +2730,35 @@ export function App({
               presets={panelPresets}
               devices={devices}
               activePresetIds={activePresetIds}
-              markersVisible={markersVisible}
+              // Das Panel-Auge spiegelt die Standard-Ausblendung der Marker.
+              markersVisible={!marksHidden}
+              markersHint={marksHint}
               width={panelWidth}
-              onToggleMarkers={() => setMarkersVisible((v) => !v)}
+              anchor={panelAnchor}
+              onToggleMarkers={() => {
+                // Sofort wirksam machen, auch wenn der Zeiger gerade ueber
+                // dem Panel steht (das sonst die Marker eingeblendet haelt).
+                setPanelHovered(false);
+                setMarksHidden(!marksHidden);
+                void saveSettings({ showMarkings: marksHidden });
+              }}
               highlight={panelHighlight}
               onJump={focusDevice}
               onJumpItem={focusItem}
+              onEditElement={editElementItem}
+              // Gehoverte Panel-Bereiche blenden die Marker ein.
+              onPanelHover={setPanelHovered}
+              effectsApplied={effectsApplied}
+              onToggleEffects={() => {
+                setEffectsApplied(!effectsApplied);
+                void saveSettings({ applyChanges: !effectsApplied });
+              }}
               onPreviewItem={previewItem}
               onEditItem={editItemText}
               onNavigate={handleNavigate}
-              onDelete={removeShape}
+              // Wie am Marker selbst: erst fragen, dann loeschen — ein
+              // Fehlgriff im Panel ist sonst nicht rueckgaengig zu machen.
+              onDelete={askDeleteShape}
               onToggleDone={toggleDone}
               onClearAll={askClearAll}
               onBuildShareLink={buildShareLink}
@@ -2302,7 +2776,7 @@ export function App({
             tool={tool}
             color={color}
             colors={paletteColors}
-            order={DEFAULT_TOOL_ORDER}
+            order={toolOrder}
             placement={toolbarPlacement}
             onPlace={placeToolbar}
             canUndo={pageFeedbackCount > 0}
@@ -2310,20 +2784,18 @@ export function App({
             onColor={setColor}
             onUndo={undoShape}
             onClear={askClearAll}
+            phoneVisible={phoneVisible}
+            onTogglePhone={togglePhone}
             onExit={() => setFullscreen(false)}
           />
-          <button
-            // Der Zaehler als key startet die Puls-Animation auch dann neu,
-            // wenn sie noch laeuft.
-            key={fabPulse}
-            className={`fs-fab${fabPulse > 0 && !feedbackOpen ? ' fs-fab--pulse' : ''}`}
-            title={feedbackOpen ? 'Hide feedback list' : 'Show feedback list'}
-            aria-pressed={feedbackOpen}
-            onClick={() => (feedbackOpen ? closeFeedback() : setFeedbackOpen(true))}
-          >
-            <IconMessage size={22} />
-            {feedbackCount > 0 && <span className="fs-fab__badge">{feedbackCount}</span>}
-          </button>
+          <FeedbackFab
+            pos={fabPos}
+            count={feedbackCount}
+            open={feedbackOpen}
+            pulse={fabPulse}
+            onMove={placeFab}
+            onToggle={() => (feedbackOpen ? closeFeedback() : setFeedbackOpen(true))}
+          />
         </>
       )}
 
@@ -2332,7 +2804,7 @@ export function App({
           tool={tool}
           color={color}
           colors={paletteColors}
-          order={DEFAULT_TOOL_ORDER}
+          order={toolOrder}
           placement={DOCKED_PLACEMENT}
           movable={false}
           onPlace={() => {}}
@@ -2341,14 +2813,7 @@ export function App({
           onColor={setColor}
           onUndo={undoShape}
           onClear={askClearAll}
-          onExit={() => {
-            // Werkzeugleiste und Panel sind ein Zustand — das X beendet beides
-            // und schaltet zurueck ins Interagieren.
-            setFeedbackOpen(false);
-            setTool('interact');
-          }}
-          exitIcon={<IconClose />}
-          exitTitle="Close feedback tools"
+          onFullscreen={() => setFullscreen(true)}
         />
       )}
 
@@ -2358,7 +2823,7 @@ export function App({
           tool={tool}
           color={color}
           colors={paletteColors}
-          order={DEFAULT_TOOL_ORDER}
+          order={toolOrder}
           canUndo={pageFeedbackCount > 0}
           onTool={(next) => {
             selectTool(next);
@@ -2388,6 +2853,72 @@ export function App({
         />
       )}
 
+      {/* Optionales Smartphone-Mockup: Mobile-Ansicht im Vollbild. */}
+      {fullscreen && phoneVisible && gateOpen && (
+        <PhonePreview
+          src={activeUrl}
+          // Default: Ecke rechts unten. Sobald das Feedback-Panel aufgeht
+          // (spaetestens nach dem ersten abgeschlossenen Feedback), gleitet
+          // das Mockup links daneben, statt es zu verdecken.
+          anchorRight={feedbackOpen ? 18 + panelWidth + 16 : 24}
+          onHide={togglePhone}
+          // Ueber den gemeinsamen ScrollSync scrollt das Mockup automatisch
+          // mit der grossen Ansicht mit (verhaeltnisbasiert).
+          onAttach={(iframe) => scrollSync.current.attach(iframe)}
+          onDetach={(iframe) => scrollSync.current.detach(iframe)}
+          getHideTarget={() =>
+            shadowRoot.querySelector('.fsbar__phone')?.getBoundingClientRect() ?? null
+          }
+        />
+      )}
+
+      {/*
+        Abdunklung waehrend der Aufnahme — als vier Flaechen *um* den Frame
+        herum statt als Schleier darauf. Fotografiert wird genau der
+        Frame-Ausschnitt; was daneben liegt, kommt nie ins Bild und darf
+        deshalb die ganze Zeit stehen bleiben. Ring und Laufanzeige sitzen
+        ebenfalls ausserhalb.
+      */}
+      {scanRect && (
+        <div className="shot-spot" aria-hidden="true">
+          <div className="shot-spot__pane" style={{ left: 0, top: 0, right: 0, height: scanRect.top }} />
+          <div
+            className="shot-spot__pane"
+            style={{ left: 0, top: scanRect.top, width: scanRect.left, height: scanRect.height }}
+          />
+          <div
+            className="shot-spot__pane"
+            style={{ left: scanRect.right, top: scanRect.top, right: 0, height: scanRect.height }}
+          />
+          <div
+            className="shot-spot__pane"
+            style={{ left: 0, top: scanRect.bottom, right: 0, bottom: 0 }}
+          />
+          {/* Der Ring liegt per box-shadow *ausserhalb* seiner Box, also
+              ausserhalb des Ausschnitts. */}
+          <div
+            className="shot-spot__ring"
+            style={{
+              left: scanRect.left,
+              top: scanRect.top,
+              width: scanRect.width,
+              height: scanRect.height,
+            }}
+          />
+          <div
+            className="shot-badge"
+            style={{
+              left: scanRect.left + scanRect.width / 2,
+              // Ueber den Frame, wenn dort Platz ist — sonst darunter.
+              top: scanRect.top > 44 ? scanRect.top - 34 : scanRect.bottom + 10,
+            }}
+          >
+            <span className="shot-badge__spinner" />
+            <span>Capturing full page… please don’t scroll</span>
+          </div>
+        </div>
+      )}
+
       {inspecting && inspect && (
         <div className="inspect-tip" style={{ left: inspect.x + 14, top: inspect.y + 16 }}>
           <div className="inspect-tip__family">{inspect.family}</div>
@@ -2408,7 +2939,22 @@ export function App({
         </div>
       )}
 
-      {helpOpen && <ShortcutsOverlay order={DEFAULT_TOOL_ORDER} onClose={() => setHelpOpen(false)} />}
+      {helpOpen && (
+        <ShortcutsOverlay order={toolOrder} onClose={() => setHelpOpen(false)} />
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete this marking?"
+          message="This removes the marking and its note. This cannot be undone."
+          confirmLabel="Delete"
+          onConfirm={() => {
+            removeShape(confirmDelete);
+            setConfirmDelete(null);
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
 
       {confirmClear && (
         <ConfirmDialog

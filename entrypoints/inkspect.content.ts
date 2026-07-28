@@ -21,6 +21,8 @@ export const TOGGLE_EVENT = 'inkspect:toggle';
  * Tab. Manche Seiten sperren den Zugriff (Sandbox) — deshalb ueberall guarded.
  */
 const OPEN_FLAG = 'ink-ui-open';
+/** Zuletzt in den Vorschauen geoeffnete Seite — App.tsx schreibt sie. */
+const PAGE_KEY = 'ink-ui-page';
 
 export default defineContentScript({
   matches: ['*://*/*'],
@@ -58,6 +60,11 @@ export default defineContentScript({
       } catch {
         /* Seite blockiert sessionStorage */
       }
+
+      // Aktiv-Zustand ans Toolbar-Icon melden (Badge „ON").
+      void browser.runtime
+        .sendMessage({ type: 'ink:ui-state', open: true })
+        .catch(() => undefined);
 
       host = document.createElement('div');
       host.id = HOST_ID;
@@ -98,8 +105,14 @@ export default defineContentScript({
 
     function close(): void {
       log.info('close UI');
+      void browser.runtime
+        .sendMessage({ type: 'ink:ui-state', open: false })
+        .catch(() => undefined);
       try {
         sessionStorage.removeItem(OPEN_FLAG);
+        // Nur ein Reload soll die zuletzt gezeigte Unterseite wiederherstellen —
+        // wer die UI schliesst, startet beim naechsten Mal auf der Tab-Seite.
+        sessionStorage.removeItem(PAGE_KEY);
       } catch {
         /* Seite blockiert sessionStorage */
       }
@@ -139,6 +152,7 @@ export default defineContentScript({
           log.info('geteiltes Feedback importiert', { total: items.length, neu: added });
           // Hash entfernen, damit Reload/Copy der URL den Payload nicht schleppt.
           history.replaceState(null, '', location.pathname + location.search);
+          // Empfaenger sollen das importierte Feedback sofort sehen.
           open(true);
         })
         .catch((e: unknown) => log.error('geteiltes Feedback unlesbar', e));

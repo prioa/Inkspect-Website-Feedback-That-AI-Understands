@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 800" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0e1014"/><stop offset="1" stop-color="#141824"/>
+    </linearGradient>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#8fb0ff"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.45" cy="0.45" r="0.65">
+      <stop offset="0" stop-color="#5b8cff" stop-opacity="0.13"/><stop offset="1" stop-color="#5b8cff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ds" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="800" fill="url(#bg)"/>
+  <rect width="1280" height="800" fill="url(#glow)"/>
+
+  <text x="80" y="96" font-size="44" font-weight="800" fill="#e8eaf0">Hand it over — your agent can act on it.</text>
+  <text x="80" y="138" font-size="20" fill="#a9b0bf">A Markdown checklist with selectors and values, a link that carries everything, or an annotated PDF.</text>
+
+  <!-- Markdown export -->
+  <g filter="url(#ds)"><rect x="80" y="190" width="640" height="540" rx="14" fill="#0f1218" stroke="#2c3342" stroke-width="1.5"/></g>
+  <rect x="80" y="190" width="640" height="42" rx="14" fill="#151a22"/>
+  <rect x="80" y="216" width="640" height="16" fill="#151a22"/>
+  <line x1="80" y1="232" x2="720" y2="232" stroke="#2c3342"/>
+  <circle cx="104" cy="211" r="4.5" fill="#3a4356"/>
+  <circle cx="120" cy="211" r="4.5" fill="#3a4356"/>
+  <circle cx="136" cy="211" r="4.5" fill="#3a4356"/>
+  <text x="156" y="216" font-size="12.5" fill="#8b93a5" font-family="ui-monospace, Menlo, monospace">feedback.md</text>
+  <rect x="604" y="200" width="94" height="24" rx="12" fill="#5b8cff" fill-opacity="0.15" stroke="#5b8cff" stroke-opacity="0.5"/>
+  <g transform="translate(616,205) scale(0.55)" fill="none" stroke="#5b8cff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2"/>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </g>
+  <text x="666" y="217" font-size="11.5" font-weight="600" fill="#5b8cff" text-anchor="middle">Copy</text>
+
+  <text x="112" y="272" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#8fb0ff"># Inkspect feedback — app.example.com</text>
+  <text x="112" y="312" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#8fb0ff">## /pricing</text>
+  <text x="112" y="344" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#8fb0ff">### iPhone SE (375×667)</text>
+
+  <text x="112" y="378" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#e8eaf0">- [ ] Make the CTA full width — <tspan fill="#a9b0bf">a.btn--primary</tspan></text>
+  <text x="132" y="402" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#6f7686">- selector: <tspan fill="#a9b0bf">section.hero &gt;&gt;&gt; a.btn--primary</tspan></text>
+  <text x="132" y="426" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#6f7686">- text: <tspan fill="#a9b0bf">"Jetzt starten"</tspan> <tspan fill="#3ecf6e">→ "Kostenlos testen"</tspan></text>
+  <text x="132" y="450" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#6f7686">- change on .btn--primary:</text>
+  <text x="152" y="474" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#a9b0bf">padding-top 8px <tspan fill="#3ecf6e">→ 14px</tspan></text>
+  <text x="132" y="498" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#6f7686">- position: <tspan fill="#a9b0bf">412, 980 (document px)</tspan></text>
+
+  <text x="112" y="532" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#8b93a5">- [x] Align prices to the baseline — div.card</text>
+  <text x="132" y="556" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#5a616f">- selector: section.plans &gt; div.card:nth-child(2)</text>
+  <text x="132" y="580" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#5a616f">- spacing: 26 px</text>
+  <text x="132" y="604" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#5a616f">- position: 96, 1340 (document px)</text>
+
+  <line x1="112" y1="640" x2="688" y2="640" stroke="#22293a"/>
+  <text x="112" y="672" font-size="14.5" fill="#a9b0bf">Every note points at a place in your source code —</text>
+  <text x="112" y="696" font-size="14.5" fill="#a9b0bf">paste it into Claude Code, Cursor, a PR or a ticket.</text>
+
+  <!-- Share link -->
+  <g filter="url(#ds)"><rect x="760" y="190" width="440" height="214" rx="14" fill="#151820" stroke="#262c38" stroke-width="1.5"/></g>
+  <text x="788" y="230" font-size="18" font-weight="700" fill="#e8eaf0">Share as link</text>
+  <rect x="1088" y="212" width="94" height="24" rx="12" fill="#3ecf6e" fill-opacity="0.12" stroke="#3ecf6e" stroke-opacity="0.6"/>
+  <text x="1135" y="229" font-size="11.5" font-weight="600" fill="#3ecf6e" text-anchor="middle">No server</text>
+
+  <rect x="788" y="252" width="344" height="42" rx="9" fill="#0e1014" stroke="#37404f"/>
+  <text x="802" y="278" font-size="11.5" fill="#a9b0bf" font-family="ui-monospace, Menlo, monospace">app.example.com/pricing#ink-feedback=eNqNkMFOwz…</text>
+  <rect x="1142" y="252" width="40" height="42" rx="9" fill="#262c38"/>
+  <g transform="translate(1152,262) scale(0.8)" fill="none" stroke="#a9b0bf" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2"/>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </g>
+
+  <circle cx="798" cy="326" r="9" fill="none" stroke="#3ecf6e" stroke-width="2"/>
+  <path d="M 793.5,326 L 796.8,329.5 L 802.6,322.5" fill="none" stroke="#3ecf6e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="818" y="331" font-size="14" fill="#a9b0bf">Opens live on the page for anyone with Inkspect</text>
+  <circle cx="798" cy="364" r="9" fill="none" stroke="#3ecf6e" stroke-width="2"/>
+  <path d="M 793.5,364 L 796.8,367.5 L 802.6,360.5" fill="none" stroke="#3ecf6e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="818" y="369" font-size="14" fill="#a9b0bf">Compressed into the hash — nothing uploaded</text>
+
+  <!-- Annotated PDF -->
+  <g filter="url(#ds)"><rect x="760" y="428" width="440" height="302" rx="14" fill="#151820" stroke="#262c38" stroke-width="1.5"/></g>
+  <text x="788" y="468" font-size="18" font-weight="700" fill="#e8eaf0">Annotated PDF</text>
+
+  <!-- page thumbnail with the export banner -->
+  <rect x="788" y="486" width="180" height="196" rx="8" fill="#ffffff"/>
+  <path d="M796 486h164a8 8 0 0 1 8 8v14H788v-14a8 8 0 0 1 8-8Z" fill="#12151d"/>
+  <rect x="788" y="506" width="180" height="2" fill="#5b8cff"/>
+  <rect x="794" y="491" width="12" height="12" rx="3" fill="#5b8cff"/>
+  <text x="811" y="501" font-size="8" font-weight="700" fill="#fff">inkSpect</text>
+  <rect x="916" y="491" width="46" height="12" rx="6" fill="#5b8cff"/>
+  <text x="939" y="500" font-size="6.5" font-weight="600" fill="#fff" text-anchor="middle">Open on web ↗</text>
+
+  <rect x="796" y="516" width="164" height="52" rx="6" fill="url(#hero)"/>
+  <rect x="806" y="528" width="72" height="6" rx="3" fill="#fff" opacity="0.95"/>
+  <rect x="806" y="540" width="52" height="6" rx="3" fill="#fff" opacity="0.85"/>
+  <rect x="806" y="552" width="46" height="12" rx="6" fill="#fff"/>
+  <circle cx="852" cy="558" r="7" fill="#6d8cc0" stroke="#fff" stroke-width="1.2"/>
+  <text x="852" y="561" font-size="7" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+  <rect x="862" y="548" width="96" height="18" rx="4" fill="rgba(14,16,20,0.92)" stroke="#6d8cc0" stroke-width="0.8"/>
+  <text x="868" y="560" font-size="7.5" fill="#fff">Make the CTA full width</text>
+
+  <rect x="796" y="580" width="164" height="5" rx="2.5" fill="#e2e6ee"/>
+  <rect x="796" y="590" width="130" height="5" rx="2.5" fill="#e2e6ee"/>
+  <rect x="796" y="606" width="78" height="62" rx="5" fill="#eef1f6"/>
+  <rect x="882" y="606" width="78" height="62" rx="5" fill="#eef1f6"/>
+  <rect x="794" y="604" width="82" height="66" fill="#3ecf6e" fill-opacity="0.08" stroke="#3ecf6e" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="794" y="600" font-size="7.5" font-weight="700" fill="#3ecf6e" font-family="ui-monospace, Menlo, monospace">div.card</text>
+
+  <circle cx="998" cy="512" r="4" fill="#5b8cff"/>
+  <text x="1014" y="517" font-size="14" fill="#a9b0bf">One file per device viewport</text>
+  <circle cx="998" cy="550" r="4" fill="#5b8cff"/>
+  <text x="1014" y="555" font-size="14" fill="#a9b0bf">The whole page, scroll-stitched</text>
+  <circle cx="998" cy="588" r="4" fill="#5b8cff"/>
+  <text x="1014" y="593" font-size="14" fill="#a9b0bf">Notes rendered at their markers</text>
+  <circle cx="998" cy="626" r="4" fill="#5b8cff"/>
+  <text x="1014" y="631" font-size="14" fill="#a9b0bf">Header links back to the live,</text>
+  <text x="1014" y="652" font-size="14" fill="#a9b0bf">annotated page</text>
+
+  <text x="788" y="708" font-size="11.5" fill="#6f7686" font-family="ui-monospace, Menlo, monospace">feedback_app.example.com_pricing_iphone-se_28072026.pdf</text>
+</svg>

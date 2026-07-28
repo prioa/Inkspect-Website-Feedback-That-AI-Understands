@@ -60,9 +60,14 @@ export default defineConfig({
   manifestVersion: 3,
 
   manifest: {
-    name: 'Inkspect',
+    // Der Store nimmt Titel und Kurzbeschreibung der Eintragung woertlich aus
+    // dem Manifest — deshalb steht hier der volle Name. `short_name` bleibt
+    // die Marke allein: den zeigt Chrome, wo der Platz knapp ist (Toolbar,
+    // Verwaltungsliste).
+    name: 'Inkspect — Website Feedback That AI Understands',
+    short_name: 'Inkspect',
     description:
-      'Responsive preview with synced device frames, live CSS editor and feedback right on the page.',
+      'Mark up any website, edit it live, and hand the feedback to your AI agent — with selectors and exact values.',
     permissions: ['declarativeNetRequestWithHostAccess', 'storage'],
 
     icons: {

@@ -131,12 +131,19 @@ export interface DeviceBundle {
   presetIds: string[];
 }
 
-/** Eingebaute Schnell-Sets — Referenzen auf die Standard-Presets oben. */
+/**
+ * Eingebaute Schnell-Sets — Referenzen auf die Standard-Presets oben.
+ *
+ * Immer vom groessten zum kleinsten Device: so steht die breiteste Ansicht
+ * links im Grid und die Reihe wird nach rechts hin schmaler. Der Aufruf
+ * sortiert zusaetzlich nach Breite, damit das auch bei spaeteren Aenderungen
+ * hier hält.
+ */
 export const DEVICE_BUNDLES: readonly DeviceBundle[] = [
-  { id: 'mobile-hd', name: 'iPhone SE · Desktop HD', presetIds: ['iphone-se', 'desktop-hd'] },
-  { id: 'responsive', name: 'Phone · Tablet · Desktop', presetIds: ['iphone-15', 'ipad-mini', 'desktop'] },
-  { id: 'phones', name: 'Phones', presetIds: ['iphone-se', 'iphone-15', 'pixel-8'] },
-  { id: 'full', name: 'Full range', presetIds: ['iphone-15', 'ipad-pro', 'laptop', 'desktop-hd'] },
+  { id: 'mobile-hd', name: 'Desktop HD · iPhone SE', presetIds: ['desktop-hd', 'iphone-se'] },
+  { id: 'responsive', name: 'Desktop · Tablet · Phone', presetIds: ['desktop', 'ipad-mini', 'iphone-15'] },
+  { id: 'phones', name: 'Phones', presetIds: ['pixel-8', 'iphone-15', 'iphone-se'] },
+  { id: 'full', name: 'Full range', presetIds: ['desktop-hd', 'laptop', 'ipad-pro', 'iphone-15'] },
 ];
 
 /** Ein vom Nutzer gespeichertes Grid-Layout (Presets + Rotation, benannt). */
