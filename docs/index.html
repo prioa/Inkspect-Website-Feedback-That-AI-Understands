@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inkspect — Website feedback that AI understands</title>
+<meta name="description" content="Mark up any website, edit it live, and hand the feedback to your AI agent — with selectors and exact values. Browser extension for Chrome and Firefox. No account, nothing uploaded." />
+<link rel="icon" href="img/icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="img/icon-128.png" />
+<link rel="canonical" href="https://prioa.github.io/Inkspect-Website-Feedback-That-AI-Understands/" />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Inkspect — Website feedback that AI understands" />
+<meta property="og:description" content="Mark up any website, edit it live, and hand the feedback to your AI agent — with selectors and exact values." />
+<meta property="og:image" content="https://prioa.github.io/Inkspect-Website-Feedback-That-AI-Understands/img/marquee-1400x560.jpg" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top__bar">
+    <span class="top__mark"><img src="img/icon.svg" alt="" /> Inkspect</span>
+    <span class="top__spacer"></span>
+    <nav class="top__links">
+      <a href="#features" class="is-optional">Features</a>
+      <a href="#privacy" class="is-optional">Privacy</a>
+      <a href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands">GitHub</a>
+      <a href="https://chromewebstore.google.com/detail/opckhhggofkbihbnabhhaidgknmniebk">Install</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>Website feedback that <em>AI understands</em></h1>
+    <p class="hero__lead">
+      “The button is too small” plus a screenshot makes an AI coding agent guess.
+      Inkspect writes down what you actually meant — with the CSS selector, the
+      current value and the target value of every note.
+    </p>
+    <p class="hero__note">Chrome &amp; Firefox · no account · nothing uploaded</p>
+
+    <div class="cta">
+      <a class="btn btn--primary" href="https://chromewebstore.google.com/detail/opckhhggofkbihbnabhhaidgknmniebk">
+        Add to Chrome
+      </a>
+      <span class="btn btn--soon">Firefox <span class="btn__soon">in review</span></span>
+      <a class="btn" href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands">
+        Source on GitHub
+      </a>
+    </div>
+
+    <figure class="shot-lead">
+      <img src="img/screenshot-1-feedback-1280x800.jpg" width="1280" height="800"
+           alt="Inkspect marking up a live page, next to the Markdown checklist it produces" />
+    </figure>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Mark the page, not a screenshot</h2>
+    <p class="sub">
+      Everything happens on the page you are actually looking at — in your browser,
+      with your session, at the viewport you care about.
+    </p>
+
+    <div class="row">
+      <div class="row__text">
+        <h3>Feedback an agent can act on</h3>
+        <p>
+          Copy every note of a site as a Markdown checklist. Each entry points at a
+          place in your source code instead of at a pixel in a picture.
+        </p>
+        <ul>
+          <li>CSS selector, Shadow&nbsp;DOM boundaries included</li>
+          <li>Style changes as <em>from → to</em>, rewritten text, measured spacings</li>
+          <li>Plain text — paste it into an agent prompt, a pull request or a ticket</li>
+        </ul>
+      </div>
+      <pre class="code">- [ ] <b>Headline sits too tight above the form</b>
+  - selector: <i>.hero &gt; h1.h1-display</i>
+  - change on <i>.h1-display</i>: <i>margin-bottom</i> 8px → 24px
+  - text: “Get started” → “Start your free trial”
+  - device: Desktop HD · position: 412, 268</pre>
+    </div>
+
+    <div class="row row--flip">
+      <div class="row__text">
+        <h3>Pick an element, change it, see it</h3>
+        <p>
+          Rewrite the text, change font weight and size, drag padding and margins per
+          edge or all four linked. The change happens on the page — you see the result
+          before you write it down.
+        </p>
+        <ul>
+          <li>Class scope moves every <em>.btn-primary</em>, element scope just the one you picked</li>
+          <li>Every edit is listed and can be reverted one by one</li>
+        </ul>
+      </div>
+      <img src="img/screenshot-2-inspect-1280x800.jpg" width="1280" height="800"
+           alt="The element picker with live edits to text, font and spacing" />
+    </div>
+
+    <div class="row">
+      <div class="row__text">
+        <h3>Hand it over three ways</h3>
+        <p>
+          A Markdown checklist for your agent, a share link that opens the markings
+          live on the page, or an annotated PDF for tickets and reviews.
+        </p>
+        <ul>
+          <li>The share link carries the data inside the URL — there is no server</li>
+          <li>PDFs cover the whole page, one file per device viewport</li>
+          <li>Notes are rendered right at their marker, so the file speaks for itself</li>
+        </ul>
+      </div>
+      <img src="img/screenshot-3-export-1280x800.jpg" width="1280" height="800"
+           alt="Markdown export, share link and annotated PDF side by side" />
+    </div>
+
+    <div class="row row--flip">
+      <div class="row__text">
+        <h3>Every viewport at once</h3>
+        <p>
+          See the page in phone, tablet and desktop widths side by side. Scrolling,
+          clicks, typing, hover states and link navigation are mirrored across all
+          frames in real time.
+        </p>
+        <ul>
+          <li>Add, rotate and remove devices; define your own sizes</li>
+          <li>Save a grid as a named set — your setup survives the session</li>
+        </ul>
+      </div>
+      <img src="img/screenshot-4-sync-1280x800.jpg" width="1280" height="800"
+           alt="Synced device previews in phone, tablet and desktop widths" />
+    </div>
+
+    <div class="row">
+      <div class="row__text">
+        <h3>Live CSS editor</h3>
+        <p>
+          Edit the page's stylesheets in a full editor, cross-origin sheets included.
+          Changes apply instantly across every device frame and survive reloads.
+        </p>
+        <ul>
+          <li>Reset any sheet back to the original with one click</li>
+        </ul>
+      </div>
+      <img src="img/screenshot-5-css-1280x800.jpg" width="1280" height="800"
+           alt="The built-in CSS editor changing a stylesheet live" />
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Also in the box</h2>
+    <p class="sub">Small things that turn a demo into a tool you keep open.</p>
+    <div class="grid">
+      <div class="card">
+        <h3>Markings that stick</h3>
+        <p>They follow the content while you scroll and re-anchor to their element after a reload.</p>
+      </div>
+      <div class="card">
+        <h3>Guide lines that measure</h3>
+        <p>Drag one across the page, drag a second, and the gap between them is measured in pixels — straight into the export.</p>
+      </div>
+      <div class="card">
+        <h3>A panel that keeps order</h3>
+        <p>All feedback grouped per page and per device. Check items off as you fix them; badges count what is still open.</p>
+      </div>
+      <div class="card">
+        <h3>Full window mode</h3>
+        <p>The page at full size with a floating tool bar you can drag anywhere, plus an optional phone mockup beside it.</p>
+      </div>
+      <div class="card">
+        <h3>Stubborn pages</h3>
+        <p>Sites that refuse to be embedded can still be previewed via an explicit opt-in, scoped to the current tab.</p>
+      </div>
+      <div class="card">
+        <h3>Find your way</h3>
+        <p>A guided tour on first open, and a shortcut sheet behind <kbd>?</kbd> whenever you need it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <h2>Nothing leaves your browser</h2>
+    <div class="note">
+      <p>
+        <strong>There is no Inkspect server.</strong> Your feedback is stored locally
+        in your browser. Share links carry the data compressed inside the URL itself,
+        so a link works without anything being uploaded anywhere — and it stops working
+        the moment you stop sharing it. Read the
+        <a href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands/blob/main/PRIVACY.md">full privacy policy</a>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap" style="text-align: center;">
+    <h2>Try it on the page you have open</h2>
+    <p class="sub" style="margin-inline: auto;">
+      One click on the toolbar icon. No account, no setup, no upload.
+    </p>
+    <div class="cta">
+      <a class="btn btn--primary" href="https://chromewebstore.google.com/detail/opckhhggofkbihbnabhhaidgknmniebk">
+        Add to Chrome
+      </a>
+      <a class="btn" href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands/releases">
+        Download a build
+      </a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <span>Inkspect — a browser extension for Chrome &amp; Firefox.</span>
+    <span class="foot__spacer"></span>
+    <a href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands">GitHub</a>
+    <a href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands/releases">Releases</a>
+    <a href="https://github.com/prioa/Inkspect-Website-Feedback-That-AI-Understands/blob/main/PRIVACY.md">Privacy</a>
+  </div>
+</footer>
+
+</body>
+</html>

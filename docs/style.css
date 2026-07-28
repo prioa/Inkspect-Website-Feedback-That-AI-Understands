@@ -1,0 +1,219 @@
+/*
+ * Website zu Inkspect (GitHub Pages, Ordner `docs/`).
+ *
+ * Bewusst statisches HTML/CSS ohne Build-Schritt: die Seite besteht aus
+ * zwei Dateien plus Bildern und laesst sich direkt im Browser oeffnen. Die
+ * Farbwerte sind dieselben wie im Addon (`components/styles.ts`), damit
+ * Seite und Werkzeug zusammengehoeren.
+ */
+
+:root {
+  --bg-0: #0e1014;
+  --bg-1: #151820;
+  --bg-2: #1d222c;
+  --border: #262c38;
+  --border-strong: #37404f;
+  --text-0: #e8eaf0;
+  --text-1: #a9b0bf;
+  --text-2: #838b9b;
+  --accent: #5b8cff;
+  --accent-hover: #6f9aff;
+  --radius: 12px;
+  --shadow: 0 18px 50px rgba(0, 0, 0, .45);
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+body {
+  margin: 0;
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); }
+a:hover { color: var(--accent-hover); }
+
+.wrap { width: min(1080px, calc(100% - 40px)); margin: 0 auto; }
+
+/* ---------- Kopf ---------- */
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(14, 16, 20, .82);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.top__bar { display: flex; align-items: center; gap: 12px; height: 60px; }
+.top__mark { display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.01em; }
+.top__mark img { width: 26px; height: 26px; display: block; }
+.top__spacer { flex: 1 1 auto; }
+.top__links { display: flex; align-items: center; gap: 18px; font-size: 14px; }
+.top__links a { color: var(--text-1); text-decoration: none; }
+.top__links a:hover { color: var(--text-0); }
+@media (max-width: 620px) {
+  .top__links a.is-optional { display: none; }
+}
+
+/* ---------- Hero ---------- */
+
+.hero { padding: 76px 0 8px; text-align: center; }
+.hero h1 {
+  margin: 0 0 14px;
+  font-size: clamp(32px, 5.5vw, 54px);
+  line-height: 1.1;
+  letter-spacing: -.02em;
+}
+.hero h1 em { font-style: normal; color: var(--accent); }
+.hero__lead {
+  margin: 0 auto 10px;
+  max-width: 640px;
+  font-size: clamp(16px, 2.2vw, 19px);
+  color: var(--text-1);
+}
+.hero__note { margin: 0 0 28px; font-size: 14px; color: var(--text-2); }
+
+.cta { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--text-0);
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background .12s ease, border-color .12s ease, transform .12s ease;
+}
+.btn:hover { background: #262c38; color: var(--text-0); transform: translateY(-1px); }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn--primary:hover { background: var(--accent-hover); color: #fff; }
+.btn svg { display: block; }
+.btn__soon { font-weight: 500; color: var(--text-2); font-size: 13px; }
+.btn--soon { opacity: .6; cursor: default; }
+.btn--soon:hover { transform: none; background: var(--bg-2); }
+
+.shot-lead { margin: 44px 0 0; }
+.shot-lead img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- Abschnitte ---------- */
+
+section { padding: 72px 0; }
+section + section { border-top: 1px solid var(--border); }
+
+h2 {
+  margin: 0 0 10px;
+  font-size: clamp(23px, 3.4vw, 31px);
+  line-height: 1.2;
+  letter-spacing: -.015em;
+}
+.sub { margin: 0 0 32px; color: var(--text-1); max-width: 680px; }
+
+/* Wechselnde Reihenfolge: Text und Bild tauschen die Seite. */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 40px;
+  align-items: center;
+}
+.row + .row { margin-top: 64px; }
+/* Gespiegelte Zeile: der Text wandert nach rechts — die Spaltenbreiten
+   muessen mitwandern, sonst bekommt das Bild mal 7fr und mal 5fr und die
+   Screenshots stehen unterschiedlich breit untereinander. */
+.row--flip { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.row--flip .row__text { order: 2; }
+@media (max-width: 860px) {
+  .row { grid-template-columns: 1fr; gap: 24px; }
+  .row--flip .row__text { order: 0; }
+}
+.row__text h3 { margin: 0 0 10px; font-size: 21px; letter-spacing: -.01em; }
+.row__text p { margin: 0 0 14px; color: var(--text-1); }
+.row__text ul { margin: 0; padding-left: 18px; color: var(--text-1); }
+.row__text li + li { margin-top: 6px; }
+.row img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+/* Codebeispiel: so sieht der Export aus. */
+.code {
+  margin: 0;
+  padding: 16px 18px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-1);
+}
+.code b { color: var(--text-0); font-weight: 600; }
+.code i { color: var(--accent); font-style: normal; }
+
+/* ---------- Kachelraster ---------- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 14px;
+}
+.card {
+  padding: 20px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.card h3 { margin: 0 0 6px; font-size: 16px; }
+.card p { margin: 0; color: var(--text-1); font-size: 14.5px; }
+
+/* ---------- Datenschutz-Hinweis ---------- */
+
+.note {
+  display: flex;
+  gap: 16px;
+  padding: 22px 24px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+}
+.note p { margin: 0; color: var(--text-1); }
+.note strong { color: var(--text-0); }
+
+/* ---------- Fuss ---------- */
+
+footer {
+  padding: 40px 0 56px;
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 14px;
+}
+.foot { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; }
+.foot a { color: var(--text-1); text-decoration: none; }
+.foot a:hover { color: var(--text-0); }
+.foot__spacer { flex: 1 1 auto; }
