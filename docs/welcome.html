@@ -387,6 +387,36 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
 .playground { display: none; text-align: left; }
 .pg-wrap { width: min(1040px, calc(100% - 40px)); margin: 0 auto; }
 
+/* Kopf-Banner + Anleitung: klar als Meta-Ebene abgesetzt (Akzent, gestrichelt)
+   — darunter beginnt die Fake-LP als Material zum Ausprobieren. */
+.pg-banner {
+  background: rgba(91, 140, 255, .12);
+  border-bottom: 1px solid rgba(91, 140, 255, .35);
+  padding: 12px 0;
+  font-size: 14px;
+}
+.pg-banner__in { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pg-banner__tag {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  background: var(--accent); color: #fff;
+  border-radius: 999px;
+  font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.pg-how { padding: 26px 0 8px; }
+.pg-how h2 { font-size: 17px; margin: 0 0 14px; color: var(--accent); }
+.pg-how__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.pg-how__item {
+  padding: 12px 14px;
+  border: 1px dashed rgba(91, 140, 255, .5);
+  border-radius: 12px;
+  background: rgba(91, 140, 255, .06);
+  font-size: 13.5px;
+}
+.pg-how__item b { display: block; margin-bottom: 4px; }
+.pg-how__item p { margin: 0; color: var(--text-1); }
+
 .pg-nav { display: flex; align-items: center; gap: 18px; padding: 16px 0; }
 .pg-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; }
 .pg-logo i { width: 22px; height: 22px; border-radius: 7px; background: linear-gradient(135deg, var(--accent), #6fd1a6); }
@@ -409,7 +439,6 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   background: var(--bg-2); color: var(--text-2);
   border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
 }
-.pg-hint { margin: 26px auto 0; max-width: 520px; color: var(--text-2); font-size: 12.5px; }
 
 .pg-feats { padding: 70px 0 10px; }
 .pg-feats h2 { text-align: center; font-size: clamp(22px, 3.4vw, 30px); margin: 0 0 24px; }
@@ -604,6 +633,39 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
 </main>
 
 <main class="playground">
+  <div class="pg-banner">
+    <div class="pg-wrap pg-banner__in">
+      <span class="pg-banner__tag" data-i18n="pgBannerTag">Test page</span>
+      <span data-i18n="pgBannerText">Nothing here is real and nothing can break — this page exists so you can try Inkspect on it.</span>
+    </div>
+  </div>
+
+  <section class="pg-wrap pg-how">
+    <h2 data-i18n="pgHowTitle">Try it right here</h2>
+    <div class="pg-how__grid">
+      <div class="pg-how__item">
+        <b data-i18n="pgHow1t">Right-click any element</b>
+        <p data-i18n="pgHow1b">picks it and opens the edit popup — change text and styles, leave a note.</p>
+      </div>
+      <div class="pg-how__item">
+        <b data-i18n="pgHow2t">The floating bar below</b>
+        <p data-i18n="pgHow2b">arrow = use the page normally; the second tool marks the element you click.</p>
+      </div>
+      <div class="pg-how__item">
+        <b data-i18n="pgHow3t">Keys 1–9</b>
+        <p data-i18n="pgHow3b">switch tools: pin, pen, shapes, text. Esc goes back to interacting.</p>
+      </div>
+      <div class="pg-how__item">
+        <b data-i18n="pgHow4t">The blue button, bottom right</b>
+        <p data-i18n="pgHow4b">collects your feedback — share it as a link, Markdown or screenshots.</p>
+      </div>
+      <div class="pg-how__item">
+        <b data-i18n="pgHow5t">The phone button next to it</b>
+        <p data-i18n="pgHow5b">shows a mobile mockup — mark things there too; scrolling stays in sync.</p>
+      </div>
+    </div>
+  </section>
+
   <header class="pg-wrap pg-nav">
     <span class="pg-logo"><i></i>Aurora</span>
     <nav>
@@ -618,7 +680,6 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
     <h1 data-i18n="pgHeroTitle">Ship interfaces that feel right</h1>
     <p data-i18n="pgHeroSub">Aurora is the imaginary product on this demo page — scroll through and mark everything that feels off.</p>
     <button class="pg-tiny" type="button" data-i18n="pgHeroCta">Get started</button>
-    <p class="pg-hint" data-i18n="pgHint">Inkspect playground: right-click picks an element, the bar drops pins — and scrolling stays in sync.</p>
   </section>
 
   <section class="pg-wrap pg-feats">
@@ -682,7 +743,19 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
       pgHeroTitle: 'Interfaces, die sich richtig anfühlen',
       pgHeroSub: 'Aurora ist das erfundene Produkt dieser Demo-Seite — scroll durch und markiere alles, was sich falsch anfühlt.',
       pgHeroCta: 'Loslegen',
-      pgHint: 'Inkspect-Spielplatz: Rechtsklick wählt ein Element, die Leiste setzt Pins — und das Scrollen läuft synchron.',
+      pgBannerTag: 'Testseite',
+      pgBannerText: 'Hier ist nichts echt und nichts geht kaputt — diese Seite gibt es, damit du Inkspect daran ausprobieren kannst.',
+      pgHowTitle: 'Probier es direkt hier aus',
+      pgHow1t: 'Rechtsklick auf ein Element',
+      pgHow1b: 'wählt es aus und öffnet das Bearbeiten-Popup — ändere Text und Styles, hinterlass eine Notiz.',
+      pgHow2t: 'Die schwebende Leiste unten',
+      pgHow2b: 'Pfeil = Seite normal bedienen; das zweite Werkzeug markiert das Element, das du anklickst.',
+      pgHow3t: 'Tasten 1–9',
+      pgHow3b: 'wechseln das Werkzeug: Pin, Stift, Formen, Text. Esc geht zurück zum Bedienen.',
+      pgHow4t: 'Der blaue Knopf unten rechts',
+      pgHow4b: 'sammelt dein Feedback — teile es als Link, Markdown oder Screenshots.',
+      pgHow5t: 'Der Smartphone-Knopf daneben',
+      pgHow5b: 'zeigt ein Mobil-Mockup — auch dort kannst du markieren; das Scrollen bleibt synchron.',
       pgFeatsTitle: 'Alles an einem Ort',
       pgFeat1t: 'Schnell',
       pgFeat1b: 'Lädt, bevor du fertig geblinzelt hast.',
@@ -722,7 +795,19 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
       pgHeroTitle: 'Des interfaces qui sonnent juste',
       pgHeroSub: 'Aurora est le produit imaginaire de cette page de démo — faites défiler et annotez tout ce qui cloche.',
       pgHeroCta: 'Commencer',
-      pgHint: 'Terrain de jeu Inkspect : clic droit pour sélectionner un élément, la barre pose des épingles — et le défilement reste synchronisé.',
+      pgBannerTag: 'Page de test',
+      pgBannerText: 'Rien ici n’est réel et rien ne peut casser — cette page existe pour que vous essayiez Inkspect dessus.',
+      pgHowTitle: 'Essayez directement ici',
+      pgHow1t: 'Clic droit sur un élément',
+      pgHow1b: 'le sélectionne et ouvre la fenêtre d’édition — changez le texte et les styles, laissez une note.',
+      pgHow2t: 'La barre flottante en bas',
+      pgHow2b: 'flèche = utiliser la page normalement ; le second outil marque l’élément cliqué.',
+      pgHow3t: 'Touches 1–9',
+      pgHow3b: 'changent d’outil : épingle, crayon, formes, texte. Échap revient au mode normal.',
+      pgHow4t: 'Le bouton bleu en bas à droite',
+      pgHow4b: 'rassemble vos retours — partagez-les en lien, Markdown ou captures d’écran.',
+      pgHow5t: 'Le bouton téléphone à côté',
+      pgHow5b: 'affiche une maquette mobile — annotez-y aussi ; le défilement reste synchronisé.',
       pgFeatsTitle: 'Tout au même endroit',
       pgFeat1t: 'Rapide',
       pgFeat1b: 'Chargé avant la fin de votre clignement d’œil.',
@@ -762,7 +847,19 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
       pgHeroTitle: 'Interfaces que se sienten bien',
       pgHeroSub: 'Aurora es el producto imaginario de esta página de demostración: desplázate y marca todo lo que no encaje.',
       pgHeroCta: 'Empezar',
-      pgHint: 'Playground de Inkspect: clic derecho selecciona un elemento, la barra coloca pines — y el desplazamiento va sincronizado.',
+      pgBannerTag: 'Página de prueba',
+      pgBannerText: 'Nada aquí es real y nada se puede romper: esta página existe para que pruebes Inkspect sobre ella.',
+      pgHowTitle: 'Pruébalo aquí mismo',
+      pgHow1t: 'Clic derecho sobre un elemento',
+      pgHow1b: 'lo selecciona y abre el popup de edición: cambia texto y estilos, deja una nota.',
+      pgHow2t: 'La barra flotante de abajo',
+      pgHow2b: 'flecha = usar la página con normalidad; la segunda herramienta marca el elemento que pulses.',
+      pgHow3t: 'Teclas 1–9',
+      pgHow3b: 'cambian de herramienta: pin, lápiz, formas, texto. Esc vuelve al modo normal.',
+      pgHow4t: 'El botón azul, abajo a la derecha',
+      pgHow4b: 'reúne tu feedback: compártelo como enlace, Markdown o capturas.',
+      pgHow5t: 'El botón de teléfono de al lado',
+      pgHow5b: 'muestra una maqueta móvil: marca también ahí; el desplazamiento va sincronizado.',
       pgFeatsTitle: 'Todo en un solo lugar',
       pgFeat1t: 'Rápido',
       pgFeat1b: 'Carga antes de que termines de parpadear.',
@@ -802,7 +899,19 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
       pgHeroTitle: 'Interfacce che suonano giuste',
       pgHeroSub: 'Aurora è il prodotto immaginario di questa pagina demo: scorri e annota tutto ciò che stona.',
       pgHeroCta: 'Inizia',
-      pgHint: 'Parco giochi di Inkspect: il clic destro seleziona un elemento, la barra mette i pin — e lo scorrimento resta sincronizzato.',
+      pgBannerTag: 'Pagina di prova',
+      pgBannerText: 'Qui niente è reale e niente si può rompere: questa pagina esiste perché tu possa provarci Inkspect.',
+      pgHowTitle: 'Provalo direttamente qui',
+      pgHow1t: 'Clic destro su un elemento',
+      pgHow1b: 'lo seleziona e apre il popup di modifica: cambia testo e stili, lascia una nota.',
+      pgHow2t: 'La barra fluttuante in basso',
+      pgHow2b: 'freccia = usare la pagina normalmente; il secondo strumento marca l’elemento cliccato.',
+      pgHow3t: 'Tasti 1–9',
+      pgHow3b: 'cambiano strumento: pin, penna, forme, testo. Esc torna alla modalità normale.',
+      pgHow4t: 'Il pulsante blu in basso a destra',
+      pgHow4b: 'raccoglie il tuo feedback: condividilo come link, Markdown o screenshot.',
+      pgHow5t: 'Il pulsante telefono accanto',
+      pgHow5b: 'mostra un mockup mobile: puoi annotare anche lì; lo scorrimento resta sincronizzato.',
       pgFeatsTitle: 'Tutto in un unico posto',
       pgFeat1t: 'Veloce',
       pgFeat1b: 'Carica prima che tu finisca di sbattere le palpebre.',
@@ -842,7 +951,19 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
       pgHeroTitle: 'Interfaces que parecem certas',
       pgHeroSub: 'Aurora é o produto imaginário desta página de demonstração: role e marque tudo o que parecer errado.',
       pgHeroCta: 'Começar',
-      pgHint: 'Playground do Inkspect: o clique direito seleciona um elemento, a barra solta pins — e a rolagem fica sincronizada.',
+      pgBannerTag: 'Página de teste',
+      pgBannerText: 'Nada aqui é real e nada quebra: esta página existe para você experimentar o Inkspect nela.',
+      pgHowTitle: 'Experimente aqui mesmo',
+      pgHow1t: 'Clique direito em um elemento',
+      pgHow1b: 'seleciona-o e abre o popup de edição: mude texto e estilos, deixe uma nota.',
+      pgHow2t: 'A barra flutuante abaixo',
+      pgHow2b: 'seta = usar a página normalmente; a segunda ferramenta marca o elemento clicado.',
+      pgHow3t: 'Teclas 1–9',
+      pgHow3b: 'trocam a ferramenta: pin, caneta, formas, texto. Esc volta ao modo normal.',
+      pgHow4t: 'O botão azul, embaixo à direita',
+      pgHow4b: 'reúne seu feedback: compartilhe como link, Markdown ou capturas de tela.',
+      pgHow5t: 'O botão de celular ao lado',
+      pgHow5b: 'mostra um mockup mobile: marque por lá também; a rolagem fica sincronizada.',
       pgFeatsTitle: 'Tudo em um só lugar',
       pgFeat1t: 'Rápido',
       pgFeat1b: 'Carrega antes de você terminar de piscar.',
@@ -882,7 +1003,19 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
       pgHeroTitle: 'Interfaces die goed voelen',
       pgHeroSub: 'Aurora is het verzonnen product van deze demopagina — scroll erdoorheen en markeer alles wat niet klopt.',
       pgHeroCta: 'Aan de slag',
-      pgHint: 'Inkspect-speeltuin: rechtsklik kiest een element, de balk zet pins — en het scrollen loopt synchroon.',
+      pgBannerTag: 'Testpagina',
+      pgBannerText: 'Niets hier is echt en niets kan stuk — deze pagina bestaat zodat je Inkspect erop kunt uitproberen.',
+      pgHowTitle: 'Probeer het meteen hier',
+      pgHow1t: 'Rechtsklik op een element',
+      pgHow1b: 'kiest het en opent de bewerk-popup — pas tekst en styles aan, laat een notitie achter.',
+      pgHow2t: 'De zwevende balk onderaan',
+      pgHow2b: 'pijl = de pagina normaal bedienen; het tweede gereedschap markeert het element dat je aanklikt.',
+      pgHow3t: 'Toetsen 1–9',
+      pgHow3b: 'wisselen van gereedschap: pin, pen, vormen, tekst. Esc gaat terug naar bedienen.',
+      pgHow4t: 'De blauwe knop rechtsonder',
+      pgHow4b: 'verzamelt je feedback — deel het als link, Markdown of screenshots.',
+      pgHow5t: 'De telefoonknop ernaast',
+      pgHow5b: 'toont een mobiele mockup — markeer daar ook; het scrollen blijft synchroon.',
       pgFeatsTitle: 'Alles op één plek',
       pgFeat1t: 'Snel',
       pgFeat1b: 'Geladen voordat je klaar bent met knipperen.',
@@ -922,7 +1055,19 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
       pgHeroTitle: 'しっくりくるインターフェースを',
       pgHeroSub: 'Aurora はこのデモページの架空のプロダクトです — スクロールして、違和感のある箇所をマークしてみましょう。',
       pgHeroCta: 'はじめる',
-      pgHint: 'Inkspect の遊び場: 右クリックで要素を選択、バーからピンを設置 — スクロールは同期します。',
+      pgBannerTag: 'テストページ',
+      pgBannerText: 'ここにあるものはすべて架空で、壊れるものはありません — このページは Inkspect を試すためにあります。',
+      pgHowTitle: 'ここで直接試せます',
+      pgHow1t: '要素を右クリック',
+      pgHow1b: '要素を選択して編集ポップアップを開きます — テキストやスタイルを変え、メモを残せます。',
+      pgHow2t: '下のフローティングバー',
+      pgHow2b: '矢印 = ページを普通に操作。2 つ目のツールはクリックした要素をマークします。',
+      pgHow3t: 'キー 1–9',
+      pgHow3b: 'ツールを切り替え: ピン、ペン、図形、テキスト。Esc で通常操作に戻ります。',
+      pgHow4t: '右下の青いボタン',
+      pgHow4b: 'フィードバックを集約 — リンク、Markdown、スクリーンショットで共有できます。',
+      pgHow5t: 'その隣のスマホボタン',
+      pgHow5b: 'モバイルモックアップを表示 — そこでもマークでき、スクロールは同期します。',
       pgFeatsTitle: 'すべてをひとつの場所に',
       pgFeat1t: '高速',
       pgFeat1b: 'まばたきが終わる前に読み込みます。',
@@ -962,7 +1107,19 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
       pgHeroTitle: '打造感觉对味的界面',
       pgHeroSub: 'Aurora 是这个演示页面上的虚构产品 — 滚动浏览，把所有不对劲的地方标出来。',
       pgHeroCta: '开始使用',
-      pgHint: 'Inkspect 游乐场: 右键选中元素，工具栏放置图钉 — 滚动保持同步。',
+      pgBannerTag: '测试页面',
+      pgBannerText: '这里的一切都是虚构的，怎么弄都不会坏 — 这个页面就是让你在上面试用 Inkspect 的。',
+      pgHowTitle: '就在这里试试',
+      pgHow1t: '右键点击任意元素',
+      pgHow1b: '即可选中并打开编辑弹窗 — 修改文字和样式，留下备注。',
+      pgHow2t: '底部的悬浮工具栏',
+      pgHow2b: '箭头 = 正常操作页面；第二个工具会标记你点击的元素。',
+      pgHow3t: '按键 1–9',
+      pgHow3b: '切换工具: 图钉、画笔、图形、文字。按 Esc 返回正常操作。',
+      pgHow4t: '右下角的蓝色按钮',
+      pgHow4b: '汇集你的反馈 — 以链接、Markdown 或截图分享。',
+      pgHow5t: '旁边的手机按钮',
+      pgHow5b: '显示移动端模型 — 在那里也能标注，滚动保持同步。',
       pgFeatsTitle: '一切尽在一处',
       pgFeat1t: '快速',
       pgFeat1b: '眨眼还没眨完就加载好了。',
