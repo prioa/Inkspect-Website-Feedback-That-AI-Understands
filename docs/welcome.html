@@ -379,42 +379,80 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   .arrow { display: none; }
 }
 
-/* ---------- Playground (nur in Frames sichtbar) ---------- */
-.playground { display: none; max-width: 460px; padding: 24px 24px 48px; }
-.playground h1 { font-size: 28px; margin: 0 0 10px; }
-.playground p { color: var(--text-1); }
-.playground .try { margin-top: 6px; color: var(--text-2); font-size: 14px; }
-/* Absichtlich verbesserungswuerdig — es soll etwas zu markieren geben. */
-.playground .tiny-btn {
-  margin-top: 18px; padding: 3px 8px; font-size: 11px;
+/* ---------- Playground (nur in Frames sichtbar) ----------
+   Eine kleine Fake-Landingpage des erfundenen Produkts „Aurora": Nav, Hero,
+   Feature-Karten, Zahlen, Zitat, CTA, Footer. Absichtlich eingebaute Maengel
+   (zu kleiner CTA, verrutschte Karte, kontrastarmes Zitat) geben etwas zu
+   markieren; die Laenge gibt dem Scroll-Sync etwas zu tun. */
+.playground { display: none; text-align: left; }
+.pg-wrap { width: min(1040px, calc(100% - 40px)); margin: 0 auto; }
+
+.pg-nav { display: flex; align-items: center; gap: 18px; padding: 16px 0; }
+.pg-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; }
+.pg-logo i { width: 22px; height: 22px; border-radius: 7px; background: linear-gradient(135deg, var(--accent), #6fd1a6); }
+.pg-nav nav { display: flex; gap: 16px; margin-left: 10px; }
+.pg-nav nav a { color: var(--text-1); text-decoration: none; font-size: 13.5px; }
+.pg-nav nav a:hover { color: var(--text-0); }
+.pg-signup {
+  margin-left: auto; padding: 7px 14px;
+  background: var(--accent); color: #fff;
+  border: 0; border-radius: 8px; font-size: 13.5px; cursor: pointer;
+}
+@media (max-width: 520px) { .pg-nav nav { display: none; } }
+
+.pg-hero { padding: 72px 0 28px; text-align: center; }
+.pg-hero h1 { font-size: clamp(30px, 6vw, 52px); line-height: 1.12; margin: 0 0 14px; }
+.pg-hero p { max-width: 560px; margin: 0 auto 22px; color: var(--text-1); }
+/* Absichtlich viel zu klein fuer einen Hero-CTA — bitte markieren. */
+.pg-tiny {
+  padding: 3px 8px; font-size: 11px;
   background: var(--bg-2); color: var(--text-2);
   border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
 }
-/* Unterhalb der Falz geht es weiter: die Abstaende machen die Seite bewusst
-   lang, damit Scrollen (und Scroll-Sync) etwas zu tun hat. */
-.pg-scroll { margin-top: 40px; color: var(--text-2); font-size: 13px; }
-.pg-scroll::after { content: ' ↓'; }
-.pg-section { margin-top: 300px; text-align: left; }
-.pg-section h2 { font-size: 20px; margin: 0 0 12px; }
-.pg-cards { display: grid; gap: 12px; }
+.pg-hint { margin: 26px auto 0; max-width: 520px; color: var(--text-2); font-size: 12.5px; }
+
+.pg-feats { padding: 70px 0 10px; }
+.pg-feats h2 { text-align: center; font-size: clamp(22px, 3.4vw, 30px); margin: 0 0 24px; }
+.pg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
 .pg-card {
-  padding: 14px 16px;
+  padding: 18px;
   background: var(--bg-1);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
 }
-.pg-card b { display: block; margin-bottom: 3px; }
-.pg-card span { color: var(--text-1); font-size: 14px; }
+.pg-card b { display: block; margin-bottom: 5px; }
+.pg-card p { margin: 0; color: var(--text-1); font-size: 14px; }
 /* Absichtlich verrutscht — ein dankbares Ziel fuer den Element-Picker. */
 .pg-card--odd { transform: translateY(6px) rotate(.5deg); }
+
+.pg-stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 56px; padding: 64px 0; text-align: center; }
+.pg-stat b { display: block; font-size: 30px; letter-spacing: -.02em; }
+.pg-stat span { color: var(--text-2); font-size: 13px; }
+
 /* Absichtlich kontrastarm — der Klassiker unter den Fundstuecken. */
-.pg-low { opacity: .38; }
-.pg-end { margin-top: 300px; color: var(--text-2); font-size: 14px; }
+.pg-quote { max-width: 620px; margin: 30px auto 90px; padding: 0 20px; text-align: center; opacity: .35; }
+.pg-quote p { font-size: 17px; font-style: italic; margin: 0 0 8px; }
+.pg-quote span { font-size: 13px; }
+
+.pg-band { background: var(--bg-1); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: center; padding: 72px 0; }
+.pg-band h2 { font-size: clamp(22px, 3.4vw, 30px); margin: 0 0 18px; }
+.pg-band button {
+  padding: 11px 22px; font-size: 15px;
+  background: var(--accent); color: #fff;
+  border: 0; border-radius: 10px; cursor: pointer;
+}
+.pg-band button:hover { background: var(--accent-hover); }
+
+.pg-footer { padding: 40px 0 56px; text-align: center; color: var(--text-2); font-size: 13px; }
 
 html.framed .welcome, html.framed .arrow { display: none; }
 html.framed .playground { display: block; }
-/* Im Frame beginnt die Seite oben — Scrollen fuehrt zu den Fundstuecken. */
-html.framed body { align-items: start; }
+/* Im Frame fliesst die LP normal von oben — kein Grid-Zentrieren. */
+html.framed body { display: block; }
+/* Der Frame ist eine Vorschau — die native Scrollbar waere nur Kulisse.
+   Scrollen bleibt voll moeglich (Rad, Touch, Sync). */
+html.framed { scrollbar-width: none; }
+html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
 </style>
 <script>
   if (window.self !== window.top) document.documentElement.classList.add('framed');
@@ -565,28 +603,51 @@ html.framed body { align-items: start; }
 </main>
 
 <main class="playground">
-  <h1 data-i18n="pgTitle">A little playground</h1>
-  <p data-i18n="pgBody">This headline could be bolder, the text a bit wider — and honestly, that button down there is far too small.</p>
-  <button class="tiny-btn" type="button" data-i18n="pgBtn">tiny button</button>
-  <p class="try" data-i18n="pgTry">Try it: right-click an element to pick it — or drop a pin from the bar below.</p>
+  <header class="pg-wrap pg-nav">
+    <span class="pg-logo"><i></i>Aurora</span>
+    <nav>
+      <a href="#" data-i18n="pgNavFeatures">Features</a>
+      <a href="#" data-i18n="pgNavPricing">Pricing</a>
+      <a href="#" data-i18n="pgNavContact">Contact</a>
+    </nav>
+    <button class="pg-signup" type="button" data-i18n="pgNavCta">Sign up</button>
+  </header>
 
-  <p class="pg-scroll" data-i18n="pgScroll">Keep scrolling — there’s more to mark below the fold.</p>
+  <section class="pg-wrap pg-hero">
+    <h1 data-i18n="pgHeroTitle">Ship interfaces that feel right</h1>
+    <p data-i18n="pgHeroSub">Aurora is the imaginary product on this demo page — scroll through and mark everything that feels off.</p>
+    <button class="pg-tiny" type="button" data-i18n="pgHeroCta">Get started</button>
+    <p class="pg-hint" data-i18n="pgHint">Inkspect playground: right-click picks an element, the bar drops pins — and scrolling stays in sync.</p>
+  </section>
 
-  <section class="pg-section">
-    <h2 data-i18n="pgCardsTitle">Three cards — one is off</h2>
-    <div class="pg-cards">
-      <div class="pg-card"><b data-i18n="pgCard1t">Neatly aligned</b><span data-i18n="pgCard1b">Everything is fine here.</span></div>
-      <div class="pg-card pg-card--odd"><b data-i18n="pgCard2t">Slightly off</b><span data-i18n="pgCard2b">This card sits 6&nbsp;px too low — mark it.</span></div>
-      <div class="pg-card"><b data-i18n="pgCard3t">Neatly aligned</b><span data-i18n="pgCard3b">Nothing to complain about here either.</span></div>
+  <section class="pg-wrap pg-feats">
+    <h2 data-i18n="pgFeatsTitle">Everything in one place</h2>
+    <div class="pg-grid">
+      <div class="pg-card"><b data-i18n="pgFeat1t">Fast</b><p data-i18n="pgFeat1b">Loads before you finish blinking.</p></div>
+      <div class="pg-card pg-card--odd"><b data-i18n="pgFeat2t">Slightly off</b><p data-i18n="pgFeat2b">This card sits 6&nbsp;px too low — a case for the element picker.</p></div>
+      <div class="pg-card"><b data-i18n="pgFeat3t">Reliable</b><p data-i18n="pgFeat3b">Runs and runs — nothing to mark here.</p></div>
     </div>
   </section>
 
-  <section class="pg-section">
-    <h2 data-i18n="pgLowTitle">Hard to read</h2>
-    <p class="pg-low" data-i18n="pgLowBody">This paragraph has far too little contrast — a classic finding.</p>
+  <section class="pg-wrap pg-stats">
+    <div class="pg-stat"><b>12k</b><span data-i18n="pgStat1">Projects</span></div>
+    <div class="pg-stat"><b>340</b><span data-i18n="pgStat2">Teams</span></div>
+    <div class="pg-stat"><b>99.9%</b><span data-i18n="pgStat3">Uptime</span></div>
   </section>
 
-  <footer class="pg-end" data-i18n="pgEnd">End of the page — everything above is fair game.</footer>
+  <figure class="pg-quote">
+    <p data-i18n="pgQuote">“Since Aurora, our reviews take half the time — even though this quote is honestly hard to read.”</p>
+    <span>— Alex, Head of Design</span>
+  </figure>
+
+  <section class="pg-band">
+    <div class="pg-wrap">
+      <h2 data-i18n="pgCtaTitle">Ready when you are</h2>
+      <button type="button" data-i18n="pgCtaBtn">Try Aurora</button>
+    </div>
+  </section>
+
+  <footer class="pg-footer" data-i18n="pgFooter">Imaginary footer — end of the playground. Everything above may be marked.</footer>
 </main>
 
 <script>
@@ -613,21 +674,28 @@ html.framed body { align-items: start; }
       step2: 'Inkspect an die Toolbar pinnen',
       step3: 'Icon klicken — und losmarkieren',
       more: 'Mehr über Inkspect erfahren',
-      pgTitle: 'Ein kleiner Spielplatz',
-      pgBody: 'Diese Überschrift könnte fetter sein, der Text etwas breiter — und der Button da unten ist ehrlich gesagt viel zu klein.',
-      pgBtn: 'winziger Button',
-      pgTry: 'Probier’s: Rechtsklick wählt ein Element aus — oder setz einen Pin über die Leiste unten.',
-      pgScroll: 'Scroll weiter — unterhalb der Falz gibt es mehr zu markieren.',
-      pgCardsTitle: 'Drei Karten — eine tanzt aus der Reihe',
-      pgCard1t: 'Sauber ausgerichtet',
-      pgCard1b: 'Hier ist alles in Ordnung.',
-      pgCard2t: 'Leicht verrutscht',
-      pgCard2b: 'Diese Karte sitzt 6 px zu tief — markier sie.',
-      pgCard3t: 'Sauber ausgerichtet',
-      pgCard3b: 'Auch hier: nichts zu meckern.',
-      pgLowTitle: 'Schwer zu lesen',
-      pgLowBody: 'Dieser Absatz hat viel zu wenig Kontrast — ein Klassiker fürs Feedback.',
-      pgEnd: 'Ende der Seite — alles darüber darf markiert werden.',
+      pgNavFeatures: 'Funktionen',
+      pgNavPricing: 'Preise',
+      pgNavContact: 'Kontakt',
+      pgNavCta: 'Registrieren',
+      pgHeroTitle: 'Interfaces, die sich richtig anfühlen',
+      pgHeroSub: 'Aurora ist das erfundene Produkt dieser Demo-Seite — scroll durch und markiere alles, was sich falsch anfühlt.',
+      pgHeroCta: 'Loslegen',
+      pgHint: 'Inkspect-Spielplatz: Rechtsklick wählt ein Element, die Leiste setzt Pins — und das Scrollen läuft synchron.',
+      pgFeatsTitle: 'Alles an einem Ort',
+      pgFeat1t: 'Schnell',
+      pgFeat1b: 'Lädt, bevor du fertig geblinzelt hast.',
+      pgFeat2t: 'Leicht verrutscht',
+      pgFeat2b: 'Diese Karte sitzt 6 px zu tief — ein Fall für den Element-Picker.',
+      pgFeat3t: 'Zuverlässig',
+      pgFeat3b: 'Läuft und läuft — hier gibt es nichts zu markieren.',
+      pgStat1: 'Projekte',
+      pgStat2: 'Teams',
+      pgStat3: 'Verfügbarkeit',
+      pgQuote: '„Seit Aurora dauern unsere Reviews halb so lang — auch wenn dieses Zitat ehrlich gesagt schwer zu lesen ist.“',
+      pgCtaTitle: 'Bereit, wenn du es bist',
+      pgCtaBtn: 'Aurora ausprobieren',
+      pgFooter: 'Erfundener Footer — Ende des Spielplatzes. Alles darüber darf markiert werden.',
     },
     fr: {
       docTitle: 'Inkspect — Merci pour l’installation',
@@ -646,21 +714,28 @@ html.framed body { align-items: start; }
       step2: 'Épinglez Inkspect à la barre d’outils',
       step3: 'Cliquez sur l’icône — et commencez à annoter',
       more: 'En savoir plus sur Inkspect',
-      pgTitle: 'Un petit terrain de jeu',
-      pgBody: 'Ce titre pourrait être plus gras, le texte un peu plus large — et ce bouton en bas est franchement bien trop petit.',
-      pgBtn: 'bouton minuscule',
-      pgTry: 'Essayez : clic droit sur un élément pour le sélectionner — ou posez une épingle depuis la barre en bas.',
-      pgScroll: 'Continuez à défiler — il y a plus à annoter sous la ligne de flottaison.',
-      pgCardsTitle: 'Trois cartes — une dépasse',
-      pgCard1t: 'Bien alignée',
-      pgCard1b: 'Tout va bien ici.',
-      pgCard2t: 'Légèrement décalée',
-      pgCard2b: 'Cette carte est 6 px trop bas — annotez-la.',
-      pgCard3t: 'Bien alignée',
-      pgCard3b: 'Là encore, rien à redire.',
-      pgLowTitle: 'Difficile à lire',
-      pgLowBody: 'Ce paragraphe manque cruellement de contraste — un classique.',
-      pgEnd: 'Fin de la page — tout ce qui précède peut être annoté.',
+      pgNavFeatures: 'Fonctionnalités',
+      pgNavPricing: 'Tarifs',
+      pgNavContact: 'Contact',
+      pgNavCta: 'S’inscrire',
+      pgHeroTitle: 'Des interfaces qui sonnent juste',
+      pgHeroSub: 'Aurora est le produit imaginaire de cette page de démo — faites défiler et annotez tout ce qui cloche.',
+      pgHeroCta: 'Commencer',
+      pgHint: 'Terrain de jeu Inkspect : clic droit pour sélectionner un élément, la barre pose des épingles — et le défilement reste synchronisé.',
+      pgFeatsTitle: 'Tout au même endroit',
+      pgFeat1t: 'Rapide',
+      pgFeat1b: 'Chargé avant la fin de votre clignement d’œil.',
+      pgFeat2t: 'Légèrement décalée',
+      pgFeat2b: 'Cette carte est 6 px trop bas — un cas pour le sélecteur d’élément.',
+      pgFeat3t: 'Fiable',
+      pgFeat3b: 'Tourne sans faillir — rien à annoter ici.',
+      pgStat1: 'Projets',
+      pgStat2: 'Équipes',
+      pgStat3: 'Disponibilité',
+      pgQuote: '« Depuis Aurora, nos revues prennent deux fois moins de temps — même si cette citation est franchement difficile à lire. »',
+      pgCtaTitle: 'Prêt quand vous l’êtes',
+      pgCtaBtn: 'Essayer Aurora',
+      pgFooter: 'Pied de page imaginaire — fin du terrain de jeu. Tout ce qui précède peut être annoté.',
     },
     es: {
       docTitle: 'Inkspect — Gracias por instalar',
@@ -679,21 +754,28 @@ html.framed body { align-items: start; }
       step2: 'Fija Inkspect a la barra de herramientas',
       step3: 'Haz clic en el icono y empieza a marcar',
       more: 'Más sobre Inkspect',
-      pgTitle: 'Un pequeño patio de juegos',
-      pgBody: 'Este titular podría ser más grueso, el texto algo más ancho — y ese botón de abajo es, sinceramente, demasiado pequeño.',
-      pgBtn: 'botón diminuto',
-      pgTry: 'Pruébalo: clic derecho sobre un elemento para seleccionarlo — o coloca un pin desde la barra inferior.',
-      pgScroll: 'Sigue bajando: hay más que marcar debajo del pliegue.',
-      pgCardsTitle: 'Tres tarjetas — una se desvía',
-      pgCard1t: 'Bien alineada',
-      pgCard1b: 'Aquí todo está en orden.',
-      pgCard2t: 'Un poco torcida',
-      pgCard2b: 'Esta tarjeta está 6 px más abajo: márcala.',
-      pgCard3t: 'Bien alineada',
-      pgCard3b: 'Tampoco aquí hay nada que objetar.',
-      pgLowTitle: 'Difícil de leer',
-      pgLowBody: 'A este párrafo le falta mucho contraste: un clásico.',
-      pgEnd: 'Fin de la página: todo lo de arriba se puede marcar.',
+      pgNavFeatures: 'Funciones',
+      pgNavPricing: 'Precios',
+      pgNavContact: 'Contacto',
+      pgNavCta: 'Regístrate',
+      pgHeroTitle: 'Interfaces que se sienten bien',
+      pgHeroSub: 'Aurora es el producto imaginario de esta página de demostración: desplázate y marca todo lo que no encaje.',
+      pgHeroCta: 'Empezar',
+      pgHint: 'Playground de Inkspect: clic derecho selecciona un elemento, la barra coloca pines — y el desplazamiento va sincronizado.',
+      pgFeatsTitle: 'Todo en un solo lugar',
+      pgFeat1t: 'Rápido',
+      pgFeat1b: 'Carga antes de que termines de parpadear.',
+      pgFeat2t: 'Un poco torcida',
+      pgFeat2b: 'Esta tarjeta está 6 px más abajo: un caso para el selector de elementos.',
+      pgFeat3t: 'Fiable',
+      pgFeat3b: 'Funciona y funciona: aquí no hay nada que marcar.',
+      pgStat1: 'Proyectos',
+      pgStat2: 'Equipos',
+      pgStat3: 'Disponibilidad',
+      pgQuote: '«Desde Aurora nuestras revisiones tardan la mitad — aunque esta cita, sinceramente, cuesta leerla.»',
+      pgCtaTitle: 'Listo cuando tú lo estés',
+      pgCtaBtn: 'Probar Aurora',
+      pgFooter: 'Pie de página imaginario: fin del playground. Todo lo de arriba se puede marcar.',
     },
     it: {
       docTitle: 'Inkspect — Grazie per l’installazione',
@@ -712,21 +794,28 @@ html.framed body { align-items: start; }
       step2: 'Fissa Inkspect alla barra degli strumenti',
       step3: 'Fai clic sull’icona e inizia ad annotare',
       more: 'Scopri di più su Inkspect',
-      pgTitle: 'Un piccolo parco giochi',
-      pgBody: 'Questo titolo potrebbe essere più marcato, il testo un po’ più largo — e quel pulsante lì sotto è francamente troppo piccolo.',
-      pgBtn: 'pulsante minuscolo',
-      pgTry: 'Prova: clic destro su un elemento per selezionarlo — oppure metti un pin dalla barra in basso.',
-      pgScroll: 'Continua a scorrere: sotto la piega c’è altro da annotare.',
-      pgCardsTitle: 'Tre schede — una è fuori posto',
-      pgCard1t: 'Ben allineata',
-      pgCard1b: 'Qui è tutto a posto.',
-      pgCard2t: 'Leggermente storta',
-      pgCard2b: 'Questa scheda è 6 px troppo in basso: segnalala.',
-      pgCard3t: 'Ben allineata',
-      pgCard3b: 'Anche qui, niente da ridire.',
-      pgLowTitle: 'Difficile da leggere',
-      pgLowBody: 'Questo paragrafo ha troppo poco contrasto: un classico.',
-      pgEnd: 'Fine della pagina: tutto ciò che sta sopra si può annotare.',
+      pgNavFeatures: 'Funzionalità',
+      pgNavPricing: 'Prezzi',
+      pgNavContact: 'Contatti',
+      pgNavCta: 'Registrati',
+      pgHeroTitle: 'Interfacce che suonano giuste',
+      pgHeroSub: 'Aurora è il prodotto immaginario di questa pagina demo: scorri e annota tutto ciò che stona.',
+      pgHeroCta: 'Inizia',
+      pgHint: 'Parco giochi di Inkspect: il clic destro seleziona un elemento, la barra mette i pin — e lo scorrimento resta sincronizzato.',
+      pgFeatsTitle: 'Tutto in un unico posto',
+      pgFeat1t: 'Veloce',
+      pgFeat1b: 'Carica prima che tu finisca di sbattere le palpebre.',
+      pgFeat2t: 'Leggermente storta',
+      pgFeat2b: 'Questa scheda è 6 px troppo in basso: un caso per il selettore di elementi.',
+      pgFeat3t: 'Affidabile',
+      pgFeat3b: 'Funziona e funziona: qui non c’è nulla da annotare.',
+      pgStat1: 'Progetti',
+      pgStat2: 'Team',
+      pgStat3: 'Uptime',
+      pgQuote: '«Da quando usiamo Aurora le review durano la metà — anche se questa citazione, francamente, si legge male.»',
+      pgCtaTitle: 'Pronto quando lo sei tu',
+      pgCtaBtn: 'Prova Aurora',
+      pgFooter: 'Footer immaginario: fine del parco giochi. Tutto ciò che sta sopra si può annotare.',
     },
     pt: {
       docTitle: 'Inkspect — Obrigado por instalar',
@@ -745,21 +834,28 @@ html.framed body { align-items: start; }
       step2: 'Fixe o Inkspect na barra de ferramentas',
       step3: 'Clique no ícone — e comece a marcar',
       more: 'Saiba mais sobre o Inkspect',
-      pgTitle: 'Um pequeno playground',
-      pgBody: 'Este título podia ser mais forte, o texto um pouco mais largo — e aquele botão ali embaixo é, francamente, pequeno demais.',
-      pgBtn: 'botão minúsculo',
-      pgTry: 'Experimente: clique com o botão direito em um elemento para selecioná-lo — ou solte um pin pela barra abaixo.',
-      pgScroll: 'Continue rolando: há mais para marcar abaixo da dobra.',
-      pgCardsTitle: 'Três cartões — um está fora da linha',
-      pgCard1t: 'Bem alinhado',
-      pgCard1b: 'Aqui está tudo em ordem.',
-      pgCard2t: 'Levemente deslocado',
-      pgCard2b: 'Este cartão está 6 px mais baixo: marque-o.',
-      pgCard3t: 'Bem alinhado',
-      pgCard3b: 'Aqui também não há o que reclamar.',
-      pgLowTitle: 'Difícil de ler',
-      pgLowBody: 'Este parágrafo tem contraste de menos: um clássico.',
-      pgEnd: 'Fim da página: tudo acima pode ser marcado.',
+      pgNavFeatures: 'Recursos',
+      pgNavPricing: 'Preços',
+      pgNavContact: 'Contato',
+      pgNavCta: 'Cadastre-se',
+      pgHeroTitle: 'Interfaces que parecem certas',
+      pgHeroSub: 'Aurora é o produto imaginário desta página de demonstração: role e marque tudo o que parecer errado.',
+      pgHeroCta: 'Começar',
+      pgHint: 'Playground do Inkspect: o clique direito seleciona um elemento, a barra solta pins — e a rolagem fica sincronizada.',
+      pgFeatsTitle: 'Tudo em um só lugar',
+      pgFeat1t: 'Rápido',
+      pgFeat1b: 'Carrega antes de você terminar de piscar.',
+      pgFeat2t: 'Levemente deslocado',
+      pgFeat2b: 'Este cartão está 6 px mais baixo: um caso para o seletor de elementos.',
+      pgFeat3t: 'Confiável',
+      pgFeat3b: 'Funciona sem parar: aqui não há nada para marcar.',
+      pgStat1: 'Projetos',
+      pgStat2: 'Equipes',
+      pgStat3: 'Disponibilidade',
+      pgQuote: '“Desde o Aurora, nossas revisões levam metade do tempo — embora esta citação seja, francamente, difícil de ler.”',
+      pgCtaTitle: 'Pronto quando você estiver',
+      pgCtaBtn: 'Experimentar o Aurora',
+      pgFooter: 'Rodapé imaginário: fim do playground. Tudo acima pode ser marcado.',
     },
     nl: {
       docTitle: 'Inkspect — Bedankt voor het installeren',
@@ -778,21 +874,28 @@ html.framed body { align-items: start; }
       step2: 'Pin Inkspect aan de werkbalk',
       step3: 'Klik op het icoon — en begin met markeren',
       more: 'Meer over Inkspect',
-      pgTitle: 'Een kleine speeltuin',
-      pgBody: 'Deze kop mag vetter, de tekst wat breder — en die knop daaronder is eerlijk gezegd veel te klein.',
-      pgBtn: 'piepkleine knop',
-      pgTry: 'Probeer het: rechtsklik op een element om het te kiezen — of zet een pin via de balk onderaan.',
-      pgScroll: 'Scroll verder — onder de vouw valt meer te markeren.',
-      pgCardsTitle: 'Drie kaarten — één valt uit de toon',
-      pgCard1t: 'Netjes uitgelijnd',
-      pgCard1b: 'Hier is alles in orde.',
-      pgCard2t: 'Iets verschoven',
-      pgCard2b: 'Deze kaart staat 6 px te laag — markeer hem.',
-      pgCard3t: 'Netjes uitgelijnd',
-      pgCard3b: 'Ook hier niets op aan te merken.',
-      pgLowTitle: 'Slecht leesbaar',
-      pgLowBody: 'Deze alinea heeft veel te weinig contrast — een klassieker.',
-      pgEnd: 'Einde van de pagina — alles hierboven mag gemarkeerd worden.',
+      pgNavFeatures: 'Functies',
+      pgNavPricing: 'Prijzen',
+      pgNavContact: 'Contact',
+      pgNavCta: 'Aanmelden',
+      pgHeroTitle: 'Interfaces die goed voelen',
+      pgHeroSub: 'Aurora is het verzonnen product van deze demopagina — scroll erdoorheen en markeer alles wat niet klopt.',
+      pgHeroCta: 'Aan de slag',
+      pgHint: 'Inkspect-speeltuin: rechtsklik kiest een element, de balk zet pins — en het scrollen loopt synchroon.',
+      pgFeatsTitle: 'Alles op één plek',
+      pgFeat1t: 'Snel',
+      pgFeat1b: 'Geladen voordat je klaar bent met knipperen.',
+      pgFeat2t: 'Iets verschoven',
+      pgFeat2b: 'Deze kaart staat 6 px te laag — een geval voor de element-kiezer.',
+      pgFeat3t: 'Betrouwbaar',
+      pgFeat3b: 'Draait en draait — hier valt niets te markeren.',
+      pgStat1: 'Projecten',
+      pgStat2: 'Teams',
+      pgStat3: 'Uptime',
+      pgQuote: '„Sinds Aurora kosten onze reviews half zoveel tijd — al is dit citaat eerlijk gezegd slecht leesbaar.”',
+      pgCtaTitle: 'Klaar wanneer jij het bent',
+      pgCtaBtn: 'Probeer Aurora',
+      pgFooter: 'Verzonnen footer — einde van de speeltuin. Alles hierboven mag gemarkeerd worden.',
     },
     ja: {
       docTitle: 'Inkspect — インストールありがとうございます',
@@ -811,21 +914,28 @@ html.framed body { align-items: start; }
       step2: 'Inkspect をツールバーにピン留めする',
       step3: 'アイコンをクリックして、マークを始める',
       more: 'Inkspect についてもっと知る',
-      pgTitle: '小さな遊び場',
-      pgBody: 'この見出しはもっと太く、本文はもう少し幅広く — そして下のボタンは正直言って小さすぎます。',
-      pgBtn: '極小ボタン',
-      pgTry: '試してみて: 要素を右クリックで選択 — または下のバーからピンを置けます。',
-      pgScroll: 'さらにスクロール — 折り返しの下にもマークする場所があります。',
-      pgCardsTitle: '3 枚のカード — 1 枚だけずれています',
-      pgCard1t: 'きれいに整列',
-      pgCard1b: 'ここは問題ありません。',
-      pgCard2t: '少しずれている',
-      pgCard2b: 'このカードは 6px 下がっています — マークしてみましょう。',
-      pgCard3t: 'きれいに整列',
-      pgCard3b: 'ここも問題なしです。',
-      pgLowTitle: '読みにくい',
-      pgLowBody: 'この段落はコントラストが低すぎます — 定番の指摘ポイントです。',
-      pgEnd: 'ページの終わり — ここまでのすべてがマーク対象です。',
+      pgNavFeatures: '機能',
+      pgNavPricing: '料金',
+      pgNavContact: 'お問い合わせ',
+      pgNavCta: '登録',
+      pgHeroTitle: 'しっくりくるインターフェースを',
+      pgHeroSub: 'Aurora はこのデモページの架空のプロダクトです — スクロールして、違和感のある箇所をマークしてみましょう。',
+      pgHeroCta: 'はじめる',
+      pgHint: 'Inkspect の遊び場: 右クリックで要素を選択、バーからピンを設置 — スクロールは同期します。',
+      pgFeatsTitle: 'すべてをひとつの場所に',
+      pgFeat1t: '高速',
+      pgFeat1b: 'まばたきが終わる前に読み込みます。',
+      pgFeat2t: '少しずれている',
+      pgFeat2b: 'このカードは 6px 下がっています — 要素ピッカーの出番です。',
+      pgFeat3t: '信頼性',
+      pgFeat3b: '動き続けます — ここにマークするものはありません。',
+      pgStat1: 'プロジェクト',
+      pgStat2: 'チーム',
+      pgStat3: '稼働率',
+      pgQuote: '「Aurora を使い始めてからレビューの時間は半分に — ただ、この引用は正直読みにくいですね。」',
+      pgCtaTitle: '準備ができたらいつでも',
+      pgCtaBtn: 'Aurora を試す',
+      pgFooter: '架空のフッター — 遊び場はここまで。上のすべてがマーク対象です。',
     },
     zh: {
       docTitle: 'Inkspect — 感谢安装',
@@ -844,21 +954,28 @@ html.framed body { align-items: start; }
       step2: '将 Inkspect 固定到工具栏',
       step3: '点击图标 — 开始标注',
       more: '进一步了解 Inkspect',
-      pgTitle: '一个小小的游乐场',
-      pgBody: '这个标题可以更粗一些，正文可以更宽一些 — 而下面那个按钮实在太小了。',
-      pgBtn: '超小按钮',
-      pgTry: '试试看: 右键点击元素即可选中 — 或者用底部工具栏放一个图钉。',
-      pgScroll: '继续向下滚动 — 首屏之下还有更多可以标注的内容。',
-      pgCardsTitle: '三张卡片 — 有一张不对劲',
-      pgCard1t: '对齐整齐',
-      pgCard1b: '这里一切正常。',
-      pgCard2t: '略微错位',
-      pgCard2b: '这张卡片低了 6 像素 — 把它标出来。',
-      pgCard3t: '对齐整齐',
-      pgCard3b: '这里也没有问题。',
-      pgLowTitle: '难以阅读',
-      pgLowBody: '这段文字的对比度太低了 — 经典的反馈素材。',
-      pgEnd: '页面结束 — 上面的一切都可以标注。',
+      pgNavFeatures: '功能',
+      pgNavPricing: '价格',
+      pgNavContact: '联系我们',
+      pgNavCta: '注册',
+      pgHeroTitle: '打造感觉对味的界面',
+      pgHeroSub: 'Aurora 是这个演示页面上的虚构产品 — 滚动浏览，把所有不对劲的地方标出来。',
+      pgHeroCta: '开始使用',
+      pgHint: 'Inkspect 游乐场: 右键选中元素，工具栏放置图钉 — 滚动保持同步。',
+      pgFeatsTitle: '一切尽在一处',
+      pgFeat1t: '快速',
+      pgFeat1b: '眨眼还没眨完就加载好了。',
+      pgFeat2t: '略微错位',
+      pgFeat2b: '这张卡片低了 6 像素 — 正好试试元素选择器。',
+      pgFeat3t: '可靠',
+      pgFeat3b: '一直稳定运行 — 这里没什么可标注的。',
+      pgStat1: '项目',
+      pgStat2: '团队',
+      pgStat3: '可用性',
+      pgQuote: '“用上 Aurora 之后，我们的评审时间减半 — 虽然这段引用说实话很难读清。”',
+      pgCtaTitle: '随时恭候',
+      pgCtaBtn: '试用 Aurora',
+      pgFooter: '虚构的页脚 — 游乐场到此结束。上面的一切都可以标注。',
     },
   };
 
