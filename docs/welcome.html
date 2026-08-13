@@ -23,7 +23,10 @@
  * sind ueber Prozentwerte synchron. Ohne Animation (prefers-reduced-motion)
  * steht das lehrreichste Standbild: Menue offen, Pin aktiv, Icon angepinnt.
  */
-body { min-height: 100vh; display: grid; place-items: center; overflow-x: hidden; }
+/* `safe center`: ist das Fenster kleiner als der Inhalt, richtet sich der
+   Inhalt oben aus und bleibt komplett erscrollbar — plain `center` schiebt
+   die Oberkante sonst unerreichbar aus dem Viewport. */
+body { min-height: 100vh; display: grid; align-items: safe center; justify-items: center; overflow-x: hidden; }
 
 .welcome { text-align: center; max-width: 980px; padding: 32px 24px 40px; }
 .welcome h1 { font-size: clamp(24px, 3.4vw, 34px); margin: 0 0 10px; }
@@ -377,7 +380,7 @@ body { min-height: 100vh; display: grid; place-items: center; overflow-x: hidden
 }
 
 /* ---------- Playground (nur in Frames sichtbar) ---------- */
-.playground { display: none; max-width: 460px; padding: 24px; }
+.playground { display: none; max-width: 460px; padding: 24px 24px 48px; }
 .playground h1 { font-size: 28px; margin: 0 0 10px; }
 .playground p { color: var(--text-1); }
 .playground .try { margin-top: 6px; color: var(--text-2); font-size: 14px; }
@@ -387,9 +390,31 @@ body { min-height: 100vh; display: grid; place-items: center; overflow-x: hidden
   background: var(--bg-2); color: var(--text-2);
   border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
 }
+/* Unterhalb der Falz geht es weiter: die Abstaende machen die Seite bewusst
+   lang, damit Scrollen (und Scroll-Sync) etwas zu tun hat. */
+.pg-scroll { margin-top: 40px; color: var(--text-2); font-size: 13px; }
+.pg-scroll::after { content: ' ↓'; }
+.pg-section { margin-top: 300px; text-align: left; }
+.pg-section h2 { font-size: 20px; margin: 0 0 12px; }
+.pg-cards { display: grid; gap: 12px; }
+.pg-card {
+  padding: 14px 16px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.pg-card b { display: block; margin-bottom: 3px; }
+.pg-card span { color: var(--text-1); font-size: 14px; }
+/* Absichtlich verrutscht — ein dankbares Ziel fuer den Element-Picker. */
+.pg-card--odd { transform: translateY(6px) rotate(.5deg); }
+/* Absichtlich kontrastarm — der Klassiker unter den Fundstuecken. */
+.pg-low { opacity: .38; }
+.pg-end { margin-top: 300px; color: var(--text-2); font-size: 14px; }
 
 html.framed .welcome, html.framed .arrow { display: none; }
 html.framed .playground { display: block; }
+/* Im Frame beginnt die Seite oben — Scrollen fuehrt zu den Fundstuecken. */
+html.framed body { align-items: start; }
 </style>
 <script>
   if (window.self !== window.top) document.documentElement.classList.add('framed');
@@ -544,38 +569,317 @@ html.framed .playground { display: block; }
   <p data-i18n="pgBody">This headline could be bolder, the text a bit wider — and honestly, that button down there is far too small.</p>
   <button class="tiny-btn" type="button" data-i18n="pgBtn">tiny button</button>
   <p class="try" data-i18n="pgTry">Try it: right-click an element to pick it — or drop a pin from the bar below.</p>
+
+  <p class="pg-scroll" data-i18n="pgScroll">Keep scrolling — there’s more to mark below the fold.</p>
+
+  <section class="pg-section">
+    <h2 data-i18n="pgCardsTitle">Three cards — one is off</h2>
+    <div class="pg-cards">
+      <div class="pg-card"><b data-i18n="pgCard1t">Neatly aligned</b><span data-i18n="pgCard1b">Everything is fine here.</span></div>
+      <div class="pg-card pg-card--odd"><b data-i18n="pgCard2t">Slightly off</b><span data-i18n="pgCard2b">This card sits 6&nbsp;px too low — mark it.</span></div>
+      <div class="pg-card"><b data-i18n="pgCard3t">Neatly aligned</b><span data-i18n="pgCard3b">Nothing to complain about here either.</span></div>
+    </div>
+  </section>
+
+  <section class="pg-section">
+    <h2 data-i18n="pgLowTitle">Hard to read</h2>
+    <p class="pg-low" data-i18n="pgLowBody">This paragraph has far too little contrast — a classic finding.</p>
+  </section>
+
+  <footer class="pg-end" data-i18n="pgEnd">End of the page — everything above is fair game.</footer>
 </main>
 
 <script>
-  var DE = {
-    title: 'Danke, dass du Inkspect installiert hast!',
-    sub: 'Alles bereit — drei Schritte, und du markierst deine erste Seite:',
-    tab: 'Ausprobieren',
-    menuTitle: 'Erweiterungen',
-    menuAccess: 'Vollzugriff',
-    menuAccessSub: 'Diese Erweiterungen können Daten dieser Website abrufen und verändern.',
-    menuManage: 'Erweiterungen verwalten',
-    rowBlocker: 'AdBlocker',
-    rowPw: 'Passwort-Manager',
-    rowTranslate: 'Übersetzer',
-    miniNote: 'Button zu klein',
-    step1: 'Puzzle-Menü öffnen',
-    step2: 'Inkspect an die Toolbar pinnen',
-    step3: 'Icon klicken — und losmarkieren',
-    more: 'Mehr über Inkspect erfahren',
-    pgTitle: 'Ein kleiner Spielplatz',
-    pgBody: 'Diese Überschrift könnte fetter sein, der Text etwas breiter — und der Button da unten ist ehrlich gesagt viel zu klein.',
-    pgBtn: 'winziger Button',
-    pgTry: 'Probier’s: Rechtsklick wählt ein Element aus — oder setz einen Pin über die Leiste unten.',
+  /*
+   * Mehrsprachigkeit ohne Framework: Englisch steht im Markup, alle anderen
+   * Sprachen liegen hier als Woerterbuecher. Gewaehlt wird die erste
+   * Browser-Sprache, fuer die es ein Woerterbuch gibt.
+   */
+  var I18N = {
+    de: {
+      docTitle: 'Inkspect — Danke für die Installation',
+      title: 'Danke, dass du Inkspect installiert hast!',
+      sub: 'Alles bereit — drei Schritte, und du markierst deine erste Seite:',
+      tab: 'Ausprobieren',
+      menuTitle: 'Erweiterungen',
+      menuAccess: 'Vollzugriff',
+      menuAccessSub: 'Diese Erweiterungen können Daten dieser Website abrufen und verändern.',
+      menuManage: 'Erweiterungen verwalten',
+      rowBlocker: 'AdBlocker',
+      rowPw: 'Passwort-Manager',
+      rowTranslate: 'Übersetzer',
+      miniNote: 'Button zu klein',
+      step1: 'Puzzle-Menü öffnen',
+      step2: 'Inkspect an die Toolbar pinnen',
+      step3: 'Icon klicken — und losmarkieren',
+      more: 'Mehr über Inkspect erfahren',
+      pgTitle: 'Ein kleiner Spielplatz',
+      pgBody: 'Diese Überschrift könnte fetter sein, der Text etwas breiter — und der Button da unten ist ehrlich gesagt viel zu klein.',
+      pgBtn: 'winziger Button',
+      pgTry: 'Probier’s: Rechtsklick wählt ein Element aus — oder setz einen Pin über die Leiste unten.',
+      pgScroll: 'Scroll weiter — unterhalb der Falz gibt es mehr zu markieren.',
+      pgCardsTitle: 'Drei Karten — eine tanzt aus der Reihe',
+      pgCard1t: 'Sauber ausgerichtet',
+      pgCard1b: 'Hier ist alles in Ordnung.',
+      pgCard2t: 'Leicht verrutscht',
+      pgCard2b: 'Diese Karte sitzt 6 px zu tief — markier sie.',
+      pgCard3t: 'Sauber ausgerichtet',
+      pgCard3b: 'Auch hier: nichts zu meckern.',
+      pgLowTitle: 'Schwer zu lesen',
+      pgLowBody: 'Dieser Absatz hat viel zu wenig Kontrast — ein Klassiker fürs Feedback.',
+      pgEnd: 'Ende der Seite — alles darüber darf markiert werden.',
+    },
+    fr: {
+      docTitle: 'Inkspect — Merci pour l’installation',
+      title: 'Merci d’avoir installé Inkspect !',
+      sub: 'Tout est prêt — trois étapes et vous annotez votre première page :',
+      tab: 'Essayer',
+      menuTitle: 'Extensions',
+      menuAccess: 'Accès complet',
+      menuAccessSub: 'Ces extensions peuvent consulter et modifier les données de ce site.',
+      menuManage: 'Gérer les extensions',
+      rowBlocker: 'AdBlocker',
+      rowPw: 'Gestionnaire de mots de passe',
+      rowTranslate: 'Traducteur',
+      miniNote: 'bouton trop petit',
+      step1: 'Ouvrez le menu puzzle',
+      step2: 'Épinglez Inkspect à la barre d’outils',
+      step3: 'Cliquez sur l’icône — et commencez à annoter',
+      more: 'En savoir plus sur Inkspect',
+      pgTitle: 'Un petit terrain de jeu',
+      pgBody: 'Ce titre pourrait être plus gras, le texte un peu plus large — et ce bouton en bas est franchement bien trop petit.',
+      pgBtn: 'bouton minuscule',
+      pgTry: 'Essayez : clic droit sur un élément pour le sélectionner — ou posez une épingle depuis la barre en bas.',
+      pgScroll: 'Continuez à défiler — il y a plus à annoter sous la ligne de flottaison.',
+      pgCardsTitle: 'Trois cartes — une dépasse',
+      pgCard1t: 'Bien alignée',
+      pgCard1b: 'Tout va bien ici.',
+      pgCard2t: 'Légèrement décalée',
+      pgCard2b: 'Cette carte est 6 px trop bas — annotez-la.',
+      pgCard3t: 'Bien alignée',
+      pgCard3b: 'Là encore, rien à redire.',
+      pgLowTitle: 'Difficile à lire',
+      pgLowBody: 'Ce paragraphe manque cruellement de contraste — un classique.',
+      pgEnd: 'Fin de la page — tout ce qui précède peut être annoté.',
+    },
+    es: {
+      docTitle: 'Inkspect — Gracias por instalar',
+      title: '¡Gracias por instalar Inkspect!',
+      sub: 'Todo listo: tres pasos y estarás marcando tu primera página:',
+      tab: 'Pruébalo',
+      menuTitle: 'Extensiones',
+      menuAccess: 'Acceso total',
+      menuAccessSub: 'Estas extensiones pueden ver y cambiar los datos de este sitio.',
+      menuManage: 'Gestionar extensiones',
+      rowBlocker: 'AdBlocker',
+      rowPw: 'Gestor de contraseñas',
+      rowTranslate: 'Traductor',
+      miniNote: 'botón demasiado pequeño',
+      step1: 'Abre el menú del puzle',
+      step2: 'Fija Inkspect a la barra de herramientas',
+      step3: 'Haz clic en el icono y empieza a marcar',
+      more: 'Más sobre Inkspect',
+      pgTitle: 'Un pequeño patio de juegos',
+      pgBody: 'Este titular podría ser más grueso, el texto algo más ancho — y ese botón de abajo es, sinceramente, demasiado pequeño.',
+      pgBtn: 'botón diminuto',
+      pgTry: 'Pruébalo: clic derecho sobre un elemento para seleccionarlo — o coloca un pin desde la barra inferior.',
+      pgScroll: 'Sigue bajando: hay más que marcar debajo del pliegue.',
+      pgCardsTitle: 'Tres tarjetas — una se desvía',
+      pgCard1t: 'Bien alineada',
+      pgCard1b: 'Aquí todo está en orden.',
+      pgCard2t: 'Un poco torcida',
+      pgCard2b: 'Esta tarjeta está 6 px más abajo: márcala.',
+      pgCard3t: 'Bien alineada',
+      pgCard3b: 'Tampoco aquí hay nada que objetar.',
+      pgLowTitle: 'Difícil de leer',
+      pgLowBody: 'A este párrafo le falta mucho contraste: un clásico.',
+      pgEnd: 'Fin de la página: todo lo de arriba se puede marcar.',
+    },
+    it: {
+      docTitle: 'Inkspect — Grazie per l’installazione',
+      title: 'Grazie per aver installato Inkspect!',
+      sub: 'Tutto pronto: tre passaggi e stai già annotando la tua prima pagina:',
+      tab: 'Provalo',
+      menuTitle: 'Estensioni',
+      menuAccess: 'Accesso completo',
+      menuAccessSub: 'Queste estensioni possono vedere e modificare i dati di questo sito.',
+      menuManage: 'Gestisci estensioni',
+      rowBlocker: 'AdBlocker',
+      rowPw: 'Gestore di password',
+      rowTranslate: 'Traduttore',
+      miniNote: 'pulsante troppo piccolo',
+      step1: 'Apri il menu puzzle',
+      step2: 'Fissa Inkspect alla barra degli strumenti',
+      step3: 'Fai clic sull’icona e inizia ad annotare',
+      more: 'Scopri di più su Inkspect',
+      pgTitle: 'Un piccolo parco giochi',
+      pgBody: 'Questo titolo potrebbe essere più marcato, il testo un po’ più largo — e quel pulsante lì sotto è francamente troppo piccolo.',
+      pgBtn: 'pulsante minuscolo',
+      pgTry: 'Prova: clic destro su un elemento per selezionarlo — oppure metti un pin dalla barra in basso.',
+      pgScroll: 'Continua a scorrere: sotto la piega c’è altro da annotare.',
+      pgCardsTitle: 'Tre schede — una è fuori posto',
+      pgCard1t: 'Ben allineata',
+      pgCard1b: 'Qui è tutto a posto.',
+      pgCard2t: 'Leggermente storta',
+      pgCard2b: 'Questa scheda è 6 px troppo in basso: segnalala.',
+      pgCard3t: 'Ben allineata',
+      pgCard3b: 'Anche qui, niente da ridire.',
+      pgLowTitle: 'Difficile da leggere',
+      pgLowBody: 'Questo paragrafo ha troppo poco contrasto: un classico.',
+      pgEnd: 'Fine della pagina: tutto ciò che sta sopra si può annotare.',
+    },
+    pt: {
+      docTitle: 'Inkspect — Obrigado por instalar',
+      title: 'Obrigado por instalar o Inkspect!',
+      sub: 'Tudo pronto: três passos e você já está marcando a sua primeira página:',
+      tab: 'Experimente',
+      menuTitle: 'Extensões',
+      menuAccess: 'Acesso total',
+      menuAccessSub: 'Estas extensões podem ver e alterar os dados deste site.',
+      menuManage: 'Gerenciar extensões',
+      rowBlocker: 'AdBlocker',
+      rowPw: 'Gerenciador de senhas',
+      rowTranslate: 'Tradutor',
+      miniNote: 'botão pequeno demais',
+      step1: 'Abra o menu do quebra-cabeça',
+      step2: 'Fixe o Inkspect na barra de ferramentas',
+      step3: 'Clique no ícone — e comece a marcar',
+      more: 'Saiba mais sobre o Inkspect',
+      pgTitle: 'Um pequeno playground',
+      pgBody: 'Este título podia ser mais forte, o texto um pouco mais largo — e aquele botão ali embaixo é, francamente, pequeno demais.',
+      pgBtn: 'botão minúsculo',
+      pgTry: 'Experimente: clique com o botão direito em um elemento para selecioná-lo — ou solte um pin pela barra abaixo.',
+      pgScroll: 'Continue rolando: há mais para marcar abaixo da dobra.',
+      pgCardsTitle: 'Três cartões — um está fora da linha',
+      pgCard1t: 'Bem alinhado',
+      pgCard1b: 'Aqui está tudo em ordem.',
+      pgCard2t: 'Levemente deslocado',
+      pgCard2b: 'Este cartão está 6 px mais baixo: marque-o.',
+      pgCard3t: 'Bem alinhado',
+      pgCard3b: 'Aqui também não há o que reclamar.',
+      pgLowTitle: 'Difícil de ler',
+      pgLowBody: 'Este parágrafo tem contraste de menos: um clássico.',
+      pgEnd: 'Fim da página: tudo acima pode ser marcado.',
+    },
+    nl: {
+      docTitle: 'Inkspect — Bedankt voor het installeren',
+      title: 'Bedankt voor het installeren van Inkspect!',
+      sub: 'Alles staat klaar — drie stappen en je markeert je eerste pagina:',
+      tab: 'Probeer het',
+      menuTitle: 'Extensies',
+      menuAccess: 'Volledige toegang',
+      menuAccessSub: 'Deze extensies kunnen gegevens op deze site bekijken en wijzigen.',
+      menuManage: 'Extensies beheren',
+      rowBlocker: 'AdBlocker',
+      rowPw: 'Wachtwoordmanager',
+      rowTranslate: 'Vertaler',
+      miniNote: 'knop te klein',
+      step1: 'Open het puzzelmenu',
+      step2: 'Pin Inkspect aan de werkbalk',
+      step3: 'Klik op het icoon — en begin met markeren',
+      more: 'Meer over Inkspect',
+      pgTitle: 'Een kleine speeltuin',
+      pgBody: 'Deze kop mag vetter, de tekst wat breder — en die knop daaronder is eerlijk gezegd veel te klein.',
+      pgBtn: 'piepkleine knop',
+      pgTry: 'Probeer het: rechtsklik op een element om het te kiezen — of zet een pin via de balk onderaan.',
+      pgScroll: 'Scroll verder — onder de vouw valt meer te markeren.',
+      pgCardsTitle: 'Drie kaarten — één valt uit de toon',
+      pgCard1t: 'Netjes uitgelijnd',
+      pgCard1b: 'Hier is alles in orde.',
+      pgCard2t: 'Iets verschoven',
+      pgCard2b: 'Deze kaart staat 6 px te laag — markeer hem.',
+      pgCard3t: 'Netjes uitgelijnd',
+      pgCard3b: 'Ook hier niets op aan te merken.',
+      pgLowTitle: 'Slecht leesbaar',
+      pgLowBody: 'Deze alinea heeft veel te weinig contrast — een klassieker.',
+      pgEnd: 'Einde van de pagina — alles hierboven mag gemarkeerd worden.',
+    },
+    ja: {
+      docTitle: 'Inkspect — インストールありがとうございます',
+      title: 'Inkspect のインストールありがとうございます！',
+      sub: '準備完了 — 3 ステップで最初のページに書き込めます:',
+      tab: '試してみる',
+      menuTitle: '拡張機能',
+      menuAccess: 'フルアクセス',
+      menuAccessSub: 'これらの拡張機能はこのサイトのデータを読み取り、変更できます。',
+      menuManage: '拡張機能を管理',
+      rowBlocker: 'AdBlocker',
+      rowPw: 'パスワードマネージャー',
+      rowTranslate: '翻訳ツール',
+      miniNote: 'ボタンが小さすぎる',
+      step1: 'パズルメニューを開く',
+      step2: 'Inkspect をツールバーにピン留めする',
+      step3: 'アイコンをクリックして、マークを始める',
+      more: 'Inkspect についてもっと知る',
+      pgTitle: '小さな遊び場',
+      pgBody: 'この見出しはもっと太く、本文はもう少し幅広く — そして下のボタンは正直言って小さすぎます。',
+      pgBtn: '極小ボタン',
+      pgTry: '試してみて: 要素を右クリックで選択 — または下のバーからピンを置けます。',
+      pgScroll: 'さらにスクロール — 折り返しの下にもマークする場所があります。',
+      pgCardsTitle: '3 枚のカード — 1 枚だけずれています',
+      pgCard1t: 'きれいに整列',
+      pgCard1b: 'ここは問題ありません。',
+      pgCard2t: '少しずれている',
+      pgCard2b: 'このカードは 6px 下がっています — マークしてみましょう。',
+      pgCard3t: 'きれいに整列',
+      pgCard3b: 'ここも問題なしです。',
+      pgLowTitle: '読みにくい',
+      pgLowBody: 'この段落はコントラストが低すぎます — 定番の指摘ポイントです。',
+      pgEnd: 'ページの終わり — ここまでのすべてがマーク対象です。',
+    },
+    zh: {
+      docTitle: 'Inkspect — 感谢安装',
+      title: '感谢安装 Inkspect！',
+      sub: '一切就绪 — 三步即可开始标注你的第一个页面:',
+      tab: '试一试',
+      menuTitle: '扩展程序',
+      menuAccess: '完全访问权限',
+      menuAccessSub: '这些扩展程序可以查看并更改此网站上的数据。',
+      menuManage: '管理扩展程序',
+      rowBlocker: 'AdBlocker',
+      rowPw: '密码管理器',
+      rowTranslate: '翻译工具',
+      miniNote: '按钮太小',
+      step1: '打开拼图菜单',
+      step2: '将 Inkspect 固定到工具栏',
+      step3: '点击图标 — 开始标注',
+      more: '进一步了解 Inkspect',
+      pgTitle: '一个小小的游乐场',
+      pgBody: '这个标题可以更粗一些，正文可以更宽一些 — 而下面那个按钮实在太小了。',
+      pgBtn: '超小按钮',
+      pgTry: '试试看: 右键点击元素即可选中 — 或者用底部工具栏放一个图钉。',
+      pgScroll: '继续向下滚动 — 首屏之下还有更多可以标注的内容。',
+      pgCardsTitle: '三张卡片 — 有一张不对劲',
+      pgCard1t: '对齐整齐',
+      pgCard1b: '这里一切正常。',
+      pgCard2t: '略微错位',
+      pgCard2b: '这张卡片低了 6 像素 — 把它标出来。',
+      pgCard3t: '对齐整齐',
+      pgCard3b: '这里也没有问题。',
+      pgLowTitle: '难以阅读',
+      pgLowBody: '这段文字的对比度太低了 — 经典的反馈素材。',
+      pgEnd: '页面结束 — 上面的一切都可以标注。',
+    },
   };
-  if (navigator.language && navigator.language.toLowerCase().indexOf('de') === 0) {
-    document.documentElement.lang = 'de';
-    document.title = 'Inkspect — Danke für die Installation';
-    document.querySelectorAll('[data-i18n]').forEach(function (el) {
-      var s = DE[el.getAttribute('data-i18n')];
-      if (s) el.textContent = s;
-    });
-  }
+
+  (function () {
+    var langs = navigator.languages && navigator.languages.length
+      ? navigator.languages
+      : [navigator.language || 'en'];
+    for (var i = 0; i < langs.length; i++) {
+      var code = String(langs[i]).toLowerCase().split('-')[0];
+      if (code === 'en') break; // Englisch steht bereits im Markup
+      var dict = I18N[code];
+      if (!dict) continue;
+      document.documentElement.lang = code;
+      if (dict.docTitle) document.title = dict.docTitle;
+      document.querySelectorAll('[data-i18n]').forEach(function (el) {
+        var s = dict[el.getAttribute('data-i18n')];
+        if (s) el.textContent = s;
+      });
+      break;
+    }
+  })();
 </script>
 </body>
 </html>
