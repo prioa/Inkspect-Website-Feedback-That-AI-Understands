@@ -450,8 +450,9 @@ html.framed .playground { display: block; }
 /* Im Frame fliesst die LP normal von oben — kein Grid-Zentrieren. */
 html.framed body { display: block; }
 /* Der Frame ist eine Vorschau — die native Scrollbar waere nur Kulisse.
-   Scrollen bleibt voll moeglich (Rad, Touch, Sync). */
-html.framed { scrollbar-width: none; }
+   Scrollen bleibt voll moeglich (Rad, Touch, Sync). Smooth-Scrolling ist im
+   Frame aus, damit der Scroll-Sync unmittelbar folgt. */
+html.framed { scrollbar-width: none; scroll-behavior: auto; }
 html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
 </style>
 <script>
