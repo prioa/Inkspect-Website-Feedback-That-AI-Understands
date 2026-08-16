@@ -9,23 +9,23 @@
 <link rel="stylesheet" href="style.css" />
 <style>
 /*
- * Welcome-Seite: wird von der Extension nach der Installation geoeffnet
- * (background.ts, WELCOME_URL). Zwei Zustaende:
- *  - Top-Level: grosses animiertes Browser-Mockup, das den kompletten Ablauf
- *    vorspielt (Puzzle-Menue -> Inkspect anpinnen -> Icon klicken -> das Tool
- *    geht auf), daneben drei Schritte, die synchron mitlaufen. Das
- *    Erweiterungs-Menue ist Chromes echtem Popup nachempfunden (Header mit x,
- *    "Vollzugriff"-Block, Zeilen mit Pin und Drei-Punkte-Menue, Footer).
- *  - In einem iframe (= Inkspect zeigt die Seite in Geraete-Vorschauen):
- *    Demo weg, stattdessen ein kleiner Playground zum Markieren.
+ * Welcome page: opened by the extension after installation (background.ts,
+ * WELCOME_URL). Two states:
+ *  - Top level: a large animated browser mockup playing through the whole
+ *    sequence (puzzle menu -> pin Inkspect -> click the icon -> the tool
+ *    opens), with three steps running alongside in sync. The extension menu is
+ *    modelled on Chrome's real popup (header with an x, "Full access" block,
+ *    rows with a pin and a three-dot menu, footer).
+ *  - Inside an iframe (= Inkspect showing the page in device previews): the
+ *    demo goes, and a small playground for marking things up takes its place.
  *
- * Eine einzige 14s-Timeline: alle Elemente animieren mit derselben Dauer und
- * sind ueber Prozentwerte synchron. Ohne Animation (prefers-reduced-motion)
- * steht das lehrreichste Standbild: Menue offen, Pin aktiv, Icon angepinnt.
+ * A single 14s timeline: every element animates over the same duration and is
+ * kept in sync via percentages. Without animation (prefers-reduced-motion) the
+ * most instructive still frame stands: menu open, pin active, icon pinned.
  */
-/* `safe center`: ist das Fenster kleiner als der Inhalt, richtet sich der
-   Inhalt oben aus und bleibt komplett erscrollbar — plain `center` schiebt
-   die Oberkante sonst unerreichbar aus dem Viewport. */
+/* `safe center`: if the window is smaller than the content, the content aligns
+   to the top and stays fully scrollable — plain `center` would otherwise push
+   the top edge out of the viewport, out of reach. */
 body { min-height: 100vh; display: grid; align-items: safe center; justify-items: center; overflow-x: hidden; }
 
 .welcome { text-align: center; max-width: 980px; padding: 32px 24px 40px; }
@@ -39,8 +39,8 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
 .whero img { width: 64px; height: 64px; }
 .whero svg { position: absolute; right: -7px; bottom: -4px; width: 26px; height: 26px; }
 
-/* Pfeil zur echten Toolbar: das Icon landet rechts neben der Adressleiste,
-   also deutlich links von der aeussersten Ecke (dort sitzt das Profil). */
+/* Arrow to the real toolbar: the icon lands to the right of the address bar,
+   so well to the left of the outermost corner (the profile sits there). */
 .arrow {
   position: fixed; top: 8px; right: 118px;
   width: 46px; height: 64px;
@@ -74,7 +74,7 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   overflow: hidden;
 }
 
-/* Tab-Zeile + Adressleiste, nachgestellt. */
+/* Tab row plus address bar, recreated. */
 .stage__tabs {
   position: absolute; inset: 0 0 auto; height: 30px;
   background: var(--bg-0);
@@ -105,7 +105,7 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   padding: 0 12px;
   font-size: 11.5px; color: var(--text-2);
 }
-/* Slot fuers angepinnte Icon: waechst auf, sobald "gepinnt" wird. */
+/* Slot for the pinned icon: it grows open as soon as "pinned" happens. */
 .slot {
   flex: 0 0 auto; width: 22px; height: 22px;
   display: grid; place-items: center;
@@ -117,7 +117,7 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   34%, 93% { width: 22px; transform: scale(1); }
   97%, 100% { width: 0; transform: scale(0); }
 }
-/* Das Puzzle bekommt beim "Klick" Chromes runden aktiven Hintergrund. */
+/* On the "click", the puzzle gets Chrome's round active background. */
 .puzzlewrap {
   flex: 0 0 auto; width: 28px; height: 28px;
   display: grid; place-items: center;
@@ -137,7 +137,7 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   font-size: 10px; font-weight: 700; color: #fff;
 }
 
-/* Seiteninhalt unter der Leiste — ein paar Platzhalter-Zeilen. */
+/* Page content under the bar — a few placeholder lines. */
 .stage__page { position: absolute; top: 72px; left: 0; right: 0; bottom: 0; padding: 22px 26px; }
 .stage__line { height: 12px; border-radius: 6px; background: var(--bg-2); margin-bottom: 12px; }
 .stage__line--head { width: 46%; height: 20px; background: var(--bg-3); margin-bottom: 18px; }
@@ -150,7 +150,7 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   background: var(--bg-3); border: 1px solid var(--border-strong);
 }
 
-/* ---------- Erweiterungs-Menue, Chromes Popup nachempfunden ---------- */
+/* ---------- Extension menu, modelled on Chrome's popup ---------- */
 .menu {
   position: absolute; top: 76px; right: 12px;
   width: 292px;
@@ -198,8 +198,8 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   color: #e8eaed;
 }
 .menu__foot svg { color: #9aa0a6; }
-/* Pins: angepinnt = blauer Slash-Pin, sonst grauer Pin. Der Inkspect-Pin
-   wechselt beim "Klick" von grau-aufrecht zu blau-durchgestrichen. */
+/* Pins: pinned = blue slashed pin, otherwise a grey pin. On the "click" the
+   Inkspect pin goes from grey and upright to blue and struck through. */
 .pin { flex: 0 0 auto; width: 16px; height: 16px; position: relative; }
 .pin svg { position: absolute; inset: 0; }
 .pin--static-on svg { color: #8ab4f8; }
@@ -217,7 +217,7 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   100% { opacity: 0; }
 }
 
-/* Das Icon "fliegt" beim Anpinnen aus der Menuezeile in die Toolbar. */
+/* On pinning, the icon "flies" out of the menu row into the toolbar. */
 .fly {
   position: absolute; left: 0; top: 0; width: 18px; height: 18px;
   z-index: 4; opacity: 0;
@@ -230,9 +230,9 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   33%, 100% { transform: translate(527px, 40px) scale(.9); opacity: 0; }
 }
 
-/* Mini-Inkspect: nach dem Klick aufs angepinnte Icon legt sich das Tool
-   ueber die Seite — Vollbild-Stil: Werkzeugleiste unten, Marker + Notiz,
-   Zaehler-Knopf unten rechts. */
+/* Mini Inkspect: after the click on the pinned icon, the tool lays itself over
+   the page — full-window style: tool bar at the bottom, marker plus note, and
+   the counter button at the bottom right. */
 .wmini {
   position: absolute; top: 72px; left: 0; right: 0; bottom: 0;
   background: rgba(8, 10, 14, .62);
@@ -250,8 +250,8 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   background: var(--bg-3); border: 1px solid #4a5364;
   border-radius: 999px; padding: 9px 16px;
   box-shadow: 0 8px 24px rgba(0,0,0,.55);
-  /* Eigene (identische) Opacity-Animation: statische Kinder eines
-     opacity-animierten Elternteils malt Chrome sonst nicht zuverlaessig. */
+  /* Its own (identical) opacity animation: Chrome does not reliably paint
+     static children of an opacity-animated parent otherwise. */
   animation: wmini 14s ease-in-out infinite;
 }
 .mini__tool { width: 16px; height: 16px; border-radius: 4px; background: #4a5364; }
@@ -265,7 +265,7 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   box-shadow: 0 6px 20px rgba(0,0,0,.4);
   animation: wmini 14s ease-in-out infinite;
 }
-/* Marker + Notiz ploppen nach dem Klick auf die Seite auf. */
+/* Marker and note pop up after the click on the page. */
 .mini__dot {
   position: absolute; left: 356px; top: 126px;
   width: 16px; height: 16px; border-radius: 50%;
@@ -286,7 +286,7 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   90%, 100% { transform: scale(0); opacity: 0; }
 }
 
-/* Mauszeiger + Klick-Wellen. */
+/* Mouse pointer and click ripples. */
 .cursor {
   position: absolute; left: 0; top: 0; z-index: 5; opacity: 0;
   filter: drop-shadow(0 1px 3px rgba(0,0,0,.7));
@@ -325,7 +325,7 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
 @keyframes rip2 { 0%, 24.5% { opacity: 0; transform: scale(.2); } 25.5% { opacity: .9; } 28% { opacity: 0; transform: scale(1.25); } 100% { opacity: 0; } }
 @keyframes rip3 { 0%, 46.5% { opacity: 0; transform: scale(.2); } 47.5% { opacity: .9; } 50% { opacity: 0; transform: scale(1.25); } 100% { opacity: 0; } }
 
-/* ---------- Schrittliste, laeuft synchron mit ---------- */
+/* ---------- Step list, running in sync ---------- */
 .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .step {
   display: flex; align-items: center; gap: 12px;
@@ -367,7 +367,7 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   .arrow, .slot, .menu, .puzzlewrap, .pin--ink .pin__base, .pin--ink .pin__slash,
   .fly, .wmini, .mini__dot, .mini__note, .cursor, .ripple,
   .step--1, .step--2, .step--3 { animation: none; }
-  /* Standbild: Menue offen, Pin aktiv, Icon angepinnt; Tool-Overlay weg. */
+  /* Still frame: menu open, pin active, icon pinned; tool overlay gone. */
   .wmini, .fly, .cursor, .ripple { display: none; }
   .pin--ink .pin__base { color: #8ab4f8; }
   .pin--ink .pin__slash { opacity: 1; }
@@ -379,16 +379,16 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
   .arrow { display: none; }
 }
 
-/* ---------- Playground (nur in Frames sichtbar) ----------
-   Eine kleine Fake-Landingpage des erfundenen Produkts „Aurora": Nav, Hero,
-   Feature-Karten, Zahlen, Zitat, CTA, Footer. Absichtlich eingebaute Maengel
-   (zu kleiner CTA, verrutschte Karte, kontrastarmes Zitat) geben etwas zu
-   markieren; die Laenge gibt dem Scroll-Sync etwas zu tun. */
+/* ---------- Playground (only visible inside frames) ----------
+   A small fake landing page for the invented product "Aurora": nav, hero,
+   feature cards, figures, quote, CTA, footer. Deliberately built-in flaws (a
+   CTA that is too small, a card out of place, a low-contrast quote) give you
+   something to mark; the length gives the scroll sync something to do. */
 .playground { display: none; text-align: left; }
 .pg-wrap { width: min(1040px, calc(100% - 40px)); margin: 0 auto; }
 
-/* Kopf-Banner + Anleitung: klar als Meta-Ebene abgesetzt (Akzent, gestrichelt)
-   — darunter beginnt die Fake-LP als Material zum Ausprobieren. */
+/* Header banner plus instructions: clearly set apart as a meta layer (accent,
+   dashed) — below it the fake landing page begins, as material to try on. */
 .pg-banner {
   background: rgba(91, 140, 255, .12);
   border-bottom: 1px solid rgba(91, 140, 255, .35);
@@ -433,7 +433,7 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
 .pg-hero { padding: 72px 0 28px; text-align: center; }
 .pg-hero h1 { font-size: clamp(30px, 6vw, 52px); line-height: 1.12; margin: 0 0 14px; }
 .pg-hero p { max-width: 560px; margin: 0 auto 22px; color: var(--text-1); }
-/* Absichtlich viel zu klein fuer einen Hero-CTA — bitte markieren. */
+/* Deliberately far too small for a hero CTA — please mark it. */
 .pg-tiny {
   padding: 3px 8px; font-size: 11px;
   background: var(--bg-2); color: var(--text-2);
@@ -451,14 +451,14 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
 }
 .pg-card b { display: block; margin-bottom: 5px; }
 .pg-card p { margin: 0; color: var(--text-1); font-size: 14px; }
-/* Absichtlich verrutscht — ein dankbares Ziel fuer den Element-Picker. */
+/* Deliberately out of place — a grateful target for the element picker. */
 .pg-card--odd { transform: translateY(6px) rotate(.5deg); }
 
 .pg-stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 56px; padding: 64px 0; text-align: center; }
 .pg-stat b { display: block; font-size: 30px; letter-spacing: -.02em; }
 .pg-stat span { color: var(--text-2); font-size: 13px; }
 
-/* Absichtlich kontrastarm — der Klassiker unter den Fundstuecken. */
+/* Deliberately low in contrast — the classic among the finds. */
 .pg-quote { max-width: 620px; margin: 30px auto 90px; padding: 0 20px; text-align: center; opacity: .35; }
 .pg-quote p { font-size: 17px; font-style: italic; margin: 0 0 8px; }
 .pg-quote span { font-size: 13px; }
@@ -476,11 +476,11 @@ body { min-height: 100vh; display: grid; align-items: safe center; justify-items
 
 html.framed .welcome, html.framed .arrow { display: none; }
 html.framed .playground { display: block; }
-/* Im Frame fliesst die LP normal von oben — kein Grid-Zentrieren. */
+/* Inside the frame the landing page flows normally from the top — no grid centring. */
 html.framed body { display: block; }
-/* Der Frame ist eine Vorschau — die native Scrollbar waere nur Kulisse.
-   Scrollen bleibt voll moeglich (Rad, Touch, Sync). Smooth-Scrolling ist im
-   Frame aus, damit der Scroll-Sync unmittelbar folgt. */
+/* The frame is a preview — a native scrollbar would only be scenery. Scrolling
+   stays fully possible (wheel, touch, sync). Smooth scrolling is off inside the
+   frame, so that the scroll sync follows immediately. */
 html.framed { scrollbar-width: none; scroll-behavior: auto; }
 html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
 </style>
@@ -502,13 +502,13 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
     <img src="img/icon.svg" alt="" />
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#3ecf6e"/><path d="M7 12.5l3.2 3.2L17 9" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
   </div>
-  <h1 data-i18n="title">Thanks for installing Inkspect!</h1>
-  <p data-i18n="sub">You’re all set — three steps and you’re marking up your first page:</p>
+  <h1>Thanks for installing Inkspect!</h1>
+  <p>You’re all set. Three steps and you’re marking up your first page:</p>
 
   <div class="demo" aria-hidden="true">
     <div class="wstage">
       <div class="stage__tabs">
-        <div class="stage__tab"><img src="img/icon.svg" alt="" /><span data-i18n="tab">Try it out</span></div>
+        <div class="stage__tab"><img src="img/icon.svg" alt="" /><span>Try it out</span></div>
       </div>
       <div class="stage__bar">
         <span class="stage__nav">
@@ -535,21 +535,21 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
         <span class="stage__btn"></span>
       </div>
 
-      <!-- Chromes Erweiterungs-Popup, nachgebildet -->
+      <!-- Chrome's extension popup, recreated -->
       <div class="menu">
         <div class="menu__head">
-          <span data-i18n="menuTitle">Extensions</span>
+          <span>Extensions</span>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
         </div>
         <div class="menu__access">
-          <b data-i18n="menuAccess">Full access</b>
-          <p data-i18n="menuAccessSub">These extensions can see and change data on this site.</p>
+          <b>Full access</b>
+          <p>These extensions can see and change data on this site.</p>
         </div>
         <div class="menu__row">
           <span class="menu__ico">
             <svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#e2443b"/><path d="M8.5 12.5l2.5 2.5 4.5-5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </span>
-          <span data-i18n="rowBlocker">AdBlocker</span>
+          <span>AdBlocker</span>
           <span class="pin pin--static-on">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>
             <svg viewBox="0 0 24 24" fill="none"><path d="M5 5l14 14" stroke="#26272b" stroke-width="3.4"/><path d="M5 5l14 14" stroke="currentColor" stroke-width="1.9"/></svg>
@@ -562,7 +562,7 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
           <span class="menu__ico">
             <svg width="18" height="18" viewBox="0 0 24 24"><rect x="2" y="2" width="9" height="9" rx="1.5" fill="#f25022"/><rect x="13" y="2" width="9" height="9" rx="1.5" fill="#7fba00"/><rect x="2" y="13" width="9" height="9" rx="1.5" fill="#00a4ef"/><rect x="13" y="13" width="9" height="9" rx="1.5" fill="#ffb900"/></svg>
           </span>
-          <span data-i18n="rowPw">Password manager</span>
+          <span>Password manager</span>
           <span class="pin pin--static-off">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>
           </span>
@@ -585,7 +585,7 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
           <span class="menu__ico">
             <svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 3l9 18H3z" fill="#3f8cff"/></svg>
           </span>
-          <span data-i18n="rowTranslate">Translator</span>
+          <span>Translator</span>
           <span class="pin pin--static-off">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>
           </span>
@@ -595,7 +595,7 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
         </div>
         <div class="menu__foot">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>
-          <span data-i18n="menuManage">Manage extensions</span>
+          <span>Manage extensions</span>
         </div>
       </div>
 
@@ -603,7 +603,7 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
       <div class="wmini">
         <span class="mini__dot"></span>
-        <span class="mini__note" data-i18n="miniNote">button too small</span>
+        <span class="mini__note">button too small</span>
         <div class="mini__bar">
           <span class="mini__tool"></span>
           <span class="mini__tool mini__tool--on"></span>
@@ -623,45 +623,45 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
     </div>
 
     <ol class="steps">
-      <li class="step step--1"><span class="step__num">1</span><span data-i18n="step1">Open the puzzle menu</span></li>
-      <li class="step step--2"><span class="step__num">2</span><span data-i18n="step2">Pin Inkspect to the toolbar</span></li>
-      <li class="step step--3"><span class="step__num">3</span><span data-i18n="step3">Click the icon — and start marking</span></li>
+      <li class="step step--1"><span class="step__num">1</span><span>Open the puzzle menu</span></li>
+      <li class="step step--2"><span class="step__num">2</span><span>Pin Inkspect to the toolbar</span></li>
+      <li class="step step--3"><span class="step__num">3</span><span>Click the icon — and start marking</span></li>
     </ol>
   </div>
 
-  <footer><a href="index.html" data-i18n="more">Learn more about Inkspect</a></footer>
+  <footer><a href="index.html">Learn more about Inkspect</a></footer>
 </main>
 
 <main class="playground">
   <div class="pg-banner">
     <div class="pg-wrap pg-banner__in">
-      <span class="pg-banner__tag" data-i18n="pgBannerTag">Test page</span>
-      <span data-i18n="pgBannerText">Nothing here is real and nothing can break — this page exists so you can try Inkspect on it.</span>
+      <span class="pg-banner__tag">Test page</span>
+      <span>Nothing here is real and nothing can break — this page exists so you can try Inkspect on it.</span>
     </div>
   </div>
 
   <section class="pg-wrap pg-how">
-    <h2 data-i18n="pgHowTitle">Try it right here</h2>
+    <h2>Try it right here</h2>
     <div class="pg-how__grid">
       <div class="pg-how__item">
-        <b data-i18n="pgHow1t">Right-click any element</b>
-        <p data-i18n="pgHow1b">picks it and opens the edit popup — change text and styles, leave a note.</p>
+        <b>Right-click any element</b>
+        <p>grabs it and opens the edit popup — rewrite the text, change the styling, leave a note.</p>
       </div>
       <div class="pg-how__item">
-        <b data-i18n="pgHow2t">The floating bar below</b>
-        <p data-i18n="pgHow2b">arrow = use the page normally; the second tool marks the element you click.</p>
+        <b>The floating bar below</b>
+        <p>the arrow lets you use the page as usual; the tool next to it marks whatever you click.</p>
       </div>
       <div class="pg-how__item">
-        <b data-i18n="pgHow3t">Keys 1–9</b>
-        <p data-i18n="pgHow3b">switch tools: pin, pen, shapes, text. Esc goes back to interacting.</p>
+        <b>Keys 1–9</b>
+        <p>switch tools: pin, pen, shapes, text. Esc goes back to interacting.</p>
       </div>
       <div class="pg-how__item">
-        <b data-i18n="pgHow4t">The blue button, bottom right</b>
-        <p data-i18n="pgHow4b">collects your feedback — share it as a link, Markdown or screenshots.</p>
+        <b>The blue button, bottom right</b>
+        <p>collects your feedback — hand it over as a link, as Markdown, or as annotated PDFs.</p>
       </div>
       <div class="pg-how__item">
-        <b data-i18n="pgHow5t">The phone button next to it</b>
-        <p data-i18n="pgHow5b">shows a mobile mockup — mark things there too; scrolling stays in sync.</p>
+        <b>The phone button next to it</b>
+        <p>opens a mobile mockup — you can mark things in there too, and both scroll together.</p>
       </div>
     </div>
   </section>
@@ -669,492 +669,48 @@ html.framed::-webkit-scrollbar { display: none; width: 0; height: 0; }
   <header class="pg-wrap pg-nav">
     <span class="pg-logo"><i></i>Aurora</span>
     <nav>
-      <a href="#" data-i18n="pgNavFeatures">Features</a>
-      <a href="#" data-i18n="pgNavPricing">Pricing</a>
-      <a href="#" data-i18n="pgNavContact">Contact</a>
+      <a href="#">Features</a>
+      <a href="#">Pricing</a>
+      <a href="#">Contact</a>
     </nav>
-    <button class="pg-signup" type="button" data-i18n="pgNavCta">Sign up</button>
+    <button class="pg-signup" type="button">Sign up</button>
   </header>
 
   <section class="pg-wrap pg-hero">
-    <h1 data-i18n="pgHeroTitle">Ship interfaces that feel right</h1>
-    <p data-i18n="pgHeroSub">Aurora is the imaginary product on this demo page — scroll through and mark everything that feels off.</p>
-    <button class="pg-tiny" type="button" data-i18n="pgHeroCta">Get started</button>
+    <h1>Ship interfaces that feel right</h1>
+    <p>Aurora is the imaginary product on this demo page — scroll through and mark everything that feels off.</p>
+    <button class="pg-tiny" type="button">Get started</button>
   </section>
 
   <section class="pg-wrap pg-feats">
-    <h2 data-i18n="pgFeatsTitle">Everything in one place</h2>
+    <h2>Everything in one place</h2>
     <div class="pg-grid">
-      <div class="pg-card"><b data-i18n="pgFeat1t">Fast</b><p data-i18n="pgFeat1b">Loads before you finish blinking.</p></div>
-      <div class="pg-card pg-card--odd"><b data-i18n="pgFeat2t">Slightly off</b><p data-i18n="pgFeat2b">This card sits 6&nbsp;px too low — a case for the element picker.</p></div>
-      <div class="pg-card"><b data-i18n="pgFeat3t">Reliable</b><p data-i18n="pgFeat3b">Runs and runs — nothing to mark here.</p></div>
+      <div class="pg-card"><b>Fast</b><p>Loads before you finish blinking.</p></div>
+      <div class="pg-card pg-card--odd"><b>Slightly off</b><p>This card sits 6&nbsp;px too low — a case for the element picker.</p></div>
+      <div class="pg-card"><b>Reliable</b><p>Runs and runs — nothing to mark here.</p></div>
     </div>
   </section>
 
   <section class="pg-wrap pg-stats">
-    <div class="pg-stat"><b>12k</b><span data-i18n="pgStat1">Projects</span></div>
-    <div class="pg-stat"><b>340</b><span data-i18n="pgStat2">Teams</span></div>
-    <div class="pg-stat"><b>99.9%</b><span data-i18n="pgStat3">Uptime</span></div>
+    <div class="pg-stat"><b>12k</b><span>Projects</span></div>
+    <div class="pg-stat"><b>340</b><span>Teams</span></div>
+    <div class="pg-stat"><b>99.9%</b><span>Uptime</span></div>
   </section>
 
   <figure class="pg-quote">
-    <p data-i18n="pgQuote">“Since Aurora, our reviews take half the time — even though this quote is honestly hard to read.”</p>
+    <p>“Since Aurora, our reviews take half the time — even though this quote is honestly hard to read.”</p>
     <span>— Alex, Head of Design</span>
   </figure>
 
   <section class="pg-band">
     <div class="pg-wrap">
-      <h2 data-i18n="pgCtaTitle">Ready when you are</h2>
-      <button type="button" data-i18n="pgCtaBtn">Try Aurora</button>
+      <h2>Ready when you are</h2>
+      <button type="button">Try Aurora</button>
     </div>
   </section>
 
-  <footer class="pg-footer" data-i18n="pgFooter">Imaginary footer — end of the playground. Everything above may be marked.</footer>
+  <footer class="pg-footer">Imaginary footer — end of the playground. Everything above may be marked.</footer>
 </main>
 
-<script>
-  /*
-   * Mehrsprachigkeit ohne Framework: Englisch steht im Markup, alle anderen
-   * Sprachen liegen hier als Woerterbuecher. Gewaehlt wird die erste
-   * Browser-Sprache, fuer die es ein Woerterbuch gibt.
-   */
-  var I18N = {
-    de: {
-      docTitle: 'Inkspect — Danke für die Installation',
-      title: 'Danke, dass du Inkspect installiert hast!',
-      sub: 'Alles bereit — drei Schritte, und du markierst deine erste Seite:',
-      tab: 'Ausprobieren',
-      menuTitle: 'Erweiterungen',
-      menuAccess: 'Vollzugriff',
-      menuAccessSub: 'Diese Erweiterungen können Daten dieser Website abrufen und verändern.',
-      menuManage: 'Erweiterungen verwalten',
-      rowBlocker: 'AdBlocker',
-      rowPw: 'Passwort-Manager',
-      rowTranslate: 'Übersetzer',
-      miniNote: 'Button zu klein',
-      step1: 'Puzzle-Menü öffnen',
-      step2: 'Inkspect an die Toolbar pinnen',
-      step3: 'Icon klicken — und losmarkieren',
-      more: 'Mehr über Inkspect erfahren',
-      pgNavFeatures: 'Funktionen',
-      pgNavPricing: 'Preise',
-      pgNavContact: 'Kontakt',
-      pgNavCta: 'Registrieren',
-      pgHeroTitle: 'Interfaces, die sich richtig anfühlen',
-      pgHeroSub: 'Aurora ist das erfundene Produkt dieser Demo-Seite — scroll durch und markiere alles, was sich falsch anfühlt.',
-      pgHeroCta: 'Loslegen',
-      pgBannerTag: 'Testseite',
-      pgBannerText: 'Hier ist nichts echt und nichts geht kaputt — diese Seite gibt es, damit du Inkspect daran ausprobieren kannst.',
-      pgHowTitle: 'Probier es direkt hier aus',
-      pgHow1t: 'Rechtsklick auf ein Element',
-      pgHow1b: 'wählt es aus und öffnet das Bearbeiten-Popup — ändere Text und Styles, hinterlass eine Notiz.',
-      pgHow2t: 'Die schwebende Leiste unten',
-      pgHow2b: 'Pfeil = Seite normal bedienen; das zweite Werkzeug markiert das Element, das du anklickst.',
-      pgHow3t: 'Tasten 1–9',
-      pgHow3b: 'wechseln das Werkzeug: Pin, Stift, Formen, Text. Esc geht zurück zum Bedienen.',
-      pgHow4t: 'Der blaue Knopf unten rechts',
-      pgHow4b: 'sammelt dein Feedback — teile es als Link, Markdown oder Screenshots.',
-      pgHow5t: 'Der Smartphone-Knopf daneben',
-      pgHow5b: 'zeigt ein Mobil-Mockup — auch dort kannst du markieren; das Scrollen bleibt synchron.',
-      pgFeatsTitle: 'Alles an einem Ort',
-      pgFeat1t: 'Schnell',
-      pgFeat1b: 'Lädt, bevor du fertig geblinzelt hast.',
-      pgFeat2t: 'Leicht verrutscht',
-      pgFeat2b: 'Diese Karte sitzt 6 px zu tief — ein Fall für den Element-Picker.',
-      pgFeat3t: 'Zuverlässig',
-      pgFeat3b: 'Läuft und läuft — hier gibt es nichts zu markieren.',
-      pgStat1: 'Projekte',
-      pgStat2: 'Teams',
-      pgStat3: 'Verfügbarkeit',
-      pgQuote: '„Seit Aurora dauern unsere Reviews halb so lang — auch wenn dieses Zitat ehrlich gesagt schwer zu lesen ist.“',
-      pgCtaTitle: 'Bereit, wenn du es bist',
-      pgCtaBtn: 'Aurora ausprobieren',
-      pgFooter: 'Erfundener Footer — Ende des Spielplatzes. Alles darüber darf markiert werden.',
-    },
-    fr: {
-      docTitle: 'Inkspect — Merci pour l’installation',
-      title: 'Merci d’avoir installé Inkspect !',
-      sub: 'Tout est prêt — trois étapes et vous annotez votre première page :',
-      tab: 'Essayer',
-      menuTitle: 'Extensions',
-      menuAccess: 'Accès complet',
-      menuAccessSub: 'Ces extensions peuvent consulter et modifier les données de ce site.',
-      menuManage: 'Gérer les extensions',
-      rowBlocker: 'AdBlocker',
-      rowPw: 'Gestionnaire de mots de passe',
-      rowTranslate: 'Traducteur',
-      miniNote: 'bouton trop petit',
-      step1: 'Ouvrez le menu puzzle',
-      step2: 'Épinglez Inkspect à la barre d’outils',
-      step3: 'Cliquez sur l’icône — et commencez à annoter',
-      more: 'En savoir plus sur Inkspect',
-      pgNavFeatures: 'Fonctionnalités',
-      pgNavPricing: 'Tarifs',
-      pgNavContact: 'Contact',
-      pgNavCta: 'S’inscrire',
-      pgHeroTitle: 'Des interfaces qui sonnent juste',
-      pgHeroSub: 'Aurora est le produit imaginaire de cette page de démo — faites défiler et annotez tout ce qui cloche.',
-      pgHeroCta: 'Commencer',
-      pgBannerTag: 'Page de test',
-      pgBannerText: 'Rien ici n’est réel et rien ne peut casser — cette page existe pour que vous essayiez Inkspect dessus.',
-      pgHowTitle: 'Essayez directement ici',
-      pgHow1t: 'Clic droit sur un élément',
-      pgHow1b: 'le sélectionne et ouvre la fenêtre d’édition — changez le texte et les styles, laissez une note.',
-      pgHow2t: 'La barre flottante en bas',
-      pgHow2b: 'flèche = utiliser la page normalement ; le second outil marque l’élément cliqué.',
-      pgHow3t: 'Touches 1–9',
-      pgHow3b: 'changent d’outil : épingle, crayon, formes, texte. Échap revient au mode normal.',
-      pgHow4t: 'Le bouton bleu en bas à droite',
-      pgHow4b: 'rassemble vos retours — partagez-les en lien, Markdown ou captures d’écran.',
-      pgHow5t: 'Le bouton téléphone à côté',
-      pgHow5b: 'affiche une maquette mobile — annotez-y aussi ; le défilement reste synchronisé.',
-      pgFeatsTitle: 'Tout au même endroit',
-      pgFeat1t: 'Rapide',
-      pgFeat1b: 'Chargé avant la fin de votre clignement d’œil.',
-      pgFeat2t: 'Légèrement décalée',
-      pgFeat2b: 'Cette carte est 6 px trop bas — un cas pour le sélecteur d’élément.',
-      pgFeat3t: 'Fiable',
-      pgFeat3b: 'Tourne sans faillir — rien à annoter ici.',
-      pgStat1: 'Projets',
-      pgStat2: 'Équipes',
-      pgStat3: 'Disponibilité',
-      pgQuote: '« Depuis Aurora, nos revues prennent deux fois moins de temps — même si cette citation est franchement difficile à lire. »',
-      pgCtaTitle: 'Prêt quand vous l’êtes',
-      pgCtaBtn: 'Essayer Aurora',
-      pgFooter: 'Pied de page imaginaire — fin du terrain de jeu. Tout ce qui précède peut être annoté.',
-    },
-    es: {
-      docTitle: 'Inkspect — Gracias por instalar',
-      title: '¡Gracias por instalar Inkspect!',
-      sub: 'Todo listo: tres pasos y estarás marcando tu primera página:',
-      tab: 'Pruébalo',
-      menuTitle: 'Extensiones',
-      menuAccess: 'Acceso total',
-      menuAccessSub: 'Estas extensiones pueden ver y cambiar los datos de este sitio.',
-      menuManage: 'Gestionar extensiones',
-      rowBlocker: 'AdBlocker',
-      rowPw: 'Gestor de contraseñas',
-      rowTranslate: 'Traductor',
-      miniNote: 'botón demasiado pequeño',
-      step1: 'Abre el menú del puzle',
-      step2: 'Fija Inkspect a la barra de herramientas',
-      step3: 'Haz clic en el icono y empieza a marcar',
-      more: 'Más sobre Inkspect',
-      pgNavFeatures: 'Funciones',
-      pgNavPricing: 'Precios',
-      pgNavContact: 'Contacto',
-      pgNavCta: 'Regístrate',
-      pgHeroTitle: 'Interfaces que se sienten bien',
-      pgHeroSub: 'Aurora es el producto imaginario de esta página de demostración: desplázate y marca todo lo que no encaje.',
-      pgHeroCta: 'Empezar',
-      pgBannerTag: 'Página de prueba',
-      pgBannerText: 'Nada aquí es real y nada se puede romper: esta página existe para que pruebes Inkspect sobre ella.',
-      pgHowTitle: 'Pruébalo aquí mismo',
-      pgHow1t: 'Clic derecho sobre un elemento',
-      pgHow1b: 'lo selecciona y abre el popup de edición: cambia texto y estilos, deja una nota.',
-      pgHow2t: 'La barra flotante de abajo',
-      pgHow2b: 'flecha = usar la página con normalidad; la segunda herramienta marca el elemento que pulses.',
-      pgHow3t: 'Teclas 1–9',
-      pgHow3b: 'cambian de herramienta: pin, lápiz, formas, texto. Esc vuelve al modo normal.',
-      pgHow4t: 'El botón azul, abajo a la derecha',
-      pgHow4b: 'reúne tu feedback: compártelo como enlace, Markdown o capturas.',
-      pgHow5t: 'El botón de teléfono de al lado',
-      pgHow5b: 'muestra una maqueta móvil: marca también ahí; el desplazamiento va sincronizado.',
-      pgFeatsTitle: 'Todo en un solo lugar',
-      pgFeat1t: 'Rápido',
-      pgFeat1b: 'Carga antes de que termines de parpadear.',
-      pgFeat2t: 'Un poco torcida',
-      pgFeat2b: 'Esta tarjeta está 6 px más abajo: un caso para el selector de elementos.',
-      pgFeat3t: 'Fiable',
-      pgFeat3b: 'Funciona y funciona: aquí no hay nada que marcar.',
-      pgStat1: 'Proyectos',
-      pgStat2: 'Equipos',
-      pgStat3: 'Disponibilidad',
-      pgQuote: '«Desde Aurora nuestras revisiones tardan la mitad — aunque esta cita, sinceramente, cuesta leerla.»',
-      pgCtaTitle: 'Listo cuando tú lo estés',
-      pgCtaBtn: 'Probar Aurora',
-      pgFooter: 'Pie de página imaginario: fin del playground. Todo lo de arriba se puede marcar.',
-    },
-    it: {
-      docTitle: 'Inkspect — Grazie per l’installazione',
-      title: 'Grazie per aver installato Inkspect!',
-      sub: 'Tutto pronto: tre passaggi e stai già annotando la tua prima pagina:',
-      tab: 'Provalo',
-      menuTitle: 'Estensioni',
-      menuAccess: 'Accesso completo',
-      menuAccessSub: 'Queste estensioni possono vedere e modificare i dati di questo sito.',
-      menuManage: 'Gestisci estensioni',
-      rowBlocker: 'AdBlocker',
-      rowPw: 'Gestore di password',
-      rowTranslate: 'Traduttore',
-      miniNote: 'pulsante troppo piccolo',
-      step1: 'Apri il menu puzzle',
-      step2: 'Fissa Inkspect alla barra degli strumenti',
-      step3: 'Fai clic sull’icona e inizia ad annotare',
-      more: 'Scopri di più su Inkspect',
-      pgNavFeatures: 'Funzionalità',
-      pgNavPricing: 'Prezzi',
-      pgNavContact: 'Contatti',
-      pgNavCta: 'Registrati',
-      pgHeroTitle: 'Interfacce che suonano giuste',
-      pgHeroSub: 'Aurora è il prodotto immaginario di questa pagina demo: scorri e annota tutto ciò che stona.',
-      pgHeroCta: 'Inizia',
-      pgBannerTag: 'Pagina di prova',
-      pgBannerText: 'Qui niente è reale e niente si può rompere: questa pagina esiste perché tu possa provarci Inkspect.',
-      pgHowTitle: 'Provalo direttamente qui',
-      pgHow1t: 'Clic destro su un elemento',
-      pgHow1b: 'lo seleziona e apre il popup di modifica: cambia testo e stili, lascia una nota.',
-      pgHow2t: 'La barra fluttuante in basso',
-      pgHow2b: 'freccia = usare la pagina normalmente; il secondo strumento marca l’elemento cliccato.',
-      pgHow3t: 'Tasti 1–9',
-      pgHow3b: 'cambiano strumento: pin, penna, forme, testo. Esc torna alla modalità normale.',
-      pgHow4t: 'Il pulsante blu in basso a destra',
-      pgHow4b: 'raccoglie il tuo feedback: condividilo come link, Markdown o screenshot.',
-      pgHow5t: 'Il pulsante telefono accanto',
-      pgHow5b: 'mostra un mockup mobile: puoi annotare anche lì; lo scorrimento resta sincronizzato.',
-      pgFeatsTitle: 'Tutto in un unico posto',
-      pgFeat1t: 'Veloce',
-      pgFeat1b: 'Carica prima che tu finisca di sbattere le palpebre.',
-      pgFeat2t: 'Leggermente storta',
-      pgFeat2b: 'Questa scheda è 6 px troppo in basso: un caso per il selettore di elementi.',
-      pgFeat3t: 'Affidabile',
-      pgFeat3b: 'Funziona e funziona: qui non c’è nulla da annotare.',
-      pgStat1: 'Progetti',
-      pgStat2: 'Team',
-      pgStat3: 'Uptime',
-      pgQuote: '«Da quando usiamo Aurora le review durano la metà — anche se questa citazione, francamente, si legge male.»',
-      pgCtaTitle: 'Pronto quando lo sei tu',
-      pgCtaBtn: 'Prova Aurora',
-      pgFooter: 'Footer immaginario: fine del parco giochi. Tutto ciò che sta sopra si può annotare.',
-    },
-    pt: {
-      docTitle: 'Inkspect — Obrigado por instalar',
-      title: 'Obrigado por instalar o Inkspect!',
-      sub: 'Tudo pronto: três passos e você já está marcando a sua primeira página:',
-      tab: 'Experimente',
-      menuTitle: 'Extensões',
-      menuAccess: 'Acesso total',
-      menuAccessSub: 'Estas extensões podem ver e alterar os dados deste site.',
-      menuManage: 'Gerenciar extensões',
-      rowBlocker: 'AdBlocker',
-      rowPw: 'Gerenciador de senhas',
-      rowTranslate: 'Tradutor',
-      miniNote: 'botão pequeno demais',
-      step1: 'Abra o menu do quebra-cabeça',
-      step2: 'Fixe o Inkspect na barra de ferramentas',
-      step3: 'Clique no ícone — e comece a marcar',
-      more: 'Saiba mais sobre o Inkspect',
-      pgNavFeatures: 'Recursos',
-      pgNavPricing: 'Preços',
-      pgNavContact: 'Contato',
-      pgNavCta: 'Cadastre-se',
-      pgHeroTitle: 'Interfaces que parecem certas',
-      pgHeroSub: 'Aurora é o produto imaginário desta página de demonstração: role e marque tudo o que parecer errado.',
-      pgHeroCta: 'Começar',
-      pgBannerTag: 'Página de teste',
-      pgBannerText: 'Nada aqui é real e nada quebra: esta página existe para você experimentar o Inkspect nela.',
-      pgHowTitle: 'Experimente aqui mesmo',
-      pgHow1t: 'Clique direito em um elemento',
-      pgHow1b: 'seleciona-o e abre o popup de edição: mude texto e estilos, deixe uma nota.',
-      pgHow2t: 'A barra flutuante abaixo',
-      pgHow2b: 'seta = usar a página normalmente; a segunda ferramenta marca o elemento clicado.',
-      pgHow3t: 'Teclas 1–9',
-      pgHow3b: 'trocam a ferramenta: pin, caneta, formas, texto. Esc volta ao modo normal.',
-      pgHow4t: 'O botão azul, embaixo à direita',
-      pgHow4b: 'reúne seu feedback: compartilhe como link, Markdown ou capturas de tela.',
-      pgHow5t: 'O botão de celular ao lado',
-      pgHow5b: 'mostra um mockup mobile: marque por lá também; a rolagem fica sincronizada.',
-      pgFeatsTitle: 'Tudo em um só lugar',
-      pgFeat1t: 'Rápido',
-      pgFeat1b: 'Carrega antes de você terminar de piscar.',
-      pgFeat2t: 'Levemente deslocado',
-      pgFeat2b: 'Este cartão está 6 px mais baixo: um caso para o seletor de elementos.',
-      pgFeat3t: 'Confiável',
-      pgFeat3b: 'Funciona sem parar: aqui não há nada para marcar.',
-      pgStat1: 'Projetos',
-      pgStat2: 'Equipes',
-      pgStat3: 'Disponibilidade',
-      pgQuote: '“Desde o Aurora, nossas revisões levam metade do tempo — embora esta citação seja, francamente, difícil de ler.”',
-      pgCtaTitle: 'Pronto quando você estiver',
-      pgCtaBtn: 'Experimentar o Aurora',
-      pgFooter: 'Rodapé imaginário: fim do playground. Tudo acima pode ser marcado.',
-    },
-    nl: {
-      docTitle: 'Inkspect — Bedankt voor het installeren',
-      title: 'Bedankt voor het installeren van Inkspect!',
-      sub: 'Alles staat klaar — drie stappen en je markeert je eerste pagina:',
-      tab: 'Probeer het',
-      menuTitle: 'Extensies',
-      menuAccess: 'Volledige toegang',
-      menuAccessSub: 'Deze extensies kunnen gegevens op deze site bekijken en wijzigen.',
-      menuManage: 'Extensies beheren',
-      rowBlocker: 'AdBlocker',
-      rowPw: 'Wachtwoordmanager',
-      rowTranslate: 'Vertaler',
-      miniNote: 'knop te klein',
-      step1: 'Open het puzzelmenu',
-      step2: 'Pin Inkspect aan de werkbalk',
-      step3: 'Klik op het icoon — en begin met markeren',
-      more: 'Meer over Inkspect',
-      pgNavFeatures: 'Functies',
-      pgNavPricing: 'Prijzen',
-      pgNavContact: 'Contact',
-      pgNavCta: 'Aanmelden',
-      pgHeroTitle: 'Interfaces die goed voelen',
-      pgHeroSub: 'Aurora is het verzonnen product van deze demopagina — scroll erdoorheen en markeer alles wat niet klopt.',
-      pgHeroCta: 'Aan de slag',
-      pgBannerTag: 'Testpagina',
-      pgBannerText: 'Niets hier is echt en niets kan stuk — deze pagina bestaat zodat je Inkspect erop kunt uitproberen.',
-      pgHowTitle: 'Probeer het meteen hier',
-      pgHow1t: 'Rechtsklik op een element',
-      pgHow1b: 'kiest het en opent de bewerk-popup — pas tekst en styles aan, laat een notitie achter.',
-      pgHow2t: 'De zwevende balk onderaan',
-      pgHow2b: 'pijl = de pagina normaal bedienen; het tweede gereedschap markeert het element dat je aanklikt.',
-      pgHow3t: 'Toetsen 1–9',
-      pgHow3b: 'wisselen van gereedschap: pin, pen, vormen, tekst. Esc gaat terug naar bedienen.',
-      pgHow4t: 'De blauwe knop rechtsonder',
-      pgHow4b: 'verzamelt je feedback — deel het als link, Markdown of screenshots.',
-      pgHow5t: 'De telefoonknop ernaast',
-      pgHow5b: 'toont een mobiele mockup — markeer daar ook; het scrollen blijft synchroon.',
-      pgFeatsTitle: 'Alles op één plek',
-      pgFeat1t: 'Snel',
-      pgFeat1b: 'Geladen voordat je klaar bent met knipperen.',
-      pgFeat2t: 'Iets verschoven',
-      pgFeat2b: 'Deze kaart staat 6 px te laag — een geval voor de element-kiezer.',
-      pgFeat3t: 'Betrouwbaar',
-      pgFeat3b: 'Draait en draait — hier valt niets te markeren.',
-      pgStat1: 'Projecten',
-      pgStat2: 'Teams',
-      pgStat3: 'Uptime',
-      pgQuote: '„Sinds Aurora kosten onze reviews half zoveel tijd — al is dit citaat eerlijk gezegd slecht leesbaar.”',
-      pgCtaTitle: 'Klaar wanneer jij het bent',
-      pgCtaBtn: 'Probeer Aurora',
-      pgFooter: 'Verzonnen footer — einde van de speeltuin. Alles hierboven mag gemarkeerd worden.',
-    },
-    ja: {
-      docTitle: 'Inkspect — インストールありがとうございます',
-      title: 'Inkspect のインストールありがとうございます！',
-      sub: '準備完了 — 3 ステップで最初のページに書き込めます:',
-      tab: '試してみる',
-      menuTitle: '拡張機能',
-      menuAccess: 'フルアクセス',
-      menuAccessSub: 'これらの拡張機能はこのサイトのデータを読み取り、変更できます。',
-      menuManage: '拡張機能を管理',
-      rowBlocker: 'AdBlocker',
-      rowPw: 'パスワードマネージャー',
-      rowTranslate: '翻訳ツール',
-      miniNote: 'ボタンが小さすぎる',
-      step1: 'パズルメニューを開く',
-      step2: 'Inkspect をツールバーにピン留めする',
-      step3: 'アイコンをクリックして、マークを始める',
-      more: 'Inkspect についてもっと知る',
-      pgNavFeatures: '機能',
-      pgNavPricing: '料金',
-      pgNavContact: 'お問い合わせ',
-      pgNavCta: '登録',
-      pgHeroTitle: 'しっくりくるインターフェースを',
-      pgHeroSub: 'Aurora はこのデモページの架空のプロダクトです — スクロールして、違和感のある箇所をマークしてみましょう。',
-      pgHeroCta: 'はじめる',
-      pgBannerTag: 'テストページ',
-      pgBannerText: 'ここにあるものはすべて架空で、壊れるものはありません — このページは Inkspect を試すためにあります。',
-      pgHowTitle: 'ここで直接試せます',
-      pgHow1t: '要素を右クリック',
-      pgHow1b: '要素を選択して編集ポップアップを開きます — テキストやスタイルを変え、メモを残せます。',
-      pgHow2t: '下のフローティングバー',
-      pgHow2b: '矢印 = ページを普通に操作。2 つ目のツールはクリックした要素をマークします。',
-      pgHow3t: 'キー 1–9',
-      pgHow3b: 'ツールを切り替え: ピン、ペン、図形、テキスト。Esc で通常操作に戻ります。',
-      pgHow4t: '右下の青いボタン',
-      pgHow4b: 'フィードバックを集約 — リンク、Markdown、スクリーンショットで共有できます。',
-      pgHow5t: 'その隣のスマホボタン',
-      pgHow5b: 'モバイルモックアップを表示 — そこでもマークでき、スクロールは同期します。',
-      pgFeatsTitle: 'すべてをひとつの場所に',
-      pgFeat1t: '高速',
-      pgFeat1b: 'まばたきが終わる前に読み込みます。',
-      pgFeat2t: '少しずれている',
-      pgFeat2b: 'このカードは 6px 下がっています — 要素ピッカーの出番です。',
-      pgFeat3t: '信頼性',
-      pgFeat3b: '動き続けます — ここにマークするものはありません。',
-      pgStat1: 'プロジェクト',
-      pgStat2: 'チーム',
-      pgStat3: '稼働率',
-      pgQuote: '「Aurora を使い始めてからレビューの時間は半分に — ただ、この引用は正直読みにくいですね。」',
-      pgCtaTitle: '準備ができたらいつでも',
-      pgCtaBtn: 'Aurora を試す',
-      pgFooter: '架空のフッター — 遊び場はここまで。上のすべてがマーク対象です。',
-    },
-    zh: {
-      docTitle: 'Inkspect — 感谢安装',
-      title: '感谢安装 Inkspect！',
-      sub: '一切就绪 — 三步即可开始标注你的第一个页面:',
-      tab: '试一试',
-      menuTitle: '扩展程序',
-      menuAccess: '完全访问权限',
-      menuAccessSub: '这些扩展程序可以查看并更改此网站上的数据。',
-      menuManage: '管理扩展程序',
-      rowBlocker: 'AdBlocker',
-      rowPw: '密码管理器',
-      rowTranslate: '翻译工具',
-      miniNote: '按钮太小',
-      step1: '打开拼图菜单',
-      step2: '将 Inkspect 固定到工具栏',
-      step3: '点击图标 — 开始标注',
-      more: '进一步了解 Inkspect',
-      pgNavFeatures: '功能',
-      pgNavPricing: '价格',
-      pgNavContact: '联系我们',
-      pgNavCta: '注册',
-      pgHeroTitle: '打造感觉对味的界面',
-      pgHeroSub: 'Aurora 是这个演示页面上的虚构产品 — 滚动浏览，把所有不对劲的地方标出来。',
-      pgHeroCta: '开始使用',
-      pgBannerTag: '测试页面',
-      pgBannerText: '这里的一切都是虚构的，怎么弄都不会坏 — 这个页面就是让你在上面试用 Inkspect 的。',
-      pgHowTitle: '就在这里试试',
-      pgHow1t: '右键点击任意元素',
-      pgHow1b: '即可选中并打开编辑弹窗 — 修改文字和样式，留下备注。',
-      pgHow2t: '底部的悬浮工具栏',
-      pgHow2b: '箭头 = 正常操作页面；第二个工具会标记你点击的元素。',
-      pgHow3t: '按键 1–9',
-      pgHow3b: '切换工具: 图钉、画笔、图形、文字。按 Esc 返回正常操作。',
-      pgHow4t: '右下角的蓝色按钮',
-      pgHow4b: '汇集你的反馈 — 以链接、Markdown 或截图分享。',
-      pgHow5t: '旁边的手机按钮',
-      pgHow5b: '显示移动端模型 — 在那里也能标注，滚动保持同步。',
-      pgFeatsTitle: '一切尽在一处',
-      pgFeat1t: '快速',
-      pgFeat1b: '眨眼还没眨完就加载好了。',
-      pgFeat2t: '略微错位',
-      pgFeat2b: '这张卡片低了 6 像素 — 正好试试元素选择器。',
-      pgFeat3t: '可靠',
-      pgFeat3b: '一直稳定运行 — 这里没什么可标注的。',
-      pgStat1: '项目',
-      pgStat2: '团队',
-      pgStat3: '可用性',
-      pgQuote: '“用上 Aurora 之后，我们的评审时间减半 — 虽然这段引用说实话很难读清。”',
-      pgCtaTitle: '随时恭候',
-      pgCtaBtn: '试用 Aurora',
-      pgFooter: '虚构的页脚 — 游乐场到此结束。上面的一切都可以标注。',
-    },
-  };
-
-  (function () {
-    var langs = navigator.languages && navigator.languages.length
-      ? navigator.languages
-      : [navigator.language || 'en'];
-    for (var i = 0; i < langs.length; i++) {
-      var code = String(langs[i]).toLowerCase().split('-')[0];
-      if (code === 'en') break; // Englisch steht bereits im Markup
-      var dict = I18N[code];
-      if (!dict) continue;
-      document.documentElement.lang = code;
-      if (dict.docTitle) document.title = dict.docTitle;
-      document.querySelectorAll('[data-i18n]').forEach(function (el) {
-        var s = dict[el.getAttribute('data-i18n')];
-        if (s) el.textContent = s;
-      });
-      break;
-    }
-  })();
-</script>
 </body>
 </html>

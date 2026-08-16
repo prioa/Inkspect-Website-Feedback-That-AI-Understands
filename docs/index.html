@@ -22,10 +22,9 @@
 <body>
 
 <!--
-  Feste Elemente liegen bewusst ausserhalb von #smooth-wrapper: ScrollSmoother
-  transformiert den Inhalt, und ein transformierter Vorfahr macht aus
-  `position: fixed` einen neuen Enthaltungsblock — die Kopfleiste wuerde
-  mitscrollen.
+  Fixed elements deliberately sit outside #smooth-wrapper: ScrollSmoother
+  transforms the content, and a transformed ancestor turns `position: fixed`
+  into a new containing block — the header would scroll along.
 -->
 <div class="ink-bar" aria-hidden="true"><span class="ink-bar__fill"></span></div>
 
@@ -44,8 +43,8 @@
 </header>
 
 <!--
-  Werkzeugleiste wie im Addon: sie haengt am linken Rand und zeigt an, welches
-  Werkzeug der gerade sichtbare Abschnitt vorfuehrt (`data-tool` am Abschnitt).
+  A tool bar as in the add-on: it hangs at the left edge and shows which tool
+  the currently visible section is demonstrating (`data-tool` on the section).
 -->
 <aside class="dock" aria-hidden="true">
   <span class="dock__tool" data-tool="element" title="Mark element">
@@ -77,8 +76,8 @@
 <section class="hero" data-tool="pin">
   <div class="wrap hero__head">
     <p class="hero__kicker" data-reveal>Browser extension · Chrome &amp; Firefox</p>
-    <!-- Nur der Vorderteil wird in Zeichen zerlegt: das <em> traegt den
-         absolut positionierten Unterstrich, den SplitText sonst mitverschiebt. -->
+    <!-- Only the front part is split into characters: the <em> carries the
+         absolutely positioned underline, which SplitText would otherwise move. -->
     <h1 class="hero__h1">
       <span class="split">Website feedback that</span>
       <em>AI understands<svg class="scribble" viewBox="0 0 300 24" preserveAspectRatio="none" aria-hidden="true"><path d="M4 16c48 4 96 5 148 2s96-6 144-8" vector-effect="non-scaling-stroke"/><path d="M12 21c60 2 120 1 180-3" vector-effect="non-scaling-stroke" opacity=".55"/></svg></em>
@@ -97,10 +96,9 @@
   </div>
 
   <!--
-    Die Buehne ist die eigentliche Ansage: eine fremde Website, die sich
-    beim Scrollen selbst markiert. Alle Innenmasse stehen in `cqw`, damit
-    Inhalt und SVG-Overlay (viewBox 1200x750) bei jeder Breite deckungs-
-    gleich bleiben.
+    The stage is the real statement: someone else's website that marks itself
+    up as you scroll. Every inner measurement is in `cqw`, so that content and
+    SVG overlay (viewBox 1200x750) line up at any width.
   -->
   <div class="wrap wrap--wide">
     <div class="stage stage--hero" id="stage-hero">
@@ -131,9 +129,9 @@
       </div>
 
       <!--
-        Markierungsebene. Die Koordinaten sind Design-Pixel desselben
-        1200x750-Rasters wie `--u` im CSS — Overlay und Inhalt decken sich
-        deshalb bei jeder Breite. Gezeichnet wird per DrawSVG beim Scrollen.
+        Marking layer. The coordinates are design pixels of the same 1200x750
+        grid as `--u` in the CSS — overlay and content therefore line up at any
+        width. Drawing happens via DrawSVG while scrolling.
       -->
       <svg class="ann" viewBox="0 0 1200 750" fill="none" aria-hidden="true">
         <g stroke="var(--m-green)" stroke-width="2" stroke-dasharray="7 6">
@@ -151,7 +149,7 @@
               stroke="var(--m-green)" stroke-width="2.5" stroke-dasharray="6 5" />
       </svg>
 
-      <!-- Notizen als HTML: echter Text bleibt scharf und vorlesbar -->
+      <!-- Notes as HTML: real text stays sharp and can be read aloud -->
       <span class="ann__note ann__note--1">Headline sits too tight above the lead <b>— pin 1</b></span>
       <span class="ann__note ann__note--2">Make this full width on mobile</span>
       <span class="ann__note ann__note--3"><i>56 px</i> lead → button</span>
@@ -163,10 +161,10 @@
   <span class="hero__hint" data-speed="0.82" aria-hidden="true">scroll<i></i></span>
 </section>
 
-<!-- ═════════════════════════ Handoff (gepinnt) ═════════════════════════ -->
+<!-- ═════════════════════════ Handoff (pinned) ═════════════════════════ -->
 <section id="handoff" class="handoff" data-tool="text">
-  <!-- Ueberschrift steht mit im Pin: sonst waere beim Wischen nicht mehr zu
-       sehen, worauf man gerade schaut. -->
+  <!-- The heading is pinned along with it: otherwise, during the wipe, you
+       could no longer see what you are looking at. -->
   <div class="handoff__stick">
     <div class="wrap">
       <h2 class="h2" data-reveal>A screenshot makes it <em>guess</em>.</h2>
@@ -227,7 +225,7 @@
   </div>
 </section>
 
-<!-- ═════════════════════ Element-Picker (gepinnt) ═════════════════════ -->
+<!-- ═════════════════════ Element picker (pinned) ═════════════════════ -->
 <section id="inspect" class="inspect" data-tool="element">
   <div class="inspect__stick">
     <div class="wrap">
@@ -252,8 +250,9 @@
               <h2 class="site__h1">Ship your best work, faster.</h2>
               <p class="site__lead">One workspace for the whole team — plan, build and review in the same place.</p>
               <!--
-                Der Rahmen des Element-Pickers steckt im Button selbst: so
-                waechst er beim Padding-Scrub mit, statt danebenzuliegen.
+                The element picker's frame sits inside the button itself: that
+                way it grows along with the padding scrub instead of sitting
+                beside it.
               -->
               <span class="site__cta" id="edit-cta"><span class="padband"></span><span id="edit-label">Get started</span><span class="pickbox" id="pickbox"><i>a.btn--primary</i></span><span class="padtag" id="pad-top">8px</span></span>
             </div>
@@ -295,7 +294,7 @@
   </div>
 </section>
 
-<!-- ═══════════════════ Geraete (horizontal, gepinnt) ═══════════════════ -->
+<!-- ═══════════════════ Devices (horizontal, pinned) ═══════════════════ -->
 <section id="devices" class="devices" data-tool="line">
   <div class="devices__stick">
     <div class="wrap">
@@ -333,7 +332,7 @@
   </div>
 </section>
 
-<!-- ═══════════════════════════ Uebergabe ═══════════════════════════ -->
+<!-- ═══════════════════════════ Handover ═══════════════════════════ -->
 <section id="export" class="export" data-tool="text">
   <div class="wrap">
     <h2 class="h2" data-reveal>Hand it over <em>three ways</em>.</h2>
@@ -373,7 +372,7 @@
   </div>
 </section>
 
-<!-- ══════════════════════════ Kleinkram ══════════════════════════ -->
+<!-- ══════════════════════════ Odds and ends ══════════════════════════ -->
 <section id="more" class="more" data-tool="pen">
   <div class="wrap">
     <h2 class="h2" data-reveal>Also in the box</h2>
@@ -384,14 +383,14 @@
       <div class="card"><h3>A panel that keeps order</h3><p>Feedback grouped per page and per device. Check items off as you fix them; badges count what is still open.</p></div>
       <div class="card"><h3>Full window mode</h3><p>The page at full size with a floating tool bar you can drag anywhere, plus an optional phone mockup beside it.</p></div>
       <div class="card"><h3>Live CSS editor</h3><p>Edit the page's stylesheets, cross-origin sheets included. Changes apply across every frame and survive reloads.</p></div>
-      <div class="card"><h3>Stubborn pages</h3><p>Sites that refuse to be embedded can still be previewed via an explicit opt-in, scoped to the current tab.</p></div>
-      <div class="card"><h3>Find your way</h3><p>A guided tour on first open, and a shortcut sheet behind <kbd>?</kbd> whenever you need it.</p></div>
+      <div class="card"><h3>Stubborn pages</h3><p>Some sites tell browsers never to display them inside another page. Inkspect can lift that block — it asks first, and only for the current tab.</p></div>
+      <div class="card"><h3>Find your way</h3><p>A coachmark points at the first tool, then small hints explain each feature as you use it. The full list sits behind <kbd>?</kbd>.</p></div>
       <div class="card"><h3>Keyboard first</h3><p><kbd>1</kbd>–<kbd>9</kbd> picks a tool, <kbd>I</kbd> opens the inspector, <kbd>Esc</kbd> goes back to interacting.</p></div>
     </div>
   </div>
 </section>
 
-<!-- ═══════════════════════════ Datenschutz ═══════════════════════════ -->
+<!-- ═══════════════════════════ Privacy ═══════════════════════════ -->
 <section id="privacy" class="privacy" data-tool="shield">
   <div class="wrap privacy__grid">
     <div>
@@ -407,7 +406,7 @@
       </p>
     </div>
 
-    <!-- Daten laufen per MotionPath nach aussen und prallen an der Grenze ab -->
+    <!-- Data travels outwards via MotionPath and bounces off the boundary -->
     <div class="vault" data-speed="1.08">
       <svg viewBox="0 0 400 400" fill="none" aria-hidden="true">
         <defs>
@@ -437,8 +436,8 @@
     <div class="cta cta--ring">
       <span class="ringwrap">
         <a class="btn btn--primary" href="https://chromewebstore.google.com/detail/opckhhggofkbihbnabhhaidgknmniebk">Add to Chrome</a>
-        <!-- Handgezogener Kreis: preserveAspectRatio none + nicht skalierende
-             Strichbreite, damit er sich an jede Buttonbreite anlegt. -->
+        <!-- Hand-drawn circle: preserveAspectRatio none + a non-scaling stroke
+             width, so that it hugs any button width. -->
         <svg class="ring" viewBox="0 0 260 90" preserveAspectRatio="none" aria-hidden="true">
           <path d="M132 8c56-3 118 6 122 30s-64 44-124 44S6 68 6 42 62 5 124 6" vector-effect="non-scaling-stroke" />
         </svg>

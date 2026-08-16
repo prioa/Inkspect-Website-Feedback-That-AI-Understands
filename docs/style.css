@@ -1,20 +1,20 @@
 /*
- * Website zu Inkspect (GitHub Pages, Ordner `docs/`).
+ * Website for Inkspect (GitHub Pages, folder `docs/`).
  *
- * Weiterhin ohne Build-Schritt: drei Dateien plus Bilder, direkt im Browser
- * zu oeffnen. Die Farbwerte sind dieselben wie im Addon
- * (`components/styles.ts`), die Markerfarben dieselben wie in
- * `lib/annotations.ts` — Seite und Werkzeug sollen erkennbar zusammengehoeren.
+ * Still without a build step: three files plus images, openable straight in
+ * the browser. The colour values are the same as in the add-on
+ * (`components/styles.ts`), the marker colours the same as in
+ * `lib/annotations.ts` — page and tool should visibly belong together.
  *
- * Bewegung kommt aus app.js (GSAP ScrollTrigger). Diese Datei haelt nur die
- * Startzustaende: alles, was animiert wird, ist unter `.js` unsichtbar und
- * wird von GSAP eingeblendet. Ohne JavaScript — und bei
- * `prefers-reduced-motion` (Klasse `.no-anim`) — ist alles sofort da.
+ * Motion comes from app.js (GSAP ScrollTrigger). This file only holds the
+ * starting states: everything that gets animated is invisible under `.js` and
+ * is faded in by GSAP. Without JavaScript — and under `prefers-reduced-motion`
+ * (class `.no-anim`) — everything is there immediately.
  *
- * Die Mockups (Buehne, Geraete) rechnen in Container-Query-Einheiten:
- * `--u` ist ein Design-Pixel eines 1200x750-Rasters. Dadurch skaliert der
- * Inhalt proportional zur Breite und deckt sich mit dem SVG-Overlay
- * (viewBox 0 0 1200 750), statt umzubrechen.
+ * The mockups (stage, devices) work in container-query units: `--u` is one
+ * design pixel of a 1200x750 grid. That way the content scales proportionally
+ * with the width and lines up with the SVG overlay (viewBox 0 0 1200 750),
+ * instead of wrapping.
  */
 
 :root {
@@ -30,7 +30,7 @@
   --accent: #5b8cff;
   --accent-hover: #6f9aff;
 
-  /* Markerfarben des Addons (ANNOTATION_COLORS) */
+  /* The add-on's marker colours (ANNOTATION_COLORS) */
   --m-blue: #5b8cff;
   --m-amber: #ffb340;
   --m-green: #3ecf6e;
@@ -64,10 +64,10 @@ h1, h2, h3 { letter-spacing: -.02em; }
 .wrap { width: min(1080px, calc(100% - 40px)); margin: 0 auto; }
 .wrap--wide { width: min(1240px, calc(100% - 40px)); }
 
-/* Startzustand fuer alles, was GSAP einblendet. */
+/* Starting state for everything GSAP fades in. */
 .js:not(.no-anim) [data-reveal] { opacity: 0; }
 
-/* ---------- Fortschrittsstrich ---------- */
+/* ---------- Progress line ---------- */
 
 .ink-bar {
   position: fixed;
@@ -85,7 +85,7 @@ h1, h2, h3 { letter-spacing: -.02em; }
   background: linear-gradient(90deg, var(--m-blue), var(--m-green) 55%, var(--m-amber));
 }
 
-/* ---------- Kopf ---------- */
+/* ---------- Header ---------- */
 
 .top {
   position: fixed;
@@ -119,7 +119,7 @@ h1, h2, h3 { letter-spacing: -.02em; }
 .top__cta:hover { background: var(--bg-3); }
 @media (max-width: 720px) { .top__links a.is-optional { display: none; } }
 
-/* ---------- Werkzeugleiste am Rand ---------- */
+/* ---------- Tool bar at the edge ---------- */
 
 .dock {
   position: fixed;
@@ -176,7 +176,7 @@ h1, h2, h3 { letter-spacing: -.02em; }
 .btn--soon { opacity: .6; cursor: default; }
 .btn--soon:hover { transform: none; background: var(--bg-2); }
 
-/* ---------- Abschnitte ---------- */
+/* ---------- Sections ---------- */
 
 section { position: relative; padding: 96px 0; }
 .h2 {
@@ -243,7 +243,7 @@ section { position: relative; padding: 96px 0; }
 }
 .hero__hint i { display: block; width: 1px; height: 40px; background: linear-gradient(var(--border-strong), transparent); }
 
-/* ---------- Buehne: fremde Website mit Markierungen ---------- */
+/* ---------- Stage: someone else's website, with markings ---------- */
 
 .stage {
   container-type: inline-size;
@@ -256,7 +256,7 @@ section { position: relative; padding: 96px 0; }
   background: var(--bg-1);
   box-shadow: var(--shadow);
   text-align: left;
-  /* ein Design-Pixel des 1200er Rasters */
+  /* one design pixel of the 1200 grid */
   --u: .08333cqw;
 }
 .stage__cap { margin: 18px 0 0; font-size: 14px; color: var(--text-2); text-align: center; }
@@ -296,7 +296,7 @@ section { position: relative; padding: 96px 0; }
   font-weight: 700;
 }
 
-/* Die „fremde" Seite ist hell — sie soll wie eine echte Kundenseite wirken. */
+/* The "foreign" page is light — it should feel like a real customer site. */
 .site { flex: 1 1 auto; background: #fff; color: #1b1f27; }
 .site__bar {
   display: flex;
@@ -335,9 +335,9 @@ section { position: relative; padding: 96px 0; }
   color: #5b6474;
 }
 /*
- * Block statt inline-block: ein Inline-Element haengt in einer anonymen
- * Zeilenbox, deren Strut die *geerbte* Schriftgroesse (16 CSS-px) benutzt —
- * das waere der einzige Wert im Mockup, der nicht mitskaliert.
+ * Block rather than inline-block: an inline element hangs in an anonymous
+ * line box whose strut uses the *inherited* font size (16 CSS px) — that would
+ * be the one value in the mockup that does not scale along.
  */
 .site__cta {
   position: relative;
@@ -373,7 +373,7 @@ section { position: relative; padding: 96px 0; }
 .site__card b { width: 60%; height: calc(11 * var(--u)); border-radius: 999px; background: #d7dbe3; }
 .site__card u { width: 88%; height: calc(8 * var(--u)); border-radius: 999px; background: #e7eaf0; }
 
-/* Markierungsebene */
+/* Marking layer */
 .ann { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .ann__note {
   position: absolute;
@@ -396,14 +396,14 @@ section { position: relative; padding: 96px 0; }
 .ann__note--4 { left: 35%; top: 88%; font-family: var(--mono); color: var(--m-green); }
 @media (max-width: 760px) { .ann__note { display: none; } }
 
-/* ---------- Handoff: unscharfe Notiz vs. Checkliste ---------- */
+/* ---------- Handoff: blurred note vs. checklist ---------- */
 
 .handoff__grid { position: relative; display: grid; margin-top: 6px; }
 .handoff__grid > * { grid-area: 1 / 1; }
 
 .vague { margin: 0; position: relative; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
-/* Dieselbe Kundenseite wie im Hero — nur eben als Screenshot: flau, weich,
-   und mit einem Satz drueber, der nichts verraet. */
+/* The same customer page as in the hero — only as a screenshot: washed out,
+   soft, and with a sentence over it that gives nothing away. */
 .vague .stage {
   margin: 0;
   border: 0;
@@ -411,7 +411,7 @@ section { position: relative; padding: 96px 0; }
   box-shadow: none;
   filter: saturate(.3) contrast(.85) blur(2.5px);
   opacity: .5;
-  /* Weichzeichner frisst die Kanten — minimal groesser ziehen. */
+  /* The blur eats the edges — draw it a fraction larger. */
   transform: scale(1.03);
 }
 .vague figcaption {
@@ -444,7 +444,7 @@ section { position: relative; padding: 96px 0; }
   border-radius: var(--radius);
   background: var(--bg-1);
   overflow: hidden;
-  /* wird von GSAP aufgezogen */
+  /* drawn open by GSAP */
   clip-path: inset(0 100% 0 0);
 }
 .no-anim .sharp, html:not(.js) .sharp { clip-path: none; }
@@ -467,16 +467,16 @@ section { position: relative; padding: 96px 0; }
   color: var(--text-1);
   overflow-x: auto;
 }
-/* `white-space: pre` sitzt auf der Zeile, nicht auf dem Block: sonst wuerde
-   der Zeilenumbruch *zwischen* den Spans als zusaetzliche Leerzeile zaehlen. */
+/* `white-space: pre` sits on the line, not on the block: otherwise the line
+   break *between* the spans would count as an extra blank line. */
 .sharp__code .ln { display: block; white-space: pre; }
 .sharp__code b { color: var(--text-0); font-weight: 600; }
 .sharp__code i { color: var(--accent); font-style: normal; }
 .sharp__stamp { left: auto; right: 16px; color: var(--m-green); }
 
 /*
- * Ohne Wischbewegung waere die linke Haelfte fuer immer unter der rechten
- * begraben — dann stehen beide untereinander.
+ * Without the wipe, the left half would be buried under the right one
+ * forever — so instead the two stand one above the other.
  */
 .no-anim .handoff__grid > *,
 html:not(.js) .handoff__grid > * { grid-area: auto; }
@@ -486,7 +486,7 @@ html:not(.js) .handoff__grid { gap: 18px; }
 html:not(.js) .handoff__seam,
 .no-anim .hero__hint { display: none; }
 
-/* Die Naht zwischen beiden Haelften — ein Tintenstrich. */
+/* The seam between the two halves — a stroke of ink. */
 .handoff__seam {
   position: absolute;
   top: -2%;
@@ -507,9 +507,9 @@ html:not(.js) .handoff__seam,
   gap: 24px;
   align-items: start;
 }
-/* Naeher dran als im Hero: groessere Design-Einheit, flacherer Ausschnitt. */
+/* Closer in than the hero: larger design unit, shallower crop. */
 .inspect .stage { margin-top: 0; aspect-ratio: 1200 / 560; --u: .1cqw; }
-/* Ausgangswerte der Vorfuehrung — app.js schreibt beim Scrollen dagegen an. */
+/* Starting values of the demonstration — app.js writes against them while scrolling. */
 #edit-cta { --pad: 8; --weight: 500; }
 .site--zoom { display: flex; align-items: center; }
 .site--zoom .site__hero { padding: calc(30 * var(--u)) calc(60 * var(--u)); }
@@ -535,7 +535,7 @@ html:not(.js) .handoff__seam,
   font-style: normal;
   white-space: nowrap;
 }
-/* Das obere Padding als Band im Button — es waechst mit dem Wert mit. */
+/* The top padding as a band inside the button — it grows with the value. */
 .padband {
   position: absolute;
   left: 0;
@@ -609,7 +609,7 @@ html:not(.js) .handoff__seam,
   .inspect__grid { grid-template-columns: 1fr; }
 }
 
-/* ---------- Geraete (horizontal) ---------- */
+/* ---------- Devices (horizontal) ---------- */
 
 .devices__rail { overflow: hidden; margin-top: 8px; }
 .devices__track {
@@ -645,8 +645,8 @@ html:not(.js) .handoff__seam,
 
 .mini { position: relative; height: 100%; overflow: hidden; }
 /*
- * Die Miniseite ist reine Malerei aus Verlaufsebenen — kein Markup, damit
- * vier Rahmen nicht vier Kopien derselben Seite in den DOM legen.
+ * The mini page is pure painting made of gradient layers — no markup, so that
+ * four frames do not put four copies of the same page into the DOM.
  */
 .mini__page {
   position: relative;
@@ -681,7 +681,7 @@ html:not(.js) .handoff__seam,
     8% 84%,
     0 100%;
 }
-/* Markierung klebt am Inhalt — sie scrollt mit, nicht mit dem Rahmen. */
+/* The marking sticks to the content — it scrolls with that, not with the frame. */
 .mini__page::after {
   content: '';
   position: absolute;
@@ -698,7 +698,7 @@ html:not(.js) .handoff__seam,
 .sync { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 12px; color: var(--m-green); }
 .sync i { width: 8px; height: 8px; border-radius: 50%; background: var(--m-green); box-shadow: 0 0 0 0 rgba(62, 207, 110, .6); }
 
-/* ---------- Uebergabe ---------- */
+/* ---------- Handover ---------- */
 
 .three { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .way {
@@ -785,7 +785,7 @@ html:not(.js) .handoff__seam,
   font-style: normal;
   color: #6b7280;
 }
-/* Ohne Auffaechern laegen die drei Blaetter exakt uebereinander. */
+/* Without the fan-out the three sheets would lie exactly on top of each other. */
 .no-anim .sheet:nth-child(1), html:not(.js) .sheet:nth-child(1) { transform: translateX(-34px) rotate(-9deg); }
 .no-anim .sheet:nth-child(3), html:not(.js) .sheet:nth-child(3) { transform: translateX(34px) rotate(9deg); }
 .no-anim .squeeze, html:not(.js) .squeeze { display: none; }
@@ -798,7 +798,7 @@ html:not(.js) .handoff__seam,
   background: var(--m-amber);
 }
 
-/* ---------- Kachelraster ---------- */
+/* ---------- Tile grid ---------- */
 
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
 .card {
@@ -821,7 +821,7 @@ kbd {
   color: var(--text-0);
 }
 
-/* ---------- Datenschutz ---------- */
+/* ---------- Privacy ---------- */
 
 .privacy__grid { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 40px; align-items: center; }
 .vault { position: relative; }
@@ -849,7 +849,7 @@ kbd {
   .vault { max-width: 340px; margin: 0 auto; }
 }
 
-/* ---------- Schluss ---------- */
+/* ---------- Ending ---------- */
 
 .last__in { text-align: center; }
 .last .sub { margin-inline: auto; }
@@ -868,7 +868,7 @@ kbd {
   pointer-events: none;
 }
 
-/* ---------- Fuss ---------- */
+/* ---------- Footer ---------- */
 
 footer { padding: 44px 0 64px; border-top: 1px solid var(--border); color: var(--text-2); font-size: 14px; }
 .foot { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; }
@@ -876,10 +876,10 @@ footer { padding: 44px 0 64px; border-top: 1px solid var(--border); color: var(-
 .foot a:hover { color: var(--text-0); }
 .foot__spacer { flex: 1 1 auto; }
 
-/* ---------- Kleine Schirme ---------- */
+/* ---------- Small screens ---------- */
 
 @media (max-width: 899px) {
-  /* Ohne Pin laeuft die Geraetereihe von Hand — nativ horizontal scrollbar. */
+  /* Without pinning the device row runs by hand — natively scrollable sideways. */
   .devices__rail { overflow-x: auto; overscroll-behavior-x: contain; }
   .devices__track { padding-inline: 20px; }
   .dev__meta { flex-basis: 260px; }
@@ -896,8 +896,8 @@ footer { padding: 44px 0 64px; border-top: 1px solid var(--border); color: var(-
 }
 
 /*
- * Bewegungsarm: alles sichtbar, nichts laeuft. `.no-anim` setzt app.js,
- * wenn `prefers-reduced-motion: reduce` gilt.
+ * Low motion: everything visible, nothing running. `.no-anim` is set by
+ * app.js when `prefers-reduced-motion: reduce` applies.
  */
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

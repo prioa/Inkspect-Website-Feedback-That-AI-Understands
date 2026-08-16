@@ -1,19 +1,19 @@
 /*
- * Bewegung der Inkspect-Website (GSAP 3.15 + ScrollTrigger).
+ * Motion for the Inkspect website (GSAP 3.15 + ScrollTrigger).
  *
- * Leitidee: die Seite markiert sich selbst. Was das Addon auf einer fremden
- * Website tut — anpinnen, umranden, messen, Werte veraendern, uebergeben —
- * fuehrt die Seite beim Scrollen an einem Mockup vor.
+ * Guiding idea: the page marks itself up. What the add-on does on someone
+ * else's website — pinning, outlining, measuring, changing values, handing it
+ * over — the page demonstrates on a mockup as you scroll.
  *
- * Regeln fuer diese Datei:
+ * Rules for this file:
  *
- * - Faellt das CDN aus, bleibt die Seite lesbar: ohne `gsap` wird `.no-anim`
- *   gesetzt und die Startzustaende aus style.css sind wieder sichtbar.
- * - `prefers-reduced-motion: reduce` schaltet alles ab, nur die Ankerlinks
- *   bleiben verdrahtet.
- * - Alles, was Laenge oder Abstand in Pixeln braucht, steckt in einer
- *   Funktion (`end: () => …`) — ScrollTrigger wertet die bei jedem Refresh
- *   neu aus, sonst stimmen die Strecken nach einem Resize nicht mehr.
+ * - If the CDN fails, the page stays readable: without `gsap`, `.no-anim` is
+ *   set and the starting states from style.css become visible again.
+ * - `prefers-reduced-motion: reduce` switches everything off; only the anchor
+ *   links stay wired up.
+ * - Anything that needs a length or a distance in pixels goes in a function
+ *   (`end: () => …`) — ScrollTrigger re-evaluates those on every refresh, or
+ *   the distances no longer hold after a resize.
  */
 (function () {
   'use strict';
@@ -22,7 +22,7 @@
   var q = function (sel, ctx) { return (ctx || document).querySelector(sel); };
   var qa = function (sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); };
 
-  /* Ankerlinks laufen ueber den Smoother, sonst springt die Seite. */
+  /* Anchor links run through the smoother, or the page jumps. */
   function wireLinks(smoother) {
     qa('a[href^="#"]').forEach(function (a) {
       a.addEventListener('click', function (e) {
@@ -41,8 +41,8 @@
     return;
   }
 
-  /* Jedes Plugin einzeln pruefen: faellt eine CDN-Datei aus, laeuft der Rest
-     weiter — jede Stelle, die eines braucht, hat einen Ersatzweg. */
+  /* Check each plugin separately: if one CDN file fails, the rest keeps
+     running — every place that needs one has an alternative route. */
   gsap.registerPlugin(ScrollTrigger);
   var hasSplit = !!window.SplitText;
   var hasDraw = !!window.DrawSVGPlugin;
@@ -53,9 +53,9 @@
   if (hasPath) gsap.registerPlugin(MotionPathPlugin);
 
   /*
-   * Endzustand fuer alles, was sonst ein Scrub setzt. Wird sowohl bei
-   * `prefers-reduced-motion` als auch auf schmalen Schirmen gebraucht, wo
-   * die gepinnten Abschnitte gar nicht erst entstehen.
+   * End state for everything a scrub would otherwise set. Needed both under
+   * `prefers-reduced-motion` and on narrow screens, where the pinned sections
+   * never come into being in the first place.
    */
   function staticState() {
     gsap.set(['#pickbox', '.logrow', '.padband', '.padtag'], { opacity: 1 });
@@ -91,7 +91,7 @@
   var mm = gsap.matchMedia();
   var WIDE = '(min-width: 900px)';
 
-  /* ───────────────────────── Kopf, Fortschritt, Dock ───────────────────── */
+  /* ──────────────────────── Header, progress, dock ─────────────────────── */
 
   ScrollTrigger.create({
     start: 0,
@@ -114,7 +114,7 @@
       scrollTrigger: { trigger: '.hero', start: 'bottom 70%', toggleActions: 'play none none reverse' }
     });
 
-    /* Der sichtbare Abschnitt bestimmt, welches Werkzeug leuchtet. */
+    /* The visible section decides which tool lights up. */
     qa('section[data-tool]').forEach(function (section) {
       ScrollTrigger.create({
         trigger: section,
@@ -130,9 +130,9 @@
     });
   });
 
-  /* ───────────────────────────── Ueberschriften ────────────────────────── */
+  /* ───────────────────────────────  Headings  ──────────────────────────── */
 
-  /* Zeilenweise aus einer Maske hochschieben. */
+  /* Pushed up line by line out of a mask. */
   function revealHeadline(el, trigger) {
     gsap.set(el, { opacity: 1 });
     if (!hasSplit) {
@@ -157,7 +157,7 @@
 
   qa('.h2').forEach(function (h) { revealHeadline(h); });
 
-  /* Absaetze, Listen, Buttons: der ruhige Rest. */
+  /* Paragraphs, lists, buttons: the quiet remainder. */
   qa('[data-reveal]').forEach(function (el) {
     if (el.closest('.hero') || el.classList.contains('h2')) return;
     gsap.to(el, {
@@ -183,7 +183,7 @@
 
     tl.from('.hero__h1 em', { yPercent: 60, opacity: 0, duration: .7 }, '-=.35');
 
-    /* Der Unterstrich wird gezogen, nicht eingeblendet. */
+    /* The underline is drawn, not faded in. */
     if (hasDraw) {
       tl.fromTo('.scribble path',
         { drawSVG: '0%' },
@@ -198,14 +198,14 @@
       .from('.stage--hero', { y: 70, opacity: 0, rotateX: 9, transformPerspective: 1400, duration: 1.1 }, '-=.5')
       .from('.hero__hint', { opacity: 0, duration: .6 }, '-=.4');
 
-    /* Scrollhinweis verschwindet, sobald man ihn befolgt. */
+    /* The scroll hint disappears as soon as you follow it. */
     gsap.to('.hero__hint', {
       opacity: 0, duration: .3,
       scrollTrigger: { trigger: '.hero', start: 'top top-=80', toggleActions: 'play none none reverse' }
     });
   })();
 
-  /* ──────────────── Buehne: die Seite markiert sich selbst ─────────────── */
+  /* ───────────────── Stage: the page marks itself up ───────────────────── */
 
   (function annotate() {
     var stage = q('#stage-hero');
@@ -227,21 +227,21 @@
       }
     });
 
-    /* 1 · Hilfslinien messen den Abstand zwischen Lead und Button. */
+    /* 1 · Guide lines measure the gap between lead and button. */
     tl.from('.a-guide', { scaleX: 0, transformOrigin: '0% 50%', duration: 1, stagger: .25 })
       .from('.ann__note--3', { opacity: 0, x: -14, duration: .6 }, '-=.4');
 
-    /* 2 · Freihandstrich im Lead */
+    /* 2 · Freehand stroke through the lead */
     var pen = draw('.a-pen', 1);
     tl.fromTo(pen.targets, pen.from, pen.to, '+=.2');
 
-    /* 3 · Kommentar-Pin an der Headline */
+    /* 3 · Comment pin on the headline */
     var pin = draw('.a-pin', .9);
     tl.fromTo(pin.targets, pin.from, pin.to, '+=.2')
       .from('.a-pinno', { opacity: 0, scale: 0, transformOrigin: '50% 50%', duration: .4 }, '-=.3')
       .from('.ann__note--1', { opacity: 0, x: -18, duration: .7 }, '-=.4');
 
-    /* 4 · Rahmen um den Button, dann der Pfeil mit Notiz */
+    /* 4 · Frame around the button, then the arrow with a note */
     var rect = draw('.a-rect', 1.4);
     tl.fromTo(rect.targets, rect.from, rect.to, '+=.15');
 
@@ -252,12 +252,12 @@
     var head = draw('.a-head', .35);
     tl.fromTo(head.targets, head.from, head.to, '-=.15');
 
-    /* 5 · Element-Auswahl auf der zweiten Karte */
+    /* 5 · Element pick on the second card */
     tl.from('.a-pick', { opacity: 0, scale: 1.09, transformOrigin: '50% 50%', duration: .7, ease: 'power2.out' }, '+=.15')
       .from('.ann__note--4', { opacity: 0, y: -10, duration: .5 }, '-=.35');
   })();
 
-  /* ─────────────── Uebergabe: unscharfe Notiz → Checkliste ─────────────── */
+  /* ────────────── Handover: blurred note → checklist ───────────────────── */
 
   mm.add(WIDE, function () {
     var stick = q('.handoff__stick');
@@ -278,8 +278,8 @@
     });
 
     tl.set('.handoff__seam', { opacity: 1 })
-      /* Von links nach rechts aufziehen — die Naht laeuft genau auf der
-         Kante des Clips mit, deshalb muessen beide dieselbe Richtung haben. */
+      /* Drawn open from left to right — the seam travels exactly along the
+         edge of the clip, so both have to run the same way. */
       .fromTo('.sharp', { clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)', duration: 1 }, 0)
       .fromTo('.handoff__seam', { x: 0 }, { x: function () { return grid.offsetWidth; }, duration: 1 }, 0)
       .to('.vague .stage', { opacity: .12, duration: 1 }, 0)
@@ -289,7 +289,7 @@
       .from('.sharp__stamp', { opacity: 0, y: 10, duration: .2, ease: 'power2.out' }, .8);
   });
 
-  /* ──────────── Element-Picker: Werte aendern sich beim Scrollen ───────── */
+  /* ─────────── Element picker: values change as you scroll ─────────────── */
 
   mm.add(WIDE, function () {
     var cta = q('#edit-cta');
@@ -301,8 +301,8 @@
     var vText = q('#v-text');
     var padTag = q('#pad-top');
 
-    /* Zwischenwerte laufen ueber ein Hilfsobjekt: so bleibt der Scrub in
-       beide Richtungen deterministisch — auch beim Zuruecktscrollen. */
+    /* Intermediate values run through a helper object: that keeps the scrub
+       deterministic in both directions — scrolling back included. */
     var state = { pad: 8, weight: 500, text: 0 };
     var TEXT_A = 'Get started';
     var TEXT_B = 'Start your free trial';
@@ -337,21 +337,21 @@
       }
     });
 
-    /* Die Protokollzeilen stehen im CSS auf `opacity: 0` — ein `from` wuerde
-       von 0 nach 0 animieren. Deshalb ueberall `fromTo`. */
+    /* The log lines are set to `opacity: 0` in the CSS — a `from` would
+       animate from 0 to 0. Hence `fromTo` everywhere. */
     var logIn = function (nth, at) {
       tl.fromTo('.logrow:nth-child(' + nth + ')',
         { opacity: 0, x: 12 },
         { opacity: 1, x: 0, duration: .3, ease: 'power2.out' }, at);
     };
 
-    /* 1 · Picker rastet auf dem Button ein */
+    /* 1 · The picker snaps onto the button */
     tl.fromTo('#pickbox',
       { opacity: 0, scale: 1.35, transformOrigin: '50% 50%' },
       { opacity: 1, scale: 1, duration: .5, ease: 'power2.out' })
       .fromTo('#pickbox i', { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: .3 }, '-=.2');
 
-    /* 2 · padding-top wird gezogen — Band und Zahl wachsen mit */
+    /* 2 · padding-top is dragged — the band and the number grow with it */
     tl.to(['.padband', padTag], { opacity: 1, duration: .2 }, '+=.15')
       .to(state, { pad: 14, duration: .9, onUpdate: applyPad }, '<')
       .to('#t-pad', { width: '62%', duration: .9 }, '<');
@@ -362,31 +362,31 @@
       .to('#t-weight', { width: '100%', duration: .7 }, '<');
     logIn(2, '-=.2');
 
-    /* 4 · Text — der Button wird dabei sichtbar breiter */
+    /* 4 · Text — the button visibly gets wider in the process */
     tl.to(label, { opacity: .15, filter: 'blur(3px)', duration: .18, ease: 'power1.in' }, '+=.25')
       .to(state, { text: 1, duration: .01, onUpdate: applyText }, '<+.15')
       .to(label, { opacity: 1, filter: 'blur(0px)', duration: .25, ease: 'power1.out' });
     logIn(3, '-=.15');
 
-    /* 5 · Ergebnis kurz stehen lassen */
+    /* 5 · Let the result stand for a moment */
     tl.to('#pickbox', { borderColor: 'var(--m-green)', duration: .3 }, '+=.1')
       .to({}, { duration: .5 });
 
     applyPad(); applyWeight(); applyText();
   });
 
-  /* Schmale Schirme: keine Pins, dafuer ein ruhiges Einblenden. */
+  /* Narrow screens: no pinning, a quiet fade-in instead. */
   mm.add('(max-width: 899px)', function () {
     gsap.set('.sharp', { clipPath: 'none' });
     gsap.from('.sharp', {
       opacity: 0, y: 24, duration: .7, ease: 'power2.out',
       scrollTrigger: { trigger: '.sharp', start: 'top 88%', once: true }
     });
-    /* Ohne Scrub steht die Vorfuehrung still — also gleich im Endzustand. */
+    /* Without a scrub the demonstration stands still — so go straight to the end state. */
     staticState();
   });
 
-  /* ─────────────── Geraete: horizontal, alle Rahmen synchron ───────────── */
+  /* ────────────── Devices: horizontal, every frame in sync ─────────────── */
 
   mm.add(WIDE, function () {
     var stick = q('.devices__stick');
@@ -409,7 +409,7 @@
     });
 
     tl.to(track, { x: function () { return -dist(); }, duration: 1 }, 0)
-      /* Der Kern der Vorfuehrung: alle Rahmen scrollen gemeinsam. */
+      /* The core of the demonstration: every frame scrolls together. */
       .to('.mini__page', { yPercent: -62, duration: 1 }, 0);
 
     gsap.to('.sync i', {
@@ -425,10 +425,10 @@
     });
   });
 
-  /* ────────────────────────────── Uebergabe ────────────────────────────── */
+  /* ────────────────────────────── Handover ─────────────────────────────── */
 
   (function handover() {
-    /* Markdown: Haken setzen sich nacheinander. */
+    /* Markdown: the ticks land one after another. */
     var tasks = qa('.task');
     if (tasks.length) {
       gsap.set(tasks, { opacity: 0, x: -14 });
@@ -440,7 +440,7 @@
         .add(function () { tasks[1].classList.add('is-done'); }, '+=.35');
     }
 
-    /* Share-Link: der Rohtext faellt in die URL zusammen. */
+    /* Share link: the raw text collapses into the URL. */
     var squeeze = q('#squeeze');
     if (squeeze) {
       var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -462,7 +462,7 @@
         .to('.linkpill', { opacity: 1, y: 0, duration: .5, ease: 'power3.out' }, '-=.3');
     }
 
-    /* PDF: ein Blatt je Viewport faechert auf. */
+    /* PDF: one sheet per viewport fans out. */
     var sheets = qa('.sheet');
     if (sheets.length) {
       gsap.set(sheets, { opacity: 0, y: 26, rotate: 0 });
@@ -476,7 +476,7 @@
     }
   })();
 
-  /* ───────────────────────────── Kachelraster ──────────────────────────── */
+  /* ───────────────────────────── Tile grid ─────────────────────────────── */
 
   (function cards() {
     var items = qa('.more .card');
@@ -490,7 +490,7 @@
     });
   })();
 
-  /* ───────────── Datenschutz: Daten prallen an der Grenze ab ───────────── */
+  /* ──────────── Privacy: the data bounces off the boundary ─────────────── */
 
   (function vault() {
     var dots = qa('.vault__dots circle');
@@ -514,7 +514,7 @@
 
       tl.set(dot, { opacity: 1 })
         .to(dot, { motionPath: { path: path, start: 0, end: 1 }, duration: 1.5, ease: 'power1.in' })
-        /* Aufprall: die Wand blitzt, der Punkt staucht sich. */
+        /* Impact: the wall flashes, the dot squashes. */
         .to('.vault__wall', { opacity: 1, duration: .1 }, '-=.06')
         .to(dot, { scale: .55, duration: .1, transformOrigin: '50% 50%' }, '<')
         .to('.vault__wall', { opacity: 0, duration: .55 })
@@ -524,7 +524,7 @@
     });
   })();
 
-  /* ─────────────────────────── Schluss: Kringel ────────────────────────── */
+  /* ──────────────────────────── Ending: squiggle ───────────────────────── */
 
   (function ring() {
     var ring = q('.ring path');
@@ -542,6 +542,6 @@
     }
   })();
 
-  /* Bilder koennen die Hoehe aendern, nachdem ScrollTrigger gemessen hat. */
+  /* Images can change the height after ScrollTrigger has measured. */
   window.addEventListener('load', function () { ScrollTrigger.refresh(); });
 })();
