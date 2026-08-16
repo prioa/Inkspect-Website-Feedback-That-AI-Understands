@@ -1,15 +1,14 @@
 /**
- * Minimaler PDF-Writer fuer den Screenshot-Export.
+ * Minimal PDF writer for the screenshot export.
  *
- * Bewusst selbst geschrieben statt jsPDF/pdf-lib: gebraucht wird genau eine
- * Seite mit ein paar eingebetteten Bildern und anklickbaren Flaechen — dafuer
- * eine Bibliothek von mehreren hundert Kilobyte ins Content-Script zu ziehen
- * waere unverhaeltnismaessig. Bilder gehen verlustfrei als `/FlateDecode`
- * hinein; `CompressionStream('deflate')` liefert genau den zlib-Strom, den
- * PDF dafuer erwartet.
+ * Deliberately hand-written rather than jsPDF or pdf-lib: what is needed is a
+ * few pages with embedded images and clickable areas — pulling several hundred
+ * kilobytes of library into the content script for that would be out of
+ * proportion. Images go in losslessly as `/FlateDecode`;
+ * `CompressionStream('deflate')` produces exactly the zlib stream PDF expects.
  */
 
-/** Bild an einer Position der Seite (Koordinaten von *oben* links, in pt). */
+/** An image at a position on the page (coordinates from the *top* left, in pt). */
 export interface PdfImage {
   canvas: HTMLCanvasElement;
   x: number;
@@ -18,7 +17,7 @@ export interface PdfImage {
   h: number;
 }
 
-/** Anklickbare Flaeche (Koordinaten von *oben* links, in pt). */
+/** A clickable area (coordinates from the *top* left, in pt). */
 export interface PdfLink {
   x: number;
   y: number;
@@ -32,10 +31,10 @@ async function deflate(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-/** Rohe RGB-Bytes eines Canvas (Alpha faellt weg — die Seite ist deckend). */
+/** Raw RGB bytes of a canvas (alpha is dropped — the page is opaque). */
 function toRgb(canvas: HTMLCanvasElement): Uint8Array {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) throw new Error('2D-Kontext nicht verfuegbar');
+  if (!ctx) throw new Error('2D context not available');
   const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const rgb = new Uint8Array((data.length / 4) * 3);
   for (let i = 0, o = 0; i < data.length; i += 4, o += 3) {
@@ -46,7 +45,7 @@ function toRgb(canvas: HTMLCanvasElement): Uint8Array {
   return rgb;
 }
 
-/** Text fuer einen PDF-String maskieren. */
+/** Escape text for use in a PDF string. */
 function pdfString(value: string): string {
   return `(${value.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')})`;
 }
@@ -54,78 +53,91 @@ function pdfString(value: string): string {
 const enc = new TextEncoder();
 
 /**
- * Baut ein einseitiges PDF. `width`/`height` sind Punkte (1 pt = 1/72 Zoll);
- * alle Koordinaten kommen von oben links und werden hier auf das
- * PDF-Koordinatensystem (Ursprung unten links) gedreht.
+ * One page of the document. `width`/`height` are points (1 pt = 1/72 inch);
+ * every coordinate inside comes from the *top* left.
  */
-export async function buildPdf(
-  width: number,
-  height: number,
-  images: PdfImage[],
-  links: PdfLink[],
-  title: string,
-): Promise<Blob> {
-  /** Fertige Objekt-Koerper; Index + 1 ist die Objektnummer. */
+export interface PdfPage {
+  width: number;
+  height: number;
+  images: PdfImage[];
+  links: PdfLink[];
+}
+
+/**
+ * Builds the PDF. Each page brings its own size — the full-page shot is metres
+ * tall, the detail shots next to it are not. Coordinates are flipped here onto
+ * the PDF system (origin at the bottom left).
+ */
+export async function buildPdf(pages: PdfPage[], title: string): Promise<Blob> {
+  /** Finished object bodies; index + 1 is the object number. */
   const objects: (Uint8Array | string)[] = [];
   const add = (body: Uint8Array | string): number => {
     objects.push(body);
     return objects.length; // 1-basiert
   };
 
-  // 1..4 werden weiter unten gefuellt — die Nummern muessen vorab feststehen,
-  // weil sie sich gegenseitig referenzieren.
+  // Reserve the catalog and the page tree up front: they point at the pages
+  // and the pages point back at the tree, so the numbers have to be fixed.
   const catalogId = add('');
   const pagesId = add('');
-  const pageId = add('');
-  const contentId = add('');
+  const pageIds = pages.map(() => add(''));
 
-  // Bilder als XObjects.
-  const drawOps: string[] = [];
-  const xobjects: string[] = [];
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i]!;
-    const packed = await deflate(toRgb(img.canvas));
-    const header = enc.encode(
-      `<< /Type /XObject /Subtype /Image /Width ${img.canvas.width} ` +
-        `/Height ${img.canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 ` +
-        `/Filter /FlateDecode /Length ${packed.length} >>\nstream\n`,
+  for (let p = 0; p < pages.length; p++) {
+    const page = pages[p]!;
+    const { height } = page;
+
+    // Images as XObjects. Own resources per page — no image appears on two of
+    // them, so shared entries would be bookkeeping without a saving.
+    const drawOps: string[] = [];
+    const xobjects: string[] = [];
+    for (let i = 0; i < page.images.length; i++) {
+      const img = page.images[i]!;
+      const packed = await deflate(toRgb(img.canvas));
+      const header = enc.encode(
+        `<< /Type /XObject /Subtype /Image /Width ${img.canvas.width} ` +
+          `/Height ${img.canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 ` +
+          `/Filter /FlateDecode /Length ${packed.length} >>\nstream\n`,
+      );
+      const footer = enc.encode('\nendstream');
+      const body = new Uint8Array(header.length + packed.length + footer.length);
+      body.set(header, 0);
+      body.set(packed, header.length);
+      body.set(footer, header.length + packed.length);
+      const id = add(body);
+      const name = `/Im${i}`;
+      xobjects.push(`${name} ${id} 0 R`);
+      // cm sets the image matrix: width/height and the *bottom* left corner.
+      drawOps.push(
+        `q ${img.w.toFixed(2)} 0 0 ${img.h.toFixed(2)} ${img.x.toFixed(2)} ` +
+          `${(height - img.y - img.h).toFixed(2)} cm ${name} Do Q`,
+      );
+    }
+
+    // Link annotations over the buttons that were drawn.
+    const annotIds = page.links.map((l) =>
+      add(
+        `<< /Type /Annot /Subtype /Link /Rect [${l.x.toFixed(2)} ` +
+          `${(height - l.y - l.h).toFixed(2)} ${(l.x + l.w).toFixed(2)} ` +
+          `${(height - l.y).toFixed(2)}] /Border [0 0 0] /F 4 ` +
+          `/A << /S /URI /URI ${pdfString(l.url)} >> >>`,
+      ),
     );
-    const footer = enc.encode('\nendstream');
-    const body = new Uint8Array(header.length + packed.length + footer.length);
-    body.set(header, 0);
-    body.set(packed, header.length);
-    body.set(footer, header.length + packed.length);
-    const id = add(body);
-    const name = `/Im${i}`;
-    xobjects.push(`${name} ${id} 0 R`);
-    // cm setzt die Bildmatrix: Breite/Hoehe und linke *untere* Ecke.
-    drawOps.push(
-      `q ${img.w.toFixed(2)} 0 0 ${img.h.toFixed(2)} ${img.x.toFixed(2)} ` +
-        `${(height - img.y - img.h).toFixed(2)} cm ${name} Do Q`,
-    );
+
+    const content = drawOps.join('\n');
+    const contentId = add(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+    objects[pageIds[p]! - 1] =
+      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${page.width.toFixed(2)} ${height.toFixed(2)}] ` +
+      `/Resources << /XObject << ${xobjects.join(' ')} >> >> /Contents ${contentId} 0 R ` +
+      (annotIds.length > 0 ? `/Annots [${annotIds.map((id) => `${id} 0 R`).join(' ')}] ` : '') +
+      '>>';
   }
 
-  // Link-Annotationen ueber den gezeichneten Knoepfen.
-  const annotIds = links.map((l) =>
-    add(
-      `<< /Type /Annot /Subtype /Link /Rect [${l.x.toFixed(2)} ` +
-        `${(height - l.y - l.h).toFixed(2)} ${(l.x + l.w).toFixed(2)} ` +
-        `${(height - l.y).toFixed(2)}] /Border [0 0 0] /F 4 ` +
-        `/A << /S /URI /URI ${pdfString(l.url)} >> >>`,
-    ),
-  );
-
-  const content = drawOps.join('\n');
-  objects[contentId - 1] = `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
   objects[catalogId - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
-  objects[pagesId - 1] = `<< /Type /Pages /Kids [${pageId} 0 R] /Count 1 >>`;
-  objects[pageId - 1] =
-    `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${width.toFixed(2)} ${height.toFixed(2)}] ` +
-    `/Resources << /XObject << ${xobjects.join(' ')} >> >> /Contents ${contentId} 0 R ` +
-    (annotIds.length > 0 ? `/Annots [${annotIds.map((id) => `${id} 0 R`).join(' ')}] ` : '') +
-    '>>';
+  objects[pagesId - 1] =
+    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] ` +
+    `/Count ${pages.length} >>`;
 
-  // Zusammensetzen samt Querverweistabelle.
+  // Assemble it, cross-reference table included.
   const chunks: Uint8Array[] = [];
   let offset = 0;
   const push = (part: Uint8Array | string) => {

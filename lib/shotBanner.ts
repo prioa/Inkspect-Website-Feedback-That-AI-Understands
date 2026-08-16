@@ -1,23 +1,23 @@
 import { CHROME_STORE_BADGE } from './storeBadge';
 
 /**
- * Kopfleiste ueber dem Screenshot: Logo, Wortmarke und Claim links, rechts
- * die Knoepfe. Hinter „Open on web" steckt der Share-Link (deflate-komprimiert
- * im Hash, kein Server dahinter): wer die Datei bekommt, hat mit einem Klick
- * dieselben Anmerkungen in Inkspect.
+ * Header bar above the screenshot: logo, wordmark and tagline on the left,
+ * buttons on the right. Behind "Open on web" sits the share link (deflate-
+ * compressed in the hash, no server involved): whoever receives the file is
+ * one click away from the same annotations in Inkspect.
  *
- * Gezeichnet wird alles ins Canvas; anklickbar werden die Knoepfe erst im
- * PDF, das ueber die zurueckgegebenen Rechtecke Link-Flaechen legt.
+ * Everything is drawn into the canvas; the buttons only become clickable in
+ * the PDF, which lays link areas over the rectangles returned here.
  */
 
-/** Wo im Store die Extension liegt. */
+/** Where the extension lives in the store. */
 export const CHROME_STORE_URL =
   'https://chromewebstore.google.com/detail/opckhhggofkbihbnabhhaidgknmniebk';
 
 /**
- * Inkspect-Logo als Data-URI. Inline statt `browser.runtime.getURL`:
- * Extension-Dateien sind nicht web-accessible, und ein SVG ohne externe
- * Referenzen macht das Canvas nicht „tainted".
+ * The Inkspect logo as a data URI. Inline rather than
+ * `browser.runtime.getURL`: extension files are not web-accessible, and an
+ * SVG without external references does not taint the canvas.
  */
 const LOGO =
   'data:image/svg+xml;charset=utf-8,' +
@@ -32,7 +32,7 @@ const LOGO =
 
 const TAGLINE = 'website feedback that ai understands';
 
-/** Aufnahmedatum fuer die Kopfleiste — lokal formatiert, ohne Uhrzeit. */
+/** Capture date for the header bar — formatted locally, without a time. */
 function today(): string {
   try {
     return new Intl.DateTimeFormat(undefined, {
@@ -92,26 +92,26 @@ function ellipsize(ctx: CanvasRenderingContext2D, text: string, max: number): st
 }
 
 /**
- * Zeichnet die Kopfleiste in der Breite des Screenshots und liefert sie samt
- * der Rechtecke, die im PDF anklickbar werden.
+ * Draws the header bar at the width of the screenshot and returns it along
+ * with the rectangles that become clickable in the PDF.
  *
- * Bewusst eine einzige, flache Zeile: links Marke und Seite, rechts die
- * Knoepfe. Der Share-Link steckt hinter „Open on web" — im PDF ist er ein
- * echter Link, ein QR-Code waere dort nur Ballast und hat die Leiste
- * unnoetig aufgeblaeht.
+ * Deliberately a single flat row: brand and page on the left, buttons on the
+ * right. The share link sits behind "Open on web" — in the PDF that is a real
+ * link, whereas a QR code would only be ballast there and used to bloat the
+ * bar unnecessarily.
  */
 export async function renderBanner(
   width: number,
   shareUrl: string | null,
   pageLabel: string,
 ): Promise<Banner | null> {
-  // Massstab an der Bildbreite: eine Leiste, die bei 1200 px gut aussieht,
-  // ist bei 3000 px verloren klein.
+  // Scale off the image width: a bar that looks right at 1200 px is lost and
+  // tiny at 3000 px.
   const u = Math.max(1, width / 1200);
   /**
-   * Schmale Bilder (Handy-Viewports) bekommen zwei Zeilen. In einer Reihe
-   * bliebe von Marke und Claim nichts uebrig — bei 342 px Breite stand dort
-   * „ink" neben einem zerquetschten Store-Badge.
+   * Narrow images (phone viewports) get two rows. In a single row nothing of
+   * the brand and tagline would survive — at 342 px wide it read "ink" next to
+   * a squashed store badge.
    */
   const narrow = width < 620;
   const padX = Math.round((narrow ? 12 : 22) * u);
@@ -134,7 +134,7 @@ export async function renderBanner(
 
   ctx.fillStyle = '#12151d';
   ctx.fillRect(0, 0, canvas.width, height);
-  // Feine Akzentkante zur Seite hin.
+  // Fine accent edge towards the page.
   const edge = Math.max(1, Math.round(2 * u));
   ctx.fillStyle = '#5b8cff';
   ctx.fillRect(0, height - edge, canvas.width, edge);
@@ -144,7 +144,7 @@ export async function renderBanner(
   const badgeW = badge ? Math.round((btnH * badge.naturalWidth) / badge.naturalHeight) : 0;
   const logo = await loadImage(LOGO);
 
-  /** „Open on web"-Pille zeichnen und als Klickflaeche melden. */
+  /** Draw the "Open on web" pill and report it as a click area. */
   const drawOpen = (x: number, y: number): number => {
     if (!shareUrl) return 0;
     ctx.font = `600 ${Math.round((narrow ? 11 : 13) * u)}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
@@ -163,7 +163,7 @@ export async function renderBanner(
     return w;
   };
 
-  /** Store-Badge auf hellem Grund — es ist dunkel gezeichnet. */
+  /** Store badge on a light background — it is drawn dark. */
   const drawBadge = (x: number, y: number): number => {
     if (!badge) return 0;
     ctx.fillStyle = '#fff';
@@ -175,7 +175,7 @@ export async function renderBanner(
   };
 
   if (narrow) {
-    // Zeile 1: Logo, Wortmarke, Claim daneben (so weit er passt).
+    // Row 1: logo, wordmark, tagline beside it (as far as it fits).
     const top = padY;
     if (logo) ctx.drawImage(logo, padX, top, logoSize, logoSize);
     const textLeft = padX + logoSize + Math.round(8 * u);
@@ -193,14 +193,14 @@ export async function renderBanner(
     );
     ctx.textBaseline = 'alphabetic';
 
-    // Zeile 2: die Knoepfe nebeneinander.
+    // Row 2: the buttons side by side.
     const btnY = top + logoSize + gap;
     const bw = drawBadge(padX, btnY);
     drawOpen(padX + (bw ? bw + gap : 0), btnY);
     return { canvas, buttons };
   }
 
-  // Breite Variante: alles in einer Zeile, Knoepfe rechts.
+  // Wide variant: everything in one row, buttons on the right.
   const mid = padY + rowH / 2;
   let right = canvas.width - padX;
   if (shareUrl) {
@@ -222,7 +222,7 @@ export async function renderBanner(
   ctx.fillText('inkSpect', x, mid);
   x += ctx.measureText('inkSpect').width + Math.round(12 * u);
 
-  // Trenner zwischen Marke und Claim.
+  // Separator between brand and tagline.
   ctx.fillStyle = '#333a49';
   ctx.fillRect(x, Math.round(mid - titleSize * 0.45), Math.max(1, Math.round(u)), Math.round(titleSize * 0.9));
   x += Math.round(12 * u);
@@ -233,7 +233,7 @@ export async function renderBanner(
   const claim = ellipsize(ctx, TAGLINE, room);
   ctx.fillText(claim, x, mid);
 
-  // Die Seite und das Aufnahmedatum dahinter, so weit der Platz reicht.
+  // The page and the capture date after it, as far as the space allows.
   const used = ctx.measureText(claim).width;
   const rest = room - used - Math.round(16 * u);
   if (rest > 60 * u) {
@@ -247,4 +247,51 @@ export async function renderBanner(
   ctx.textBaseline = 'alphabetic';
 
   return { canvas, buttons };
+}
+
+/**
+ * Caption above a detail shot: which marking is shown there, and by which
+ * route its element was unfolded.
+ *
+ * Deliberately built the same way as the header bar — same scale, same
+ * palette, same truncation. A second text renderer with proportions of its own
+ * would look foreign in the same document.
+ */
+export function renderCaption(
+  width: number,
+  title: string,
+  subtitle: string | null,
+): HTMLCanvasElement | null {
+  const u = Math.max(1, width / 1200);
+  const narrow = width < 620;
+  const padX = Math.round((narrow ? 12 : 22) * u);
+  const padY = Math.round((narrow ? 10 : 13) * u);
+  const titleSize = Math.round((narrow ? 12 : 15) * u);
+  const bodySize = Math.round((narrow ? 10.5 : 13) * u);
+  const gap = Math.round(5 * u);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(width);
+  canvas.height = padY * 2 + titleSize + (subtitle ? gap + bodySize : 0);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.fillStyle = '#12151d';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const room = canvas.width - padX * 2;
+  ctx.textBaseline = 'top';
+
+  ctx.fillStyle = '#fff';
+  ctx.font = `700 ${titleSize}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
+  ctx.fillText(ellipsize(ctx, title, room), padX, padY);
+
+  if (subtitle) {
+    ctx.font = `500 ${bodySize}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
+    ctx.fillStyle = '#aeb6c6';
+    ctx.fillText(ellipsize(ctx, subtitle, room), padX, padY + titleSize + gap);
+  }
+
+  ctx.textBaseline = 'alphabetic';
+  return canvas;
 }

@@ -1,32 +1,32 @@
 import { browser } from 'wxt/browser';
 import type { FetchCssResponse } from './messages';
 
-/** Markiert die von uns injizierten Override-<style>-Elemente. */
+/** Marks the override <style> elements we inject ourselves. */
 export const OVERRIDE_ATTR = 'data-dv-override';
 
 export interface SheetSource {
-  /** Stabil ueber alle Frames hinweg, und als Attributwert sicher verwendbar. */
+  /** Stable across all frames, and safe to use as an attribute value. */
   id: string;
   label: string;
   kind: 'link' | 'inline';
-  /** Absolute URL, nur bei kind === 'link'. */
+  /** Absolute URL, only when kind === 'link'. */
   href: string | null;
-  /** Position unter den <style>-Elementen, nur bei kind === 'inline'. */
+  /** Position among the <style> elements, only when kind === 'inline'. */
   inlineIndex: number | null;
   text: string;
-  /** false, wenn der Quelltext nicht geladen werden konnte. */
+  /** false when the source could not be loaded. */
   readable: boolean;
   error?: string;
 }
 
 function isTag(node: Element, tag: string): boolean {
-  // Achtung: Knoten aus einem iframe gehoeren einem anderen JS-Realm an.
-  // `node instanceof HTMLStyleElement` waere hier immer false, weil es gegen
-  // den Konstruktor *unseres* Realms prueft. Deshalb ueber tagName.
+  // Careful: nodes from an iframe belong to a different JS realm.
+  // `node instanceof HTMLStyleElement` would always be false here, because it
+  // checks against *our* realm's constructor. Hence the tagName check.
   return node.tagName.toLowerCase() === tag;
 }
 
-/** Alle Stylesheet-Knoten in DOM-Reihenfolge, ohne unsere eigenen Overrides. */
+/** All stylesheet nodes in DOM order, without our own overrides. */
 function sheetNodes(doc: Document): Element[] {
   const nodes = doc.querySelectorAll('link[rel~="stylesheet"][href], style');
   return Array.from(nodes).filter((n) => !n.hasAttribute(OVERRIDE_ATTR));
@@ -50,12 +50,12 @@ async function loadCssText(url: string): Promise<{ text: string } | { error: str
       const res = await fetch(url, { credentials: 'same-origin' });
       if (res.ok) return { text: await res.text() };
     } catch {
-      // Faellt auf den Background-Fetch zurueck.
+      // Falls back to the background fetch.
     }
   }
 
-  // Cross-Origin (z. B. CDN): Content-Scripts unterliegen in MV3 der CORS-Policy
-  // der Seite. Der Background hat Host-Permissions und darf.
+  // Cross-origin (a CDN, say): in MV3, content scripts are subject to the
+  // page's CORS policy. The background has host permissions and may fetch.
   try {
     const res = (await browser.runtime.sendMessage({
       type: 'ink:fetch-css',
@@ -67,7 +67,7 @@ async function loadCssText(url: string): Promise<{ text: string } | { error: str
   }
 }
 
-/** Liest alle Stylesheets eines Frames als bearbeitbare Quelltexte ein. */
+/** Reads all stylesheets of a frame as editable source text. */
 export async function collectSheets(doc: Document): Promise<SheetSource[]> {
   const nodes = sheetNodes(doc);
   const out: SheetSource[] = [];
@@ -106,7 +106,7 @@ export async function collectSheets(doc: Document): Promise<SheetSource[]> {
   return out;
 }
 
-/** Findet den Originalknoten eines Sheets in einem beliebigen Frame-Dokument. */
+/** Finds a sheet's original node in any given frame document. */
 export function findSheetNode(doc: Document, sheet: SheetSource): Element | null {
   const nodes = sheetNodes(doc);
 
@@ -129,11 +129,11 @@ function overrideSelector(sheet: SheetSource): string {
 }
 
 /**
- * Deaktiviert das Original-Sheet und setzt den editierten Text als <style>
- * direkt dahinter. Die DOM-Position bleibt erhalten, damit die Kaskade stimmt.
+ * Disables the original sheet and inserts the edited text as a <style>
+ * directly after it. The DOM position is preserved so the cascade still holds.
  *
- * `adoptedStyleSheets` waere hier falsch: die landen immer hinter allen
- * Author-Sheets und wuerden die Reihenfolge veraendern.
+ * `adoptedStyleSheets` would be wrong here: those always land behind every
+ * author sheet and would change the order.
  */
 export function applyOverride(doc: Document, sheet: SheetSource, css: string): void {
   const node = findSheetNode(doc, sheet);
@@ -150,7 +150,7 @@ export function applyOverride(doc: Document, sheet: SheetSource, css: string): v
   if (override.textContent !== css) override.textContent = css;
 }
 
-/** Stellt das Original-Sheet wieder her. */
+/** Restores the original sheet. */
 export function clearOverride(doc: Document, sheet: SheetSource): void {
   const node = findSheetNode(doc, sheet);
   if (node) setDisabled(node, false);

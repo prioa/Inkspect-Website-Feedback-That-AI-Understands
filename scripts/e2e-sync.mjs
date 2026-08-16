@@ -1,17 +1,49 @@
 /**
- * E2E-Verifikation des Inkspect-Syncs mit echtem Chrome:
- * Scroll, Klick (auch in Shadow DOM), Eingabe und Hover (JS + CSS :hover)
- * in Frame 1 muessen in den anderen Frames ankommen; der Kommentar-Pin
- * muss sein Notiz-Popup oeffnen. CDP-Input erzeugt isTrusted=true.
+ * E2E verification of the Inkspect sync against real Chrome: scrolling,
+ * clicking (shadow DOM included), typing and hovering (JS + CSS :hover) in
+ * frame 1 have to arrive in the other frames; the comment pin has to open its
+ * note popup. CDP input produces isTrusted=true.
  */
 import http from 'node:http';
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { inflateSync } from 'node:zlib';
 import puppeteer from 'puppeteer-core';
 
+/**
+ * Pull the images out of an exported PDF. Since the switch to `buildPdf` the
+ * export no longer produces a PNG; the capture sits inside as a
+ * `/FlateDecode` XObject in raw RGB. Order per page: first the header bar or
+ * the caption, then the capture.
+ */
+function pdfImages(file) {
+  const buf = readFileSync(file);
+  const latin = buf.toString('latin1');
+  const out = [];
+  const re = /\/Subtype \/Image \/Width (\d+) \/Height (\d+)[^>]*?\/Length (\d+) >>\nstream\n/g;
+  let m;
+  while ((m = re.exec(latin))) {
+    const start = m.index + m[0].length;
+    out.push({
+      w: +m[1],
+      h: +m[2],
+      rgb: inflateSync(buf.subarray(start, start + +m[3])),
+    });
+  }
+  return out;
+}
+
+/** Page count of a PDF (the page tree). */
+function pdfPageCount(file) {
+  const m = /\/Type \/Pages \/Kids \[[^\]]*\] \/Count (\d+)/.exec(
+    readFileSync(file).toString('latin1'),
+  );
+  return m ? Number(m[1]) : 0;
+}
+
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const EXT = '/Users/philippdubsky/devviwer-chrome-addon/.output/chrome-mv3';
+const EXT = new URL('../.output/chrome-mv3', import.meta.url).pathname;
 
 const PAGE_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
@@ -31,6 +63,9 @@ const PAGE_HTML = `<!doctype html>
   <div id="shadowState" style="position:absolute;top:290px;left:0">shadow-no</div>
   <div id="menu" style="position:absolute;top:320px;left:0">MENU OPEN</div>
   <a id="link" href="/sub" style="position:absolute;top:380px;left:0;width:200px;height:30px">Weiter</a>
+  <!-- Ankerpunkt tief in der Seite fuer die Scrollstand-Uebernahme; ohne
+       Hintergrund und Text, damit die Screenshot-Pruefungen ihn nicht sehen. -->
+  <div id="deep" style="position:absolute;top:1500px;left:0;width:300px;height:60px"></div>
   <script>
     document.getElementById('menuBtn').addEventListener('click', () => {
       document.body.classList.toggle('menu-open');
@@ -48,30 +83,78 @@ const PAGE_HTML = `<!doctype html>
 
 const server = http.createServer((req, res) => {
   res.setHeader('content-type', 'text/html');
-  // /sub antwortet verzoegert — so ist der Ladebalken beobachtbar.
+  // /sub answers with a delay — that makes the loading bar observable.
   const delay = req.url === '/sub' ? 600 : 0;
   setTimeout(() => res.end(PAGE_HTML), delay);
 });
 await new Promise((r) => server.listen(8973, r));
 
-// Chrome >= 137 (Stable-Branding) ignoriert --load-extension; der
-// unterstuetzte Weg ist installExtension() ueber die Debugging-Pipe.
+// Chrome >= 137 (stable branding) ignores --load-extension; the supported
+// route is installExtension() over the debugging pipe.
 const browser = await puppeteer.launch({
   executablePath: CHROME,
   headless: 'new',
   pipe: true,
   enableExtensions: true,
-  defaultViewport: { width: 1600, height: 1000 },
+  /**
+   * A real window size rather than an emulated viewport.
+   *
+   * `defaultViewport` sets the layout viewport via CDP emulation but leaves the
+   * browser window at its default size. `captureVisibleTab`, however,
+   * photographs the *window* — so the screenshot came in at 756×469 while the
+   * page believed it was 1600×1000. The crop worked in CSS pixels of the
+   * emulated viewport and therefore hit entirely different places in the image:
+   * the upshot was our own progress indicator in every slice instead of the
+   * page content. Not a fault of the extension — only with `--window-size` do
+   * window and viewport measure the same thing.
+   */
+  defaultViewport: null,
+  /**
+   * 1280×800 rather than larger: since the captures really hit the viewport
+   * (see above), the export's memory use depends directly on this area — three
+   * frames, 4000 px of page height, one full-window image per slice.
+   *
+   * Note: on a machine with many Chrome windows open, the run still falls over
+   * during the multi-page export (`Killed: 9`). Smaller windows and flags like
+   * `--disable-gpu` made no difference; the only thing that helps is freeing
+   * memory beforehand.
+   */
+  args: ['--window-size=1280,800'],
 });
 await browser.installExtension(EXT);
 
 const results = [];
-const check = (name, ok, detail = '') =>
-  results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
+/**
+ * Print the result immediately *and* collect it. Immediately, because the run
+ * takes several minutes and can break off along the way (Chrome gone, port
+ * taken, killed by the system) — until then nothing was in the log and you did
+ * not even know how far it had got. The collected list remains for the summary
+ * at the end.
+ */
+/** The run cleans up after itself — suppresses the exit message. */
+let closing = false;
+const check = (name, ok, detail = '') => {
+  const line = `${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`;
+  results.push(line);
+  console.log(line);
+};
 
 try {
   const page = await browser.newPage();
-  // Fuer den Copy-to-Clipboard-Test des Share-Links.
+  /**
+   * If the renderer dies or the connection to Chrome breaks, the run otherwise
+   * hangs silently in the next `waitForFunction` and all you see is a truncated
+   * log. These three lines say *that* and *when* it happened — they replace no
+   * diagnosis, but they are what makes one possible.
+   */
+  page.on('error', (e) => console.log(`\n!! Renderer weg: ${e.message}\n`));
+  page.on('pageerror', (e) => console.log(`!! Seitenfehler: ${e.message}`));
+  browser.on('disconnected', () => {
+    // At the end the run closes Chrome itself — only an exit *before* that is
+    // worth reporting.
+    if (!closing) console.log('\n!! Verbindung zu Chrome verloren\n');
+  });
+  // For the copy-to-clipboard test of the share link.
   await browser
     .defaultBrowserContext()
     .overridePermissions('http://localhost:8973', ['clipboard-read', 'clipboard-write', 'clipboard-sanitized-write'])
@@ -79,14 +162,37 @@ try {
   await page.goto('http://localhost:8973/', { waitUntil: 'networkidle0' });
   await new Promise((r) => setTimeout(r, 800)); // document_idle des Content-Scripts
 
-  // Inkspect oeffnen (SW-unabhaengiger Toggle-Event)
+  // A fresh install opens the welcome page in a tab of its own (see onInstalled
+  // in background.ts). That would push the test tab into the background — where
+  // no requestAnimationFrame runs any more, and every waitForFunction (default
+  // polling: raf) would time out. So away with it, and the test tab to the
+  // front.
+  for (const p of await browser.pages()) {
+    if (p !== page) await p.close().catch(() => {});
+  }
+  await page.bringToFront();
+
+  // Open Inkspect (toggle event that does not need the SW)
   await page.evaluate(() => window.dispatchEvent(new Event('inkspect:toggle')));
+
+  // A first start opens in full window mode (the startFullscreen default). The
+  // sync tests need the grid: dismiss the coachmark, leave full window mode.
+  await page.waitForFunction(() => {
+    const sr = document.getElementById('inkspect-root')?.shadowRoot;
+    return !!sr?.querySelector('.fs-stage iframe');
+  }, { timeout: 5000 });
+  await new Promise((r) => setTimeout(r, 400));
+  await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    sr.querySelector('.tour__head .icon-btn')?.click();
+    sr.querySelector('.fsbar__exit')?.click(); // Knopf im Dock = Vollbild verlassen
+  });
   await page.waitForFunction(
     () => document.getElementById('inkspect-root')?.shadowRoot?.querySelectorAll('iframe').length >= 2,
     { timeout: 5000 },
   );
 
-  // Warten bis alle Frames geladen sind
+  // Wait until all frames have loaded
   await page.waitForFunction(() => {
     const frames = document.getElementById('inkspect-root').shadowRoot.querySelectorAll('iframe');
     return [...frames].every((f) => {
@@ -96,9 +202,9 @@ try {
   }, { timeout: 10000 });
   await new Promise((r) => setTimeout(r, 500));
 
-  // Beim ersten Start laeuft die Onboarding-Tour und dimmt alles ausser dem
-  // gerade erklaerten Element — ihre Flaechen fangen die Klicks der Tests ab.
-  // Wegklicken wie ein Nutzer, der sie ueberspringt.
+  // On first start the onboarding tour runs and dims everything except the
+  // element being explained — its panes catch the tests' clicks. Dismiss it
+  // like a user who skips it.
   await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     sr.querySelector('.tour__head .icon-btn')?.click();
@@ -117,13 +223,22 @@ try {
   });
   check('Default-Devices (iPhone SE + Desktop HD)', frameInfo.length === 2, `${frameInfo.length} frames`);
 
-  // --- 0b. Omnibox: Domain fix, nur der Pfad ist editierbar ---
+  // --- 0b. Omnibox: the domain is fixed, only the path is editable ---
+  // The path starts as a display chip; only a click makes it editable.
+  await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    sr.querySelector('.toolbar__path')?.click();
+  });
+  await new Promise((r) => setTimeout(r, 80));
   const omni = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    return {
+    const result = {
       origin: sr.querySelector('.omnibox__origin')?.textContent,
       path: sr.querySelector('.omnibox__input')?.value,
     };
+    // Leave edit mode again, so the rest of the tests see the chip.
+    sr.querySelector('.omnibox__input')?.blur();
+    return result;
   });
   check(
     'Omnibox: Domain fix, Pfad editierbar',
@@ -131,13 +246,13 @@ try {
     `origin: ${omni.origin}, path: ${omni.path}`,
   );
 
-  // --- 0c. „More"-Menue: oeffnet im Viewport, Sync-Rows schalten einzeln ---
-  // Alle Neben-Funktionen (inkl. Sync) liegen jetzt gebuendelt im More-Menue.
+  // --- 0c. "More" menu: opens in the viewport, sync rows switch individually ---
+  // Every secondary function (sync included) now sits bundled in the More menu.
   const syncMenu = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    const btn = [...sr.querySelectorAll('.toolbar .icon-btn')].find((b) =>
-      b.title.startsWith('More'),
-    );
+    // By class, not by label: since the tooltip rework the button texts run
+    // over aria-label.
+    const btn = sr.querySelector('.toolbar__more');
     btn.click();
     await new Promise((r) => setTimeout(r, 100));
     const menu = sr.querySelector('.menu');
@@ -173,9 +288,9 @@ try {
       : 'Menue fehlt',
   );
 
-  // Frame-Geometrie dynamisch messen: das zeilenfuellende Grid skaliert die
-  // Frames neu, sobald sich die verfuegbare Breite aendert (z.B. wenn das
-  // Feedback-Panel auf- oder zugeht) — statische Koordinaten veralten dann.
+  // Measure the frame geometry dynamically: the row-filling grid rescales the
+  // frames as soon as the available width changes (when the feedback panel
+  // opens or closes, say) — static coordinates then go stale.
   const frameRect = (index = 0) =>
     page.evaluate((i) => {
       const f = [
@@ -202,7 +317,7 @@ try {
       });
     }, expr);
 
-  // --- 1. Scroll-Sync: Wheel ueber Frame 1 ---
+  // --- 1. Scroll sync: wheel over frame 1 ---
   const mid = await inFrame0(180, 400);
   await page.mouse.move(mid.x, mid.y);
   for (let i = 0; i < 5; i++) {
@@ -213,14 +328,14 @@ try {
   const scrolls = await readAll('doc.scrollingElement.scrollTop');
   check('Scroll-Sync', scrolls.every((s) => s > 100), `scrollTop: ${scrolls.join(', ')}`);
 
-  // Zurueckscrollen fuer stabile Klick-Koordinaten
+  // Scroll back for stable click coordinates
   await page.evaluate(() => {
     const frames = [...document.getElementById('inkspect-root').shadowRoot.querySelectorAll('iframe')];
     for (const f of frames) f.contentDocument.scrollingElement.scrollTop = 0;
   });
   await new Promise((r) => setTimeout(r, 400));
 
-  // --- 1b. Touch-Modus: Mobile-Devices starten mit Touch, Desktop ohne ---
+  // --- 1b. Touch mode: mobile devices start with touch, desktop without ---
   const touchDefaults = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     return [...sr.querySelectorAll('.device__touch')].map(
@@ -233,7 +348,7 @@ try {
     `touch: ${touchDefaults.join(', ')}`,
   );
 
-  // --- 1c. Touch-Pan: Ziehen im Touch-Frame scrollt die Seite ---
+  // --- 1c. Touch pan: dragging in the touch frame scrolls the page ---
   const panStart = await inFrame0(150, 340);
   const panEnd = await inFrame0(150, 120);
   await page.mouse.move(panStart.x, panStart.y);
@@ -249,7 +364,7 @@ try {
   });
   await new Promise((r) => setTimeout(r, 400));
 
-  // --- 1d. Touch-Frames senden keinen Hover an die anderen Frames ---
+  // --- 1d. Touch frames send no hover to the other frames ---
   const touchHoverSpot = await inFrame0(150, 150);
   await page.mouse.move(touchHoverSpot.x, touchHoverSpot.y);
   await new Promise((r) => setTimeout(r, 400));
@@ -262,21 +377,21 @@ try {
   await page.mouse.move(4, 500); // Frame verlassen
   await new Promise((r) => setTimeout(r, 300));
 
-  // Touch am iPhone abschalten — die folgenden Tests erwarten Maus-Verhalten.
+  // Switch touch off on the iPhone — the tests that follow expect mouse behaviour.
   await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     sr.querySelectorAll('.device__touch')[0].click();
   });
   await new Promise((r) => setTimeout(r, 200));
 
-  // --- 2. Klick-Sync: Menu-Button in Frame 1 ---
+  // --- 2. Click sync: menu button in frame 1 ---
   const btn = await inFrame0(150, 30);
   await page.mouse.click(btn.x, btn.y);
   await new Promise((r) => setTimeout(r, 400));
   const menus = await readAll('doc.body.classList.contains("menu-open")');
   check('Klick-Sync (Burger-Menu)', menus.every(Boolean), `menu-open: ${menus.join(', ')}`);
 
-  // --- 3. Input-Sync: ins Feld tippen ---
+  // --- 3. Input sync: type into the field ---
   const input = await inFrame0(150, 90);
   await page.mouse.click(input.x, input.y);
   await page.keyboard.type('Hallo Welt', { delay: 30 });
@@ -284,22 +399,22 @@ try {
   const values = await readAll('doc.getElementById("name").value');
   check('Input-Sync', values.every((v) => v === 'Hallo Welt'), `values: ${values.join(' | ')}`);
 
-  // --- 4. Hover-Sync: Maus ueber hoverBox ---
+  // --- 4. Hover sync: mouse over hoverBox ---
   const hover = await inFrame0(150, 150);
   await page.mouse.move(hover.x, hover.y);
   await new Promise((r) => setTimeout(r, 400));
   const hovers = await readAll('doc.getElementById("hoverState").textContent');
   check('Hover-Sync (JS mouseover)', hovers.every((h) => h === 'hovered'), `states: ${hovers.join(', ')}`);
 
-  // --- 5. CSS-:hover-Sync: computed background der hoverBox ---
+  // --- 5. CSS :hover sync: computed background of the hoverBox ---
   const bgs = await readAll(
     'doc.defaultView.getComputedStyle(doc.getElementById("hoverBox")).backgroundColor',
   );
   check('Hover-Sync (CSS :hover)', bgs.every((b) => b === 'rgb(255, 0, 0)'), `bg: ${bgs.join(' | ')}`);
 
-  // --- 5b. Hover loest sich, wenn der Zeiger den Frame verlaesst ---
-  // Ohne den mouseout-Reset bliebe der simulierte :hover in den Ziel-Frames
-  // haengen (es kommt kein weiteres mouseover mehr).
+  // --- 5b. Hover releases when the pointer leaves the frame ---
+  // Without the mouseout reset, the simulated :hover would stay stuck in the
+  // target frames (no further mouseover is coming).
   const f0edge = await frameRect(0);
   await page.mouse.move(Math.max(4, f0edge.left - 12), 500);
   await new Promise((r) => setTimeout(r, 500));
@@ -312,7 +427,7 @@ try {
     `bg: ${bgsAfter.join(' | ')}`,
   );
 
-  // --- 6. Klick-Sync in Shadow DOM ---
+  // --- 6. Click sync inside shadow DOM ---
   const shadow = await inFrame0(150, 250);
   await page.mouse.click(shadow.x, shadow.y);
   await new Promise((r) => setTimeout(r, 400));
@@ -323,11 +438,11 @@ try {
     `states: ${shadowStates.join(', ')}`,
   );
 
-  // --- 7. Kommentar-Pin: Popup oeffnet, Notiz landet im Panel ---
-  // Die Palette ist ein Kontextmenue: Rechtsklick auf das Grid oeffnet sie
-  // neben der Maus, Werkzeugwahl schliesst sie wieder. Tastatur-Shortcuts
-  // kaemen beim fokussierten iframe an, nicht beim Top-Window.
-  // Button-Reihenfolge: 0 Cursor (Interagieren), 1 Element, 2 Pin, 3 Stift, …
+  // --- 7. Comment pin: the popup opens, the note lands in the panel ---
+  // The palette is a context menu: a right-click on the grid opens it next to
+  // the mouse, picking a tool closes it again. Keyboard shortcuts would arrive
+  // at the focused iframe, not at the top window.
+  // Button order: 0 cursor (interact), 1 element, 2 pin, 3 pen, …
   const openPalette = (x = 40, y = 90) =>
     page.evaluate(
       (cx, cy) => {
@@ -353,7 +468,7 @@ try {
     }, index);
   };
 
-  // --- 6b. Palette erscheint per Rechtsklick neben der Maus ---
+  // --- 6b. The palette appears next to the mouse on a right-click ---
   await openPalette(320, 260);
   await new Promise((r) => setTimeout(r, 80));
   const paletteInfo = await page.evaluate(() => {
@@ -383,40 +498,42 @@ try {
     `pos: ${paletteInfo ? `${Math.round(paletteInfo.left)},${Math.round(paletteInfo.top)}` : 'fehlt'}, geschlossen: ${paletteClosed}`,
   );
 
-  // Rechtsklick *innerhalb* einer Vorschau (Frame-Dokument) oeffnet sie auch —
-  // die Frame-Koordinaten muessen ueber den Zoom in Shell-Koordinaten landen.
-  const framePalette = await page.evaluate(async () => {
+  // A right-click *inside* a preview picks the element under the cursor
+  // directly and opens its edit popup (element picker). A second right-click on
+  // the same element closes it (toggle).
+  const framePick = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     const iframe = sr.querySelector('iframe');
-    const rect = iframe.getBoundingClientRect();
-    iframe.contentDocument.body.dispatchEvent(
-      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 150 }),
-    );
-    await new Promise((r) => setTimeout(r, 80));
-    const el = sr.querySelector('.palette:not(.fsbar)');
-    if (!el) return null;
-    const p = el.getBoundingClientRect();
-    const scale = rect.width / Number(iframe.width);
-    const dx = Math.abs(p.left - (rect.left + 100 * scale + 6));
-    const dy = Math.abs(p.top - (rect.top + 150 * scale + 10));
-    sr.querySelector('.palette-backdrop')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    return { dx, dy };
+    const rightClick = () =>
+      iframe.contentDocument.body.dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 150 }),
+      );
+    rightClick(); // (100,150) sits on #hoverBox
+    await new Promise((r) => setTimeout(r, 150));
+    const popup = sr.querySelector('.anno__inspect');
+    const label = popup?.textContent ?? '';
+    const paletteOpen = !!sr.querySelector('.palette:not(.fsbar)');
+    rightClick();
+    await new Promise((r) => setTimeout(r, 150));
+    const closed = !sr.querySelector('.anno__inspect');
+    return { popup: !!popup, label: label.slice(0, 60), paletteOpen, closed };
   });
-  await new Promise((r) => setTimeout(r, 60));
   check(
-    'Rechtsklick in der Vorschau oeffnet Palette',
-    framePalette != null && framePalette.dx < 30 && framePalette.dy < 30,
-    framePalette ? `abweichung: ${Math.round(framePalette.dx)},${Math.round(framePalette.dy)}` : 'fehlt',
+    'Rechtsklick in der Vorschau pickt das Element (Popup + Toggle)',
+    framePick.popup && !framePick.paletteOpen && framePick.closed &&
+      framePick.label.includes('hoverBox'),
+    `popup: ${framePick.popup}, palette: ${framePick.paletteOpen}, zu: ${framePick.closed}, label: ${framePick.label}`,
   );
 
   await pickTool(2); // Pin
-  // Werkzeugwahl oeffnet das Panel — das Grid skaliert neu, erst dann messen.
+  // The panel slides open with the first entry — here we only wait until the
+  // palette has closed.
   await new Promise((r) => setTimeout(r, 400));
   const pinSpot = await inFrame0(180, 350);
   await page.mouse.click(pinSpot.x, pinSpot.y);
   await new Promise((r) => setTimeout(r, 300));
 
-  // --- 7-0. Nach dem Absetzen springt das Werkzeug auf Interagieren zurueck ---
+  // --- 7-0. After placing one, the tool jumps back to interact ---
   const toolReset = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     return sr.querySelectorAll('.device--annotating').length === 0;
@@ -447,18 +564,50 @@ try {
     `pins: ${panel.pins}, labels: ${panel.labels.join(' | ')}`,
   );
 
-  // --- 7b. Notiz steht dauerhaft am Marker, der Hover loest sie ab ---
-  // Frueher erschien sie erst beim Ueberfahren; jetzt haengt eine gekuerzte
-  // Fassung dauerhaft am Marker und der Hover ersetzt sie durch den vollen
-  // Text. Geprueft wird deshalb, dass sie beidesmal da ist — und dass immer
-  // nur EINE Blase rendert: Dauer- und Hover-Fassung duerfen sich nicht
-  // ueberlagern (das Overlay filtert die gehoverte aus der Dauerliste).
+  /**
+   * Switch the view ("My edits" — markings *and* applied changes) on and off
+   * reliably.
+   *
+   * `showEdits` is **on** by default (`lib/settings.ts`), so asking for `true`
+   * is usually a no-op — the handle stays because a leftover off-state would
+   * otherwise leave markers to the hover exception alone
+   * (`effectiveMarkersVisible` in `components/App.tsx`), and every marker test
+   * would measure wherever the mouse happens to be.
+   */
+  const setEdits = async (on) => {
+    // Pointer away from the panel, or `aria-pressed` shows the hover view.
+    await page.mouse.move(20, 20);
+    await new Promise((r) => setTimeout(r, 150));
+    return page.evaluate(async (want) => {
+      const sr = document.getElementById('inkspect-root').shadowRoot;
+      // On the grid the switch sits in the tool bar, in full window mode in the
+      // dock's palette — both carry the same `data-hint`.
+      const btn =
+        sr.querySelector('.toolbar [data-hint="edits"]') ??
+        sr.querySelector('[data-hint="edits"]');
+      if (!btn) return false;
+      if (btn.getAttribute('aria-pressed') !== String(want)) {
+        btn.click();
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      return btn.getAttribute('aria-pressed') === String(want);
+    }, on);
+  };
+
+  // --- 7b. The note stands permanently at the marker, hover replaces it ---
+  // It used to appear only on hover; now a shortened version hangs at the
+  // marker permanently and hover replaces it with the full text. So we check
+  // that it is there both times — and that only ONE bubble ever renders: the
+  // permanent and the hover version must not overlap (the overlay filters the
+  // hovered one out of the permanent list).
   const countBubbles = () =>
-    page.evaluate(
-      () =>
-        [...document.getElementById('inkspect-root').shadowRoot.querySelectorAll('.anno__svg text')]
-          .filter((t) => t.textContent === 'Logo zu klein').length,
-    );
+    page.evaluate(() => {
+      const texts = [
+        ...document.getElementById('inkspect-root').shadowRoot.querySelectorAll('.anno__svg text'),
+      ].map((t) => t.textContent);
+      return { n: texts.filter((t) => t === 'Logo zu klein').length, texts };
+    });
+  const markingsOn = await setEdits(true);
   await page.mouse.move(pinSpot.x + 120, pinSpot.y + 60);
   await new Promise((r) => setTimeout(r, 200));
   const bubbleAway = await countBubbles();
@@ -467,29 +616,48 @@ try {
   const bubbleOn = await countBubbles();
   check(
     'Notiz steht dauerhaft am Marker, ohne sich beim Hover zu verdoppeln',
-    bubbleAway === 1 && bubbleOn === 1,
-    `abseits: ${bubbleAway}, auf Marker: ${bubbleOn}`,
+    markingsOn && bubbleAway.n === 1 && bubbleOn.n === 1,
+    `Markierungen an: ${markingsOn}, abseits: ${bubbleAway.n} [${bubbleAway.texts.join('¦')}], ` +
+      `auf Marker: ${bubbleOn.n} [${bubbleOn.texts.join('¦')}]`,
   );
 
-  // --- 7c. Marker-Toggle im Panel-Kopf blendet alle Markierungen aus ---
+  // --- 7c. The view switch hides every marking ---
+  // It sits in the tool bar (`data-hint="edits"`), no longer in the panel
+  // header — the first button there is now the ⋯ menu.
+  await setEdits(true);
+  await page.mouse.move(20, 20); // hovering the panel would show the markers anyway
+  await new Promise((r) => setTimeout(r, 150));
   const eyeToggle = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    const btn = sr.querySelector('.panel__head .icon-btn');
-    btn.click();
+    const btn = sr.querySelector('.toolbar [data-hint="edits"]');
+    if (!btn) return { hidden: -1, shown: -1, switches: -1, legacy: -1 };
+    btn.click(); // off
     await new Promise((r) => setTimeout(r, 250));
     const hidden = sr.querySelectorAll('.anno__svg circle').length;
-    btn.click();
+    btn.click(); // wieder an
     await new Promise((r) => setTimeout(r, 250));
     const shown = sr.querySelectorAll('.anno__svg circle').length;
-    return { hidden, shown };
+    return {
+      hidden,
+      shown,
+      // Es ist *ein* Schalter: der alte Changes-Knopf darf nirgends mehr
+      // stehen, und der neue nur einmal (Toolbar oder fsbar, nie beide).
+      switches: sr.querySelectorAll('[data-hint="edits"]').length,
+      legacy: sr.querySelectorAll('[data-hint="changes"], [data-hint="markings"]').length,
+    };
   });
   check(
-    'Marker-Toggle im Panel-Kopf',
+    '"My edits" blendet die Marker aus',
     eyeToggle.hidden === 0 && eyeToggle.shown === 1,
     `ausgeblendet: ${eyeToggle.hidden}, wieder an: ${eyeToggle.shown}`,
   );
+  check(
+    'Ein einziger Ansichts-Schalter (Markings/Changes zusammengelegt)',
+    eyeToggle.switches === 1 && eyeToggle.legacy === 0,
+    `edits: ${eyeToggle.switches}, alte Schalter: ${eyeToggle.legacy}`,
+  );
 
-  // --- 7d. Panel-Klick springt zum Marker: Flash auf Marker + Device ---
+  // --- 7d. A panel click jumps to the marker: flash on marker and device ---
   const jump = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     sr.querySelector('.fb-item')?.click();
@@ -505,7 +673,7 @@ try {
     `marker: ${jump.markerFlash}, device: ${jump.deviceFlash}`,
   );
 
-  // --- 7e. Device-Badge hebt die Panel-Gruppe hervor ---
+  // --- 7e. The device badge highlights the panel group ---
   const badgeFlash = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     sr.querySelector('.device__anno-count')?.click();
@@ -514,7 +682,7 @@ try {
   });
   check('Device-Badge flasht die Panel-Gruppe', badgeFlash);
 
-  // --- 7f. Notiz im Panel editierbar (aendern und wieder zuruecksetzen) ---
+  // --- 7f. The note is editable in the panel (change it and set it back) ---
   const editNote = async (from, to) => {
     await page.evaluate((label) => {
       const sr = document.getElementById('inkspect-root').shadowRoot;
@@ -551,9 +719,9 @@ try {
   const reverted = await editNote('Logo viel zu klein', 'Logo zu klein');
   check('Notiz im Panel editierbar', edited && reverted, `geaendert: ${edited}, zurueck: ${reverted}`);
 
-  // --- 7g. Doppelklick auf einen Marker oeffnet den Notiz-Editor im Viewport ---
-  // Im Interaktionsmodus landen die Klicks im Frame; die App hit-testet die
-  // Marker-Bounds und oeffnet den Editor mit dem vorhandenen Text.
+  // --- 7g. Double-clicking a marker opens the note editor in the viewport ---
+  // In interaction mode the clicks land in the frame; the app hit-tests the
+  // marker bounds and opens the editor with the existing text.
   const readNoteField = () =>
     page.evaluate(() => {
       const sr = document.getElementById('inkspect-root').shadowRoot;
@@ -572,8 +740,8 @@ try {
       field.dispatchEvent(new Event('input', { bubbles: true }));
       field.blur(); // blur speichert
     }, value);
-  // Frames auf 0 zurueckscrollen — der Hit-Test rechnet in Dokument-
-  // Koordinaten, ein Rest-Scroll wuerde den Klickpunkt verschieben.
+  // Scroll the frames back to 0 — the hit test works in document coordinates,
+  // and any leftover scroll would shift the click point.
   await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     for (const f of sr.querySelectorAll('iframe')) f.contentWindow.scrollTo(0, 0);
@@ -592,8 +760,8 @@ try {
         .shadowRoot.querySelectorAll('.fb-item__label'),
     ].some((n) => n.textContent === 'Logo winzig'),
   );
-  // Zweiter Doppelklick: Editor zeigt den neuen Text — dann zuruecksetzen,
-  // damit die Folge-Tests ihren bekannten Zustand vorfinden.
+  // Second double-click: the editor shows the new text — then set it back, so
+  // the follow-up tests find the state they know.
   await page.mouse.click(dblSpot.x, dblSpot.y, { count: 2 });
   await new Promise((r) => setTimeout(r, 350));
   const dblPrefill2 = await readNoteField();
@@ -605,7 +773,7 @@ try {
     `prefill: ${dblPrefill}, gespeichert: ${dblSaved}, prefill2: ${dblPrefill2}`,
   );
 
-  // --- 7g. Hover ueber Panel-Eintrag hebt den Marker im Viewport hervor ---
+  // --- 7g. Hovering a panel entry highlights the marker in the viewport ---
   const hoverMark = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     const item = [...sr.querySelectorAll('.fb-item')].find(
@@ -624,8 +792,8 @@ try {
     `hervorgehoben: ${hoverMark.marked}, wieder weg: ${hoverMark.cleared}`,
   );
 
-  // Ausgangszustand: Scroll zuruecksetzen (der Marker-Sprung hat gescrollt)
-  // und Flash-Animationen auslaufen lassen.
+  // Starting state: reset the scroll (the marker jump scrolled) and let the
+  // flash animations run out.
   await new Promise((r) => setTimeout(r, 1600));
   await page.evaluate(() => {
     const frames = [...document.getElementById('inkspect-root').shadowRoot.querySelectorAll('iframe')];
@@ -633,9 +801,9 @@ try {
   });
   await new Promise((r) => setTimeout(r, 400));
 
-  // --- 8. Element-Picker: Hover highlightet, Klick uebernimmt das Element ---
+  // --- 8. Element picker: hover highlights, a click takes the element ---
   await pickTool(1); // Element-Picker
-  const elSpot = await inFrame0(150, 90); // liegt auf <input id="name">
+  const elSpot = await inFrame0(150, 90); // sits on <input id="name">
   await page.mouse.move(elSpot.x, elSpot.y);
   await new Promise((r) => setTimeout(r, 250));
   const hoverRects = await page.evaluate(() => {
@@ -644,26 +812,48 @@ try {
   });
   await page.mouse.click(elSpot.x, elSpot.y);
   await new Promise((r) => setTimeout(r, 300));
-  await page.keyboard.press('Escape'); // Notiz-Editor zu, Marker bleibt
-  await new Promise((r) => setTimeout(r, 200));
+  /**
+   * Merely grabbing the element creates *no* marker: the save button stays off
+   * for as long as there is neither a note nor a change (`canCommit` in
+   * `components/InspectPanel.tsx`) — the disabled button even names the
+   * condition itself. So type a note like a user would, and then save.
+   */
+  const committed = await page.evaluate(async () => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    const note = sr.getElementById('anno-note-in');
+    if (!note) return { note: false, cta: false };
+    // React does not see a direct `value =` — only the prototype setter, and
+    // specifically the one of the matching element (textarea or input).
+    const proto = note.tagName === 'TEXTAREA' ? HTMLTextAreaElement : HTMLInputElement;
+    Object.getOwnPropertyDescriptor(proto.prototype, 'value').set.call(note, 'Feld zu schmal');
+    note.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 150));
+    const cta = sr.querySelector('.anno__inspect-cta');
+    const enabled = !!cta && !cta.disabled;
+    cta?.click();
+    return { note: true, cta: enabled };
+  });
+  await new Promise((r) => setTimeout(r, 400));
   const elLabels = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    return [...sr.querySelectorAll('.fb-item__label')].map((n) => n.textContent);
+    // With a note it stands in the main line and the selector below it.
+    return [...sr.querySelectorAll('.fb-item')].map((li) => li.textContent ?? '');
   });
   check(
     'Element-Picker (Hover + Klick)',
-    hoverRects >= 1 && elLabels.includes('input#name'),
-    `hoverRects: ${hoverRects}, labels: ${elLabels.join(' | ')}`,
+    hoverRects >= 1 && committed.cta && elLabels.some((t) => t.includes('input#name')),
+    `hoverRects: ${hoverRects}, Notizfeld: ${committed.note}, Knopf aktiv: ${committed.cta}, ` +
+      `Eintraege: ${elLabels.length}`,
   );
 
-  // --- 8a. Element-Marker wird NICHT auf andere Viewports gespiegelt ---
-  // Der Marker liegt nur auf dem Device, auf dem er gesetzt wurde (iPhone SE);
-  // im zweiten Frame darf kein Replikat und keine eigene Gruppe entstehen.
+  // --- 8a. An element marker is NOT mirrored onto other viewports ---
+  // The marker lies only on the device it was placed on (iPhone SE); in the
+  // second frame no replica and no group of its own may appear.
   const elSync = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     return {
-      items: [...sr.querySelectorAll('.fb-item__label')].filter(
-        (n) => n.textContent === 'input#name',
+      items: [...sr.querySelectorAll('.fb-item')].filter((li) =>
+        (li.textContent ?? '').includes('input#name'),
       ).length,
       groups: [...sr.querySelectorAll('.fb-group__name')].map((n) => n.textContent),
     };
@@ -674,19 +864,29 @@ try {
     `Eintraege: ${elSync.items}, Gruppen: ${elSync.groups.join(' | ')}`,
   );
 
-  // Bewusst einen Marker auf dem zweiten Frame (Desktop HD) setzen — so bleibt
-  // die Multi-Device-Abdeckung (Screenshot je Device, 5 Eintraege) erhalten,
-  // ohne sich auf die entfernte Element-Spiegelung zu verlassen. Ein
-  // Element-Marker (rendert als Box, kein Pin-Kreis) laesst die Pin-Zaehlung
-  // spaeterer Tests unveraendert.
+  // Deliberately place a marker on the second frame (Desktop HD) — that keeps
+  // the multi-device coverage (a screenshot per device, 5 entries) without
+  // relying on the element mirroring that was removed. An element marker
+  // (rendered as a box, not a pin circle) leaves the pin numbering of later
+  // tests unchanged.
   await pickTool(1); // Element-Picker
   const lapSpot = await inFrame1(150, 90); // <input id="name"> im zweiten Frame
   await page.mouse.move(lapSpot.x, lapSpot.y);
   await new Promise((r) => setTimeout(r, 250));
   await page.mouse.click(lapSpot.x, lapSpot.y);
   await new Promise((r) => setTimeout(r, 300));
-  await page.keyboard.press('Escape'); // Notiz-Editor zu, Marker bleibt
-  await new Promise((r) => setTimeout(r, 200));
+  // As above: only a note arms the save button.
+  await page.evaluate(async () => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    const note = sr.getElementById('anno-note-in');
+    if (!note) return;
+    const proto = note.tagName === 'TEXTAREA' ? HTMLTextAreaElement : HTMLInputElement;
+    Object.getOwnPropertyDescriptor(proto.prototype, 'value').set.call(note, 'Auch hier zu schmal');
+    note.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 150));
+    sr.querySelector('.anno__inspect-cta')?.click();
+  });
+  await new Promise((r) => setTimeout(r, 400));
   const lapGroups = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     return [...sr.querySelectorAll('.fb-group__name')].map((n) => n.textContent);
@@ -697,9 +897,9 @@ try {
     `Gruppen: ${lapGroups.join(' | ')}`,
   );
 
-  // --- 8b. Freihand: kreuzende Striche verschmelzen, keine Notiz ---
-  // Das Werkzeug springt nach jedem Strich auf Interagieren zurueck —
-  // vor jedem Strich neu waehlen.
+  // --- 8b. Freehand: crossing strokes merge, no note ---
+  // The tool jumps back to interact after every stroke — pick it again before
+  // each one.
   const drawStroke = async (x1, y1, x2, y2) => {
     await pickTool(3); // Stift
     await new Promise((r) => setTimeout(r, 120));
@@ -718,8 +918,8 @@ try {
   const penInfo = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     return {
-      // Freihand ohne Notiz zeigt "Add note…" als Hauptzeile — gezaehlt
-      // wird ueber die Werkzeug-Kontextzeile.
+      // Freehand without a note shows "Add note…" as the main line — counting
+      // goes by the tool context line.
       freihand: [...sr.querySelectorAll('.fb-item__meta')].filter(
         (n) => n.textContent === 'Freehand',
       ).length,
@@ -732,7 +932,7 @@ try {
     `Freihand-Eintraege: ${penInfo.freihand}, Notiz offen: ${penInfo.noteOpen}`,
   );
 
-  // --- 8c. Freihand bekommt im Panel einen Kommentar ---
+  // --- 8c. Freehand gets a comment in the panel ---
   const penNote = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     const item = [...sr.querySelectorAll('.fb-item')].find(
@@ -755,9 +955,9 @@ try {
   });
   check('Freihand-Kommentar im Panel', penNote.edited === true);
 
-  // --- 9. Scrollen im Korrekturmodus: Wheel ueber dem aktiven Overlay ---
-  // Stift wieder aktivieren; das Overlay muss Wheel-Events an den Frame
-  // weiterreichen statt sie zu schlucken.
+  // --- 9. Scrolling in correction mode: wheel over the active overlay ---
+  // Arm the pen again; the overlay has to pass wheel events on to the frame
+  // rather than swallowing them.
   await pickTool(3);
   await new Promise((r) => setTimeout(r, 150));
   const mid2 = await inFrame0(180, 400);
@@ -774,7 +974,7 @@ try {
     `scrollTop: ${annoScroll.join(', ')}`,
   );
 
-  // --- 10. Share-Link im Panel: URL erzeugen und Payload zurueckdecodieren ---
+  // --- 10. Share link in the panel: build the URL and decode the payload back ---
   const share = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     sr.querySelector('.share-btn')?.click();
@@ -792,7 +992,7 @@ try {
   });
   check(
     'Share-Link im Feedback-Panel',
-    // 5 Eintraege: Pin, Element (iPhone + Laptop-Replikat), 2× Freihand.
+    // 5 entries: pin, element (iPhone + laptop replica), 2× freehand.
     share.items?.length === 5 &&
       share.items.some((i) => i.shape.text === 'Logo zu klein') &&
       share.items.some((i) => i.shape.tool === 'element') &&
@@ -800,7 +1000,7 @@ try {
     `items: ${share.items?.length ?? 'keine'}, url: ${share.url.slice(0, 60)}…`,
   );
 
-  // --- 10a. Share-Link landet direkt in der Zwischenablage ---
+  // --- 10a. The share link lands straight on the clipboard ---
   const shareCopied = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     const hintOk = [...sr.querySelectorAll('.share-hint')].some((n) =>
@@ -810,7 +1010,7 @@ try {
     try {
       clipboard = await navigator.clipboard.readText();
     } catch {
-      /* Headless verweigert evtl. den Lese-Zugriff */
+      /* headless may refuse read access */
     }
     return { hintOk, clipboardMatches: clipboard.includes('#ink-feedback=') };
   });
@@ -820,9 +1020,9 @@ try {
     `hint: ${shareCopied.hintOk}, clipboard: ${shareCopied.clipboardMatches}`,
   );
 
-  // --- 10b. Screenshots-Export: annotierte Full-Page-PNGs im Download-Ordner ---
-  // Frame-Skalierung vor dem Export merken — die erwartete Bildhoehe haengt
-  // am zeilenfuellenden Zoom, nicht mehr am festen Stepper-Wert.
+  // --- 10b. Screenshot export: annotated full-page PNGs in the downloads folder ---
+  // Note the frame scale before the export — the expected image height depends
+  // on the row-filling zoom, no longer on a fixed stepper value.
   const exportFrame = await frameRect(0);
   const exportScale = exportFrame.scale;
   const exportLogicalWidth = exportFrame.logicalWidth;
@@ -834,81 +1034,65 @@ try {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     sr.querySelector('.share-btn--alt').click();
   });
-  // Export ist fertig, sobald das Panel die Erfolgsmeldung zeigt.
+  // The export is done once the panel shows the success message.
   await page
     .waitForFunction(() => {
       const sr = document.getElementById('inkspect-root').shadowRoot;
       return [...sr.querySelectorAll('.share-hint')].some((n) =>
         n.textContent.includes('Downloads'),
       );
-      // Full-Page: ~6 Slices × 600 ms plus Capture-Zeit
+      // Full page: ~6 slices × 600 ms plus capture time
     }, { timeout: 30000 })
     .catch(() => {});
   await new Promise((r) => setTimeout(r, 600)); // Download zu Ende schreiben lassen
 
-  const shotFiles = readdirSync(downloadDir).filter(
-    (f) => f.startsWith('inkspect-feedback-') && f.endsWith('.png'),
-  );
-  const shotFile = 'inkspect-feedback-home-iphone-se.png';
+  // The export delivers one PDF per device with feedback; the file name carries
+  // host, path slug, device and date.
+  const shotFiles = readdirSync(downloadDir).filter((f) => f.endsWith('.pdf'));
+  const shotFile = shotFiles.find((f) => f.includes('_home_iphone-se_'));
   check(
     'Screenshots-Export (Datei pro Device mit Feedback)',
-    shotFiles.includes(shotFile),
+    !!shotFile,
     `dateien: ${shotFiles.join(', ') || 'keine'}`,
   );
 
-  // --- 10c. Screenshot zeigt die Marker (rote Pixel von Pin/Strichen) ---
+  // --- 10c. The screenshot shows the markers (coloured pixels from pin/strokes) ---
   let redPixels = 0;
   let darkPixels = 0;
   let purplePixels = 0;
   let shotSize = { w: 0, h: 0 };
-  if (shotFiles.includes(shotFile)) {
-    const b64 = readFileSync(join(downloadDir, shotFile)).toString('base64');
-    ({ redPixels, darkPixels, purplePixels, shotSize } = await page.evaluate(async (encoded) => {
-      const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = `data:image/png;base64,${encoded}`;
-      });
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-      let red = 0;
-      let dark = 0;
-      let purple = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        const [r, g, b] = [data[i], data[i + 1], data[i + 2]];
-        if (r > 190 && g < 130 && b < 130) red += 1;
-        // Notiz-Sprechblase: rgba(14,16,20,.92) ueber weisser Seite blendet zu
-        // ca. rgb(33,35,39) — leicht blaustichig, anders als neutralgrauer
-        // Text-Antialias (r==g==b).
+  if (shotFile) {
+    // Image 0 is the header bar, image 1 the page capture.
+    const shot = pdfImages(join(downloadDir, shotFile))[1];
+    if (shot) {
+      shotSize = { w: shot.w, h: shot.h };
+      for (let i = 0; i < shot.rgb.length; i += 3) {
+        const [r, g, b] = [shot.rgb[i], shot.rgb[i + 1], shot.rgb[i + 2]];
+        // The default marker colour is the pencil blue #6d8cc0 = rgb(109,140,192),
+        // no longer the earlier warning red.
+        if (r > 70 && r < 150 && g > 105 && g < 175 && b > 160 && b < 225) redPixels += 1;
+        // Note bubble: rgba(14,16,20,.92) over a white page blends to about
+        // rgb(33,35,39) — slightly blue-tinted, unlike neutral grey text
+        // antialiasing (r==g==b).
         if (Math.abs(r - 33) <= 6 && Math.abs(g - 35) <= 6 && Math.abs(b - 39) <= 7 && b > r) {
-          dark += 1;
+          darkPixels += 1;
         }
-        // Sticky-Header der Testseite: rgb(140,40,220).
-        if (r > 110 && r < 170 && g < 80 && b > 190) purple += 1;
+        // Sticky header of the test page: rgb(140,40,220).
+        if (r > 110 && r < 170 && g < 80 && b > 190) purplePixels += 1;
       }
-      return {
-        redPixels: red,
-        darkPixels: dark,
-        purplePixels: purple,
-        shotSize: { w: img.naturalWidth, h: img.naturalHeight },
-      };
-    }, b64));
+    }
   }
-  check('Screenshot zeigt Markierungen', redPixels > 50, `rote Pixel: ${redPixels}`);
+
+  check('Screenshot zeigt Markierungen', redPixels > 50, `Marker-Pixel: ${redPixels}`);
   check(
     'Screenshot zeigt Notiz-Sprechblase am Marker',
     darkPixels > 100,
     `Sprechblasen-Pixel: ${darkPixels}`,
   );
-  // Full-Page: Testseite ist 4000 px hoch → Dokumenthoehe × Frame-Skalierung.
-  // Auch die Breite haengt am zeilenfuellenden Zoom (nicht an einem festen
-  // Stepper-Wert), deshalb gegen die Viewport-Breite des Frames pruefen statt
-  // gegen eine feste Pixelzahl.
+  // Full page: the test page is 4000 px tall → document height × frame scale.
+  // The width also depends on the row-filling zoom (not on a fixed stepper
+  // value), so check against the frame's viewport width rather than a fixed
+  // pixel count.
   const expectedH = 4000 * exportScale;
   const expectedW = exportLogicalWidth * exportScale;
   check(
@@ -917,8 +1101,8 @@ try {
       Math.abs(shotSize.w - expectedW) < expectedW * 0.08,
     `${shotSize.w}×${shotSize.h}, erwartet ~${Math.round(expectedW)}×${Math.round(expectedH)}`,
   );
-  // Sticky-Header (40×50 px logisch) darf nur EINMAL im Bild stehen — ohne
-  // Unterdrueckung staende er auf jedem der ~6 Slices.
+  // The sticky header (40×50 px logical) may appear only ONCE in the image —
+  // without suppression it would stand on each of the ~6 slices.
   const headerPx = 40 * 50 * exportScale * exportScale;
   check(
     'Sticky-Header nur einmal im Full-Page-Screenshot',
@@ -926,7 +1110,7 @@ try {
     `violette Pixel: ${purplePixels}, ein Header ~${Math.round(headerPx)}`,
   );
 
-  // --- 10d. Erledigt-Status: abhaken dimmt Marker und zaehlt Badge runter ---
+  // --- 10d. Done state: ticking off dims the marker and counts the badge down ---
   const doneState = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     const countBefore = sr.querySelector('.panel__count')?.textContent;
@@ -963,7 +1147,7 @@ try {
   });
   check('Hide completed blendet Erledigtes aus', hiddenCount === 4, `sichtbar: ${hiddenCount}`);
 
-  // Ausgangszustand fuer Folge-Tests wiederherstellen
+  // Restore the starting state for the follow-up tests
   await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     sr.querySelector('.panel__menu > button')?.click();
@@ -976,7 +1160,7 @@ try {
   });
   await new Promise((r) => setTimeout(r, 300));
 
-  // --- 11. Link-Sync: Klick auf <a href> navigiert alle Frames ---
+  // --- 11. Link sync: a click on <a href> navigates all frames ---
   await pickTool(0); // Interagieren — Overlays inaktiv, Klicks gehen zur Seite
   await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
@@ -1014,9 +1198,9 @@ try {
     `waehrend: ${loadbarDuring}, danach: ${loadbarAfter}`,
   );
 
-  // --- 12. Navigations-Watchdog: Direkt-Navigation ohne Klick-Event ---
-  // location.assign umgeht den Klick-Sync komplett — nur der Watchdog kann
-  // die uebrigen Frames nachziehen.
+  // --- 12. Navigation watchdog: direct navigation without a click event ---
+  // location.assign bypasses the click sync entirely — only the watchdog can
+  // pull the remaining frames along.
   await new Promise((r) => setTimeout(r, 1200)); // Watchdog-Zustand nach /sub beruhigen lassen
   await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
@@ -1034,10 +1218,10 @@ try {
   const wdPaths = await readAll('doc.location.pathname');
   check('Navigations-Watchdog', wdPaths.every((p) => p === '/watchdog'), `paths: ${wdPaths.join(', ')}`);
 
-  // --- 13. Feedback ist seitengebunden; Item-Klick springt seitenuebergreifend ---
-  // Auf /watchdog duerfen die auf / gesetzten Marker nicht rendern; das
-  // Panel listet sie unter ihrer Seite. Ein Klick auf den Eintrag navigiert
-  // zurueck und fliegt danach den Marker an (Flash).
+  // --- 13. Feedback is bound to a page; an item click jumps across pages ---
+  // On /watchdog the markers placed on / must not render; the panel lists them
+  // under their page. A click on the entry navigates back and then flies to the
+  // marker (flash).
   await new Promise((r) => setTimeout(r, 800)); // activeUrl folgt via Watchdog-Tick
   const onOtherPage = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
@@ -1084,7 +1268,7 @@ try {
     `fremde Seite: markers ${onOtherPage.markers}, labels ${onOtherPage.labels.length}; zurueck: ${backHome.path}, markers ${backHome.markers}, flash: ${backHome.flashSeen}`,
   );
 
-  // --- 14. Legacy-Import: alte Pen-Shapes (points statt strokes) crashen nicht ---
+  // --- 14. Legacy import: old pen shapes (points instead of strokes) do not crash ---
   const legacyUrl = await page.evaluate(async () => {
     const payload = {
       v: 1,
@@ -1113,26 +1297,50 @@ try {
   });
   await page.goto(legacyUrl, { waitUntil: 'networkidle0' });
   await new Promise((r) => setTimeout(r, 1500)); // document_idle + Import + Auto-Open
+  /**
+   * Back to the grid first, then measure. Navigating to /legacy was a fresh
+   * session, and that starts in full window mode (the startFullscreen default)
+   * — there the feedback hangs off the full-window id, while the imported
+   * stroke sits on `iphone-se`. In full window mode it is therefore quite
+   * rightly not visible; the measurement was simply taken in the wrong place.
+   */
+  await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root')?.shadowRoot;
+    if (!sr?.querySelector('.fs-stage')) return;
+    sr.querySelector('.fsbar__exit')?.click();
+  });
+  await new Promise((r) => setTimeout(r, 800));
+  // Fresh session: the view switch is back at its default (on). Asserted rather
+  // than assumed — off, the overlay would not draw the imported stroke at all.
+  const marksOn = await setEdits(true);
   const legacy = await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root')?.shadowRoot;
     return {
       open: !!sr,
       crashed: sr ? sr.textContent.includes('Inkspect crashed') : false,
       polylines: sr ? sr.querySelectorAll('.anno__svg polyline').length : 0,
+      // Without these three, a "polylines: 0" cannot be interpreted: it could be
+      // the import, the hidden state, or the fact that the card carrying the
+      // stroke (iphone-se) is not on the grid at all.
+      items: sr ? sr.querySelectorAll('.fb-item').length : 0,
+      devices: sr ? [...sr.querySelectorAll('.device')].map((d) => d.dataset.uid).join(',') : '',
+      fullscreen: sr ? !!sr.querySelector('.fs-stage') : false,
     };
   });
   check(
     'Legacy-Pen-Import ohne Crash',
     legacy.open && !legacy.crashed && legacy.polylines >= 1,
-    `open: ${legacy.open}, crashed: ${legacy.crashed}, polylines: ${legacy.polylines}`,
+    `open: ${legacy.open}, crashed: ${legacy.crashed}, polylines: ${legacy.polylines}, ` +
+      `Eintraege: ${legacy.items}, Marker an: ${marksOn}, Vollbild: ${legacy.fullscreen}, ` +
+      `Devices: ${legacy.devices || 'keine'}`,
   );
 
-  // --- 15. Custom Device anlegen; Grid + Preset ueberleben einen Reload ---
+  // --- 15. Create a custom device; grid + preset survive a reload ---
   await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     sr.querySelector('.add-device > button').click();
     await new Promise((r) => setTimeout(r, 150));
-    // React liest Werte ueber onChange — native Setter + input-Event noetig.
+    // React reads values through onChange — a native setter plus an input event is needed.
     const setValue = (input, value) => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
       setter.call(input, value);
@@ -1145,7 +1353,7 @@ try {
     await new Promise((r) => setTimeout(r, 100));
     sr.querySelector('.menu__custom-add').click();
   });
-  await new Promise((r) => setTimeout(r, 800)); // Grid-Save ist 300 ms debounced
+  await new Promise((r) => setTimeout(r, 800)); // the grid save is debounced by 300 ms
   const custom = await page.evaluate(() => {
     const frames = [...document.getElementById('inkspect-root').shadowRoot.querySelectorAll('iframe')];
     return { frames: frames.length, widths: frames.map((f) => Number(f.width)) };
@@ -1158,8 +1366,8 @@ try {
 
   await page.reload({ waitUntil: 'networkidle0' });
   await new Promise((r) => setTimeout(r, 1500)); // document_idle; Offen-Flag oeffnet selbst
-  // Die UI war vor dem Reload offen — das sessionStorage-Flag muss sie
-  // ohne erneuten Toggle wiederherstellen.
+  // The UI was open before the reload — the sessionStorage flag has to restore
+  // it without another toggle.
   const autoReopened = await page.evaluate(() => !!document.getElementById('inkspect-root'));
   check('UI bleibt nach Seiten-Reload offen', autoReopened);
   await page.evaluate(() => {
@@ -1193,16 +1401,16 @@ try {
     `frames: ${persisted.frames}, widths: ${persisted.widths.join(', ')}, Preset: ${persisted.menuHasCustom}`,
   );
 
-  // --- 15b. Drag&Drop sortiert die Device-Karten um ---
-  // Synthetische DragEvents (ohne dataTransfer) reichen: dragstart auf Karte
-  // A, dragover auf Karte B sortiert live um, dragend beendet den Zug.
+  // --- 15b. Drag and drop reorders the device cards ---
+  // Synthetic DragEvents (without dataTransfer) are enough: dragstart on card
+  // A, dragover on card B reorders live, dragend ends the drag.
   const dndOrder = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     const before = [...sr.querySelectorAll('.device')].map((d) => d.dataset.uid);
     const [cardA, cardB] = [...sr.querySelectorAll('.device')];
     cardA.dispatchEvent(new DragEvent('dragstart', { bubbles: true }));
     await new Promise((r) => setTimeout(r, 60));
-    // Maus in der HINTEREN Haelfte von Karte B → A landet hinter B.
+    // Mouse in the BACK half of card B → A lands behind B.
     const rect = cardB.getBoundingClientRect();
     cardB.dispatchEvent(
       new DragEvent('dragover', {
@@ -1228,22 +1436,35 @@ try {
     `vorher: ${dndOrder.before.join(',')} | nachher: ${dndOrder.after.join(',')}`,
   );
 
-  // --- 16. Multi-Page-Screenshot-Export ---
-  // Aktuelle Seite ist /legacy (1 Marker), auf / liegen 4 offene Marker —
-  // der Export muss fuer beide Seiten navigieren und je eine Datei liefern.
-  // Genau dieser Flow schlug frueher fehl (waitForPage zu streng, Capture-
-  // Fehler als unbehandelte Exception).
+  // --- 16. Multi-page screenshot export ---
+  // The current page is /legacy (1 marker), and / carries 4 open markers — the
+  // export has to navigate for both pages and deliver one file each. This is
+  // exactly the flow that used to fail (waitForPage too strict, capture errors
+  // as an unhandled exception).
   await page.evaluate(() => {
-    // Menue aus Test 15 schliessen, damit der Export-Button klickbar ist.
+    // Close the menu from test 15, so that the export button is clickable.
     document.getElementById('inkspect-root').shadowRoot.querySelector('.menu-backdrop')?.click();
   });
   const multiDir = mkdtempSync(join(tmpdir(), 'inkspect-e2e-multi-'));
   const cdpMulti = await page.createCDPSession();
   await cdpMulti.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: multiDir });
 
-  await page.evaluate(() => {
+  /**
+   * As with the share link: the first click only opens the page selection, and
+   * that starts *empty*. Without ticking the other page, the second click
+   * exports only the current one — the test used to measure straight past that.
+   */
+  const multiPick = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    sr.querySelector('.share-btn--alt')?.click();
+    const shotBtn = () => sr.querySelector('.share-btn--alt');
+    shotBtn()?.click();
+    await new Promise((r) => setTimeout(r, 200));
+    const opened = !!sr.querySelector('.shotpick');
+    sr.querySelector('.shotpick__row:not(.shotpick__row--fixed) .shotpick__input')?.click();
+    await new Promise((r) => setTimeout(r, 150));
+    const label = shotBtn()?.textContent?.trim() ?? '';
+    shotBtn()?.click();
+    return { opened, label };
   });
   await page
     .waitForFunction(() => {
@@ -1251,27 +1472,89 @@ try {
       return [...sr.querySelectorAll('.share-hint')].some((n) =>
         n.textContent.includes('Downloads'),
       );
-      // 2 Seiten × ~7 Slices × 600 ms plus Navigation
-    }, { timeout: 90000 })
+      // 2 pages × ~7 slices × 600 ms plus navigation
+    }, { timeout: 120000 })
     .catch(() => {});
   await new Promise((r) => setTimeout(r, 800));
 
-  const multiFiles = readdirSync(multiDir).filter((f) => f.endsWith('.png'));
+  const multiFiles = readdirSync(multiDir).filter((f) => f.endsWith('.pdf'));
   check(
     'Multi-Page-Screenshot-Export (2 Seiten)',
-    multiFiles.includes('inkspect-feedback-legacy-iphone-se.png') &&
-      multiFiles.includes('inkspect-feedback-home-iphone-se.png'),
-    `dateien: ${multiFiles.join(', ') || 'keine'}`,
+    multiFiles.some((f) => f.includes('_legacy_iphone-se_')) &&
+      multiFiles.some((f) => f.includes('_home_iphone-se_')),
+    `auswahl offen: ${multiPick.opened}, knopf: ${multiPick.label}, ` +
+      `dateien: ${multiFiles.join(', ') || 'keine'}`,
   );
 
-  // --- 17. „Fit"-Knopf: Karten spannen die volle Breite auf ---
-  // Der Zoom skaliert die Karten sonst direkt; „Fit" setzt ihn so, dass die
-  // Zeile das Grid fuellt. Die Summe der Kartenbreiten muss dann nahe der
-  // Grid-Breite liegen.
-  // „Fit" liegt jetzt im More-Menue: oeffnen, Eintrag klicken (schliesst das Menue).
+  // --- 16b. Share link with a page selection (as with the screenshot export) ---
+  // The current page is /legacy, and / carries further markers: the first click
+  // on "Share as link" must therefore not build a link yet, but open the page
+  // selection. Only the second click triggers — and the payload then carries
+  // the markers of *both* pages.
+  const sharePick = await page.evaluate(async () => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    const shareBtn = () => sr.querySelector('.share-btn:not(.share-btn--alt)');
+    shareBtn().click();
+    await new Promise((r) => setTimeout(r, 150));
+    const head = sr.querySelector('.shotpick__head')?.textContent?.trim() ?? '';
+    const opened = !!sr.querySelector('.shotpick') && !sr.querySelector('.share-box');
+
+    // Add the other page — the real field carries the interaction.
+    const row = sr.querySelector('.shotpick__row:not(.shotpick__row--fixed) .shotpick__input');
+    row?.click();
+    await new Promise((r) => setTimeout(r, 120));
+    const label = shareBtn().textContent.trim();
+
+    // The second click triggers.
+    shareBtn().click();
+    await new Promise((r) => setTimeout(r, 500));
+    const url = sr.querySelector('.share-box__url')?.value ?? '';
+    const closed = !sr.querySelector('.shotpick');
+    const match = /#ink-feedback=([A-Za-z0-9_-]+)/.exec(url);
+    if (!match) return { opened, head, label, closed, url, pages: null };
+    const b64 = match[1].replaceAll('-', '+').replaceAll('_', '/');
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    const payload = JSON.parse(await new Response(stream).text());
+    return {
+      opened,
+      head,
+      label,
+      closed,
+      url,
+      pages: [...new Set(payload.items.map((i) => new URL(i.url).pathname))].sort(),
+      count: payload.items.length,
+    };
+  });
+  check(
+    'Share-Link: erster Klick oeffnet die Seitenauswahl',
+    sharePick.opened && sharePick.head.startsWith('Also share'),
+    `offen: ${sharePick.opened}, kopf: ${sharePick.head}`,
+  );
+  check(
+    'Share-Link: Knopf zeigt die Zahl der gewaehlten Seiten',
+    sharePick.label === 'Share as link (2)',
+    `label: ${sharePick.label}`,
+  );
+  check(
+    'Share-Link traegt die Marker beider Seiten',
+    sharePick.closed &&
+      sharePick.pages?.length === 2 &&
+      sharePick.pages.includes('/') &&
+      sharePick.pages.includes('/legacy'),
+    `seiten: ${sharePick.pages?.join(', ') ?? 'keine'}, marker: ${sharePick.count ?? 0}`,
+  );
+
+  // --- 17. The "Fit" button: cards span the full width ---
+  // The zoom otherwise scales the cards directly; "Fit" sets it so that the row
+  // fills the grid. The sum of the card widths then has to come close to the
+  // grid width.
+  // "Fit" now sits in the More menu: open it, click the entry (which closes the menu).
   await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    [...sr.querySelectorAll('.toolbar .icon-btn')].find((b) => b.title.startsWith('More'))?.click();
+    sr.querySelector('.toolbar__more')?.click();
   });
   await new Promise((r) => setTimeout(r, 120));
   await page.evaluate(() => {
@@ -1286,25 +1569,37 @@ try {
     const grid = sr.querySelector('.grid');
     const gridWidth = grid.clientWidth - 40; // 2×20px Padding
     const cards = [...sr.querySelectorAll('.device')].map((d) => d.getBoundingClientRect());
-    // Karten der ersten Zeile: gleiche Oberkante wie die erste Karte.
+    // Cards of the first row: same top edge as the first card.
     const firstTop = cards[0]?.top;
     const row = cards.filter((c) => Math.abs(c.top - firstTop) < 2);
     const used = row.reduce((sum, c) => sum + c.width, 0) + (row.length - 1) * 20;
     return { gridWidth, used, cards: row.length };
   });
+  /**
+   * Two properties, not a pixel count:
+   *
+   * - **No overflow.** That is the hard condition — if the row overflows, it
+   *   wraps and the button has broken its promise.
+   * - **Close to it.** Not exact: `fitZoom` rounds the zoom down to whole
+   *   percent (it is displayed as a percentage too) and keeps the scrollbar's
+   *   width free in case it only appears because of the new card height. With
+   *   this set (375 + 1920 + 500 logical) one percent step is already ~28 px —
+   *   a tolerance of 24 px was something the button could not possibly meet.
+   */
   check(
     'Fit-Knopf fuellt die Zeile auf die volle Breite',
-    rowFill.cards >= 1 && Math.abs(rowFill.used - rowFill.gridWidth) < 24,
-    `genutzt: ${Math.round(rowFill.used)} von ${Math.round(rowFill.gridWidth)} (${rowFill.cards} Karten)`,
+    rowFill.cards >= 1 &&
+      rowFill.used <= rowFill.gridWidth &&
+      rowFill.used >= rowFill.gridWidth * 0.94,
+    `genutzt: ${Math.round(rowFill.used)} von ${Math.round(rowFill.gridWidth)} ` +
+      `(${rowFill.cards} Karten, ${Math.round((rowFill.used / rowFill.gridWidth) * 100)} %)`,
   );
 
-  // --- 18. Vollbild-Modus: Seite ueber das ganze Fenster, Bar + FAB ---
-  // Vollbild hat einen festen Knopf in der Toolbar.
+  // --- 18. Full window mode: the page across the whole window, bar + FAB ---
+  // Full window has a fixed button in the toolbar.
   await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    [...sr.querySelectorAll('.toolbar .icon-btn')]
-      .find((b) => b.title.startsWith('Full window mode'))
-      ?.click();
+    sr.querySelector('.toolbar [data-hint="fullscreen"]')?.click();
   });
   await page
     .waitForFunction(() => {
@@ -1323,12 +1618,12 @@ try {
       frameWidth: iframe ? Number(iframe.width) : 0,
       windowWidth: window.innerWidth,
       bar: !!sr.querySelector('.fsbar'),
-      fab: !!sr.querySelector('.fs-fab'),
+      fab: !!sr.querySelector('.fsbar__feedback'),
       toolbarGone: !sr.querySelector('.toolbar'),
     };
   });
   check(
-    'Vollbild-Modus (Frame in Fenstergroesse, Bar + FAB, keine Toolbar)',
+    'Vollbild-Modus (Frame in Fenstergroesse, Dock mit Feedback, keine Toolbar)',
     fs.stage &&
       fs.bar &&
       fs.fab &&
@@ -1337,25 +1632,24 @@ try {
     `frame: ${fs.frameWidth}, fenster: ${fs.windowWidth}, bar: ${fs.bar}, fab: ${fs.fab}`,
   );
 
-  // FAB toggelt das Feedback-Panel; im Vollbild schwebt es ueber der Seite.
+  // The FAB toggles the feedback panel; in full window mode it floats over the page.
   const fsPanel = await page.evaluate(async () => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
     const openBefore = !!sr.querySelector('.panel--right');
-    sr.querySelector('.fs-fab').click();
+    sr.querySelector('.fsbar__feedback').click();
     await new Promise((r) => setTimeout(r, 200));
     const afterFirst = !!sr.querySelector('.panel--right');
-    sr.querySelector('.fs-fab').click();
+    sr.querySelector('.fsbar__feedback').click();
     await new Promise((r) => setTimeout(r, 200));
     const afterSecond = !!sr.querySelector('.panel--right');
     return { toggled: afterFirst !== openBefore && afterSecond === openBefore };
   });
-  check('Vollbild: FAB toggelt das Feedback-Panel', fsPanel.toggled);
+  check('Vollbild: Feedback-Knopf im Dock toggelt das Panel', fsPanel.toggled);
 
-  // Vollbild verlassen (letzter Button der Bar) — Grid und Toolbar kommen wieder.
+  // Leave full window mode (button in the dock) — grid and toolbar come back.
   await page.evaluate(() => {
     const sr = document.getElementById('inkspect-root').shadowRoot;
-    const buttons = sr.querySelectorAll('.fsbar .icon-btn');
-    buttons[buttons.length - 1].click();
+    sr.querySelector('.fsbar__exit').click();
   });
   await new Promise((r) => setTimeout(r, 500));
   const fsExit = await page.evaluate(() => {
@@ -1371,12 +1665,246 @@ try {
     fsExit.toolbar && fsExit.grid && !fsExit.stage,
     `toolbar: ${fsExit.toolbar}, grid: ${fsExit.grid}`,
   );
+  // --- 19. Unfolding a hidden element ---
+  // The test page hits the case exactly: #menu is display:none and only opens
+  // via body.menu-open, set by the click on #menuBtn. A marker inside it points
+  // at nothing once it is folded shut — unless the click path recorded when it
+  // was created gets replayed.
+  const menuState = async () => (await readAll('doc.body.classList.contains("menu-open")'))[0];
+  /** Put the menu into the state we want — a real click (isTrusted). */
+  const setMenu = async (want) => {
+    for (let i = 0; i < 3 && (await menuState()) !== want; i++) {
+      const b = await inFrame0(150, 30);
+      await page.mouse.click(b.x, b.y);
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    return (await menuState()) === want;
+  };
+
+  // Shut first, then open: that guarantees a real click on #menuBtn in the
+  // unfold path. If the menu were already open, `setMenu` would not click at
+  // all and the pin would get an empty path.
+  await setMenu(false);
+  const menuOpened = await setMenu(true);
+
+  // Click point taken from the *measured* rectangle of #menu rather than fixed
+  // page coordinates: at this point the frames are scrolled far down and have
+  // been reordered by drag and drop.
+  const menuSpot = await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    const f = sr.querySelectorAll('iframe')[0];
+    f.contentWindow.scrollTo(0, 0);
+    const r = f.contentDocument.getElementById('menu').getBoundingClientRect();
+    const fr = f.getBoundingClientRect();
+    const scale = fr.width / Number(f.width);
+    return {
+      x: fr.left + (r.left + Math.min(30, r.width / 2)) * scale,
+      y: fr.top + (r.top + r.height / 2) * scale,
+      w: Math.round(r.width),
+      h: Math.round(r.height),
+    };
+  });
+  await new Promise((r) => setTimeout(r, 300));
+
+  // Pin on #menu: the anchor is therefore an element that does not exist
+  // without the interaction. If the click misses, the pin anchors on the
+  // visible body — and then the test below fails, rather than passing for the
+  // wrong reason.
+  await pickTool(2); // Pin
+  await new Promise((r) => setTimeout(r, 400));
+  await page.mouse.click(menuSpot.x, menuSpot.y);
+  await new Promise((r) => setTimeout(r, 300));
+  await page.keyboard.type('Menuepunkt zu eng', { delay: 20 });
+  await page.keyboard.press('Enter');
+  await new Promise((r) => setTimeout(r, 400));
+
+  const menuClosed = await setMenu(false);
+  const clickedHidden = await page.evaluate(async () => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    const item = [...sr.querySelectorAll('.fb-item')].find((li) =>
+      li.textContent.includes('Menuepunkt zu eng'),
+    );
+    item?.click();
+    // Unfolding runs asynchronously: click, settle, remeasure, fly to.
+    await new Promise((r) => setTimeout(r, 900));
+    return !!item;
+  });
+  const revealedMenus = await readAll('doc.body.classList.contains("menu-open")');
+  check(
+    'Panel-Klick klappt das versteckte Element wieder auf',
+    menuOpened && menuClosed && clickedHidden && revealedMenus.every(Boolean),
+    `eintrag: ${clickedHidden}, vorher zu: ${menuClosed}, #menu: ${menuSpot.w}x${menuSpot.h}, ` +
+      `menu-open: ${revealedMenus.join(', ')}`,
+  );
+
+  // --- 19b. The menu is standing open from the click above. Switching to a
+  // normal entry has to fold it shut again: the unfolded state belongs to the
+  // one entry, not to the rest of the session. Otherwise the user ends up in
+  // front of a page state they never produced themselves.
+  // An entry of *this* page: `.fb-item--static` are the ones of the other
+  // pages, and a click on those navigates away — the export below would then
+  // photograph the wrong page.
+  const clickedNormal = await page.evaluate(async () => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    const own = [...sr.querySelectorAll('.fb-item:not(.fb-item--static)')];
+    const item = own.find((li) => !li.textContent.includes('Menuepunkt zu eng'));
+    item?.click();
+    // Folding shut goes through the same beat as unfolding: click, settle,
+    // remeasure.
+    await new Promise((r) => setTimeout(r, 900));
+    return { hit: !!item, label: item?.textContent?.trim().slice(0, 40) ?? null, own: own.length };
+  });
+  const collapsedMenus = await readAll('doc.body.classList.contains("menu-open")');
+  check(
+    'Wechsel auf normales Feedback klappt wieder zu',
+    clickedNormal.hit && collapsedMenus.every((m) => m === false),
+    `eintrag: ${clickedNormal.label ?? 'keiner'} (von ${clickedNormal.own} auf dieser Seite), ` +
+      `menu-open: ${collapsedMenus.join(', ')}`,
+  );
+
+  // --- 19c. Detail shot: for the hidden spot the export appends a second PDF
+  // page, captured in the unfolded state.
+  await setMenu(false);
+  // Diagnosis in case the detail page does not appear: which device does the
+  // entry sit on, and is #menu invisible at all?
+  const detailSetup = await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    const groups = [...sr.querySelectorAll('.fb-group')].map((g) => ({
+      device: g.querySelector('.fb-group__title, .fb-group__head')?.textContent?.trim() ?? '?',
+      hat: [...g.querySelectorAll('.fb-item')].some((li) =>
+        li.textContent.includes('Menuepunkt zu eng'),
+      ),
+    }));
+    const f = sr.querySelector('iframe');
+    const el = f?.contentDocument?.getElementById('menu');
+    return { groups, versteckt: el ? el.getBoundingClientRect().height === 0 : null };
+  });
+  const detailDir = mkdtempSync(join(tmpdir(), 'inkspect-e2e-detail-'));
+  const detailCdp = await page.createCDPSession();
+  await detailCdp.send('Browser.setDownloadBehavior', {
+    behavior: 'allow',
+    downloadPath: detailDir,
+  });
+  await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    sr.querySelector('.share-btn--alt').click();
+  });
+  // With several pages the button first opens the selection — then trigger.
+  await new Promise((r) => setTimeout(r, 500));
+  await page.evaluate(() => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    if (sr.querySelector('.shotpick__list')) sr.querySelector('.share-btn--alt').click();
+  });
+  await page
+    .waitForFunction(() => {
+      const sr = document.getElementById('inkspect-root').shadowRoot;
+      return [...sr.querySelectorAll('.share-hint')].some((n) =>
+        n.textContent.includes('Downloads'),
+      );
+    }, { timeout: 120000 })
+    .catch(() => {});
+  await new Promise((r) => setTimeout(r, 1000));
+
+  // Which device the pin sits on depends on the grid order (which an earlier
+  // test changes by drag and drop) — it is enough that *one* of the files
+  // carries the extra page.
+  const detailFiles = readdirSync(detailDir).filter((f) => f.endsWith('.pdf'));
+  const detailInfo = detailFiles.map((f) => ({
+    f,
+    pages: pdfPageCount(join(detailDir, f)),
+    imgs: pdfImages(join(detailDir, f)),
+  }));
+  // The detail page shows a viewport crop, the base page the whole page — were
+  // both the same height, the second would only be a repetition.
+  const withDetail = detailInfo.find(
+    (d) => d.pages >= 2 && d.imgs.length >= 4 && d.imgs[3].h < d.imgs[1].h / 2,
+  );
+  check(
+    'Screenshot: Detail-Aufnahme fuer verstecktes Element',
+    !!withDetail,
+    `${detailInfo.map((d) => `${d.f}: ${d.pages}S ${d.imgs.map((i) => i.h).join('/')}`).join(' | ') || 'keine Dateien'}` +
+      ` || Eintrag bei: ${detailSetup.groups.filter((g) => g.hat).map((g) => g.device).join(',') || 'nirgends'}` +
+      ` (Gruppen: ${detailSetup.groups.map((g) => g.device).join(',')}), #menu versteckt: ${detailSetup.versteckt}`,
+  );
+  // The export must not leave the page unfolded.
+  await new Promise((r) => setTimeout(r, 1200));
+  const afterExport = await readAll('doc.body.classList.contains("menu-open")');
+  check(
+    'Export laesst das Menue nicht offen stehen',
+    afterExport.every((m) => m === false),
+    `menu-open: ${afterExport.join(', ')}`,
+  );
+
+  // Counter-check: a marker on a *visible* element carries the same click path
+  // (the menu was open when it was created) but must not replay it. This early
+  // exit is exactly what makes the unfiltered recording harmless.
+  const closedAgain = await setMenu(false);
+  const clickedVisible = await page.evaluate(async () => {
+    const sr = document.getElementById('inkspect-root').shadowRoot;
+    const item = [...sr.querySelectorAll('.fb-item')].find((li) =>
+      li.textContent.includes('Logo zu klein'),
+    );
+    item?.click();
+    await new Promise((r) => setTimeout(r, 900));
+    return !!item;
+  });
+  const stillClosed = await readAll('doc.body.classList.contains("menu-open")');
+  check(
+    'Sichtbares Element loest kein Aufklappen aus',
+    closedAgain && clickedVisible && stillClosed.every((m) => m === false),
+    `eintrag: ${clickedVisible}, menu-open: ${stillClosed.join(', ')}`,
+  );
+
+  // --- 22. Switching on takes the page's scroll position over ---
+  // Close, scroll the tab deep into the page, switch on again: every frame has
+  // to open at that spot — not at the top. `#deep` sits at y=1500 and is the
+  // anchor; matched by element, the position has to land within a few pixels
+  // regardless of how tall the document is in each frame.
+  await page.evaluate(() => window.dispatchEvent(new Event('inkspect:toggle')));
+  await page.waitForFunction(() => !document.getElementById('inkspect-root'), { timeout: 5000 });
+  await page.evaluate(() => window.scrollTo(0, 1500));
+  await new Promise((r) => setTimeout(r, 300));
+  await page.evaluate(() => window.dispatchEvent(new Event('inkspect:toggle')));
+  await page
+    .waitForFunction(() => {
+      const frames = document.getElementById('inkspect-root')?.shadowRoot?.querySelectorAll('iframe');
+      if (!frames?.length) return false;
+      return [...frames].every((f) => {
+        try {
+          return f.contentDocument?.readyState === 'complete' && !!f.contentDocument.getElementById('deep');
+        } catch { return false; }
+      });
+    }, { timeout: 10000 })
+    .catch(() => {});
+  await new Promise((r) => setTimeout(r, 600));
+  const adopted = await page.evaluate(() => {
+    const frames = [...document.getElementById('inkspect-root').shadowRoot.querySelectorAll('iframe')];
+    return frames.map((f) => {
+      try {
+        const doc = f.contentDocument;
+        return {
+          top: Math.round(doc.scrollingElement.scrollTop),
+          anchor: Math.round(doc.getElementById('deep').getBoundingClientRect().top),
+        };
+      } catch { return null; }
+    });
+  });
+  check(
+    'Scrollstand der Seite beim Einschalten uebernommen',
+    adopted.length > 0 &&
+      adopted.every((f) => f && f.top > 1000 && Math.abs(f.anchor) < 8),
+    adopted.map((f) => (f ? `${f.top} (Anker ${f.anchor})` : 'unlesbar')).join(', '),
+  );
+
 } catch (e) {
   results.push(`ERROR ${e.message}`);
 } finally {
+  closing = true;
   await browser.close();
   server.close();
 }
 
-console.log(results.join('\n'));
-process.exit(results.some((r) => !r.startsWith('PASS')) ? 1 : 0);
+const failed = results.filter((r) => !r.startsWith('PASS'));
+console.log(`\n${results.length - failed.length}/${results.length} bestanden`);
+if (failed.length) console.log(failed.join('\n'));
+process.exit(failed.length ? 1 : 0);

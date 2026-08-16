@@ -1,20 +1,19 @@
 /**
- * Erkennung, ob ein iframe von der Seite selbst blockiert wurde
- * (`X-Frame-Options: DENY` bzw. `Content-Security-Policy: frame-ancestors 'none'`).
+ * Detects whether an iframe was blocked by the page itself
+ * (`X-Frame-Options: DENY` or `Content-Security-Policy: frame-ancestors 'none'`).
  *
- * `SAMEORIGIN` und `frame-ancestors 'self'` blockieren uns nicht, weil die
- * Preview-Frames dieselbe Origin haben wie der Tab. Nur die harten Varianten
- * landen hier.
+ * `SAMEORIGIN` and `frame-ancestors 'self'` do not block us, because the
+ * preview frames share the tab's origin. Only the hard variants end up here.
  */
 
 /**
- * Verbieten die Antwort-Header, die Seite als Frame *derselben* Origin
- * einzubetten? Wird vor dem Laden auf einen Vorab-Request angewandt, damit die
- * Warnung kommt, bevor der Frame die Seite ueberhaupt anfordert.
+ * Do the response headers forbid embedding the page as a frame of the *same*
+ * origin? Applied to a pre-flight request before loading, so the warning
+ * arrives before the frame requests the page at all.
  *
- * `SAMEORIGIN`/`'self'` sind unkritisch — die Preview-Frames teilen die Origin
- * des Tabs. Bei einer `frame-ancestors`-Liste ohne `'self'`, `*` oder den
- * eigenen Host wird konservativ blockiert angenommen.
+ * `SAMEORIGIN`/`'self'` are harmless — the preview frames share the tab's
+ * origin. For a `frame-ancestors` list without `'self'`, `*` or our own host,
+ * we conservatively assume it is blocked.
  */
 export function framingBlockedByHeaders(headers: Headers, origin: string): boolean {
   const xfo = headers.get('x-frame-options')?.toLowerCase() ?? '';
@@ -43,23 +42,23 @@ export function framingBlockedByHeaders(headers: Headers, origin: string): boole
   return !sources.some((s) => s.includes(host));
 }
 
-/** Liefert das Dokument des Frames, oder null wenn es cross-origin/blockiert ist. */
+/** Returns the frame's document, or null if it is cross-origin or blocked. */
 export function frameDocument(iframe: HTMLIFrameElement): Document | null {
   try {
     return iframe.contentDocument;
   } catch {
-    // SecurityError — der Frame gehoert einer fremden Origin (Fehlerseite).
+    // SecurityError — the frame belongs to a foreign origin (error page).
     return null;
   }
 }
 
 /**
- * Muss nach dem `load`-Event aufgerufen werden.
+ * Must be called after the `load` event.
  *
- * Chrome ersetzt einen blockierten Frame durch eine Fehlerseite fremder Origin,
- * `contentDocument` ist dann null. Firefox laesst statt dessen ein leeres
- * about:blank-Dokument stehen, das same-origin und damit lesbar ist — deshalb
- * die zweite Pruefung.
+ * Chrome replaces a blocked frame with an error page of foreign origin, so
+ * `contentDocument` is null. Firefox instead leaves an empty about:blank
+ * document behind, which is same-origin and therefore readable — hence the
+ * second check.
  */
 export function isFrameBlocked(iframe: HTMLIFrameElement): boolean {
   const doc = frameDocument(iframe);
@@ -75,6 +74,6 @@ export function isFrameBlocked(iframe: HTMLIFrameElement): boolean {
   const expected = iframe.src;
   if (expected && expected !== 'about:blank' && href === 'about:blank') return true;
 
-  // Ein erfolgreich geladenes Dokument hat einen Body mit Inhalt.
+  // A document that loaded successfully has a body with content in it.
   return doc.body == null;
 }

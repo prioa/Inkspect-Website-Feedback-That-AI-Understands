@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react';
 import { IconClose } from './icons';
 
 /**
- * Kleiner Bestaetigungsdialog fuer nicht umkehrbare Aktionen (alle
- * Markierungen loeschen). Esc und der Backdrop brechen ab; der Fokus liegt
- * beim Oeffnen auf „Abbrechen", damit ein zu schnelles Enter nichts loescht.
+ * Small confirmation dialog for actions that cannot be undone (delete all
+ * markings). Esc and the backdrop cancel; on opening, focus sits on Cancel so
+ * that hitting Enter too quickly deletes nothing.
  */
 export function ConfirmDialog({
   title,
@@ -25,7 +25,7 @@ export function ConfirmDialog({
     cancelRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      // Capture: sonst beendet der globale Handler den Zeichenmodus mit.
+      // Capture: otherwise the global handler leaves draw mode along with it.
       e.stopPropagation();
       onCancel();
     };

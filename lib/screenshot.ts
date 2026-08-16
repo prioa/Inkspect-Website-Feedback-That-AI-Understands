@@ -5,33 +5,33 @@ import { createLogger } from './log';
 const log = createLogger('screenshot');
 
 /**
- * Annotierte Device-Screenshots: der Background fotografiert den sichtbaren
- * Tab (inklusive gezeichneter Marker im Overlay), hier wird auf das
- * Device-Viewport-Element zugeschnitten. Fuer Full-Page-Aufnahmen wird der
- * Frame slice-weise gescrollt und das Ergebnis zusammengesetzt.
+ * Annotated device screenshots: the background photographs the visible tab
+ * (including the markers drawn in the overlay), and here the result is cropped
+ * to the device viewport element. For full-page captures the frame is scrolled
+ * slice by slice and the pieces are stitched together.
  */
 
 interface CroppedShot {
   canvas: HTMLCanvasElement;
-  /** Geraetepixel pro CSS-Pixel des Fensters (dpr des Captures). */
+  /** Device pixels per CSS pixel of the window (the capture's dpr). */
   scale: number;
 }
 
-/** Screenshot des sichtbaren Tabs, zugeschnitten auf `rect` (CSS-Pixel). */
+/** Screenshot of the visible tab, cropped to `rect` (CSS pixels). */
 async function captureCropped(rect: DOMRect): Promise<CroppedShot | null> {
-  // sendMessage kann selbst rejecten (Port geschlossen, SW-Neustart mitten im
-  // Multi-Page-Export) — das darf den Export nicht als Exception abbrechen.
+  // sendMessage can reject by itself (port closed, SW restart in the middle of
+  // a multi-page export) — that must not abort the export as an exception.
   let res: CaptureResponse;
   try {
     res = (await browser.runtime.sendMessage({
       type: 'ink:capture',
     })) as CaptureResponse;
   } catch (e) {
-    log.warn('Capture-Nachricht fehlgeschlagen', e);
+    log.warn('Capture message failed', e);
     return null;
   }
   if (!res?.ok) {
-    log.warn('Tab-Capture fehlgeschlagen', res?.error);
+    log.warn('Tab capture failed', res?.error);
     return null;
   }
 
@@ -43,26 +43,26 @@ async function captureCropped(rect: DOMRect): Promise<CroppedShot | null> {
       img.src = res.dataUrl;
     });
   } catch {
-    log.warn('Capture-Bild nicht dekodierbar');
+    log.warn('Capture image could not be decoded');
     return null;
   }
 
-  // Das Capture ist in Geraetepixeln — Skalierung aus der Bildbreite ableiten.
+  // The capture is in device pixels — derive the scale from the image width.
   const scale = img.naturalWidth / window.innerWidth;
   const x = Math.max(0, rect.left) * scale;
   const y = Math.max(0, rect.top) * scale;
   const w = Math.min(rect.right, window.innerWidth) * scale - x;
   /**
-   * Unten ein Pixel weglassen. Rundet die Frame-Hoehe auf einen Bruchteil,
-   * blitzt dort der Kartenhintergrund durch — im gestitchten Bild ergibt das
-   * an jeder Slice-Kante einen dunklen Strich. Der Schnitt kostet nichts:
-   * gestitcht wird nach *tatsaechlich* aufgenommener Hoehe, der naechste
-   * Slice setzt also exakt dort an. Oben darf nicht geschnitten werden —
-   * dort ginge pro Kante ein Pixel Inhalt verloren.
+   * Drop one pixel at the bottom. If the frame height rounds to a fraction,
+   * the card background flashes through there — in the stitched image that
+   * gives a dark line at every slice edge. The cut costs nothing: stitching
+   * goes by the height *actually* captured, so the next slice picks up exactly
+   * where this one ended. The top must not be cut — a pixel of content would
+   * be lost per edge there.
    */
   const h = Math.min(rect.bottom, window.innerHeight) * scale - y - Math.ceil(scale);
   if (w < 10 || h < 10) {
-    log.warn('Frame-Ausschnitt zu klein fuer einen Slice', {
+    log.warn('Frame section too small for a slice', {
       rect: `${Math.round(rect.left)},${Math.round(rect.top)} ${Math.round(rect.width)}x${Math.round(rect.height)}`,
       window: `${window.innerWidth}x${window.innerHeight}`,
       w: Math.round(w),
@@ -79,14 +79,14 @@ async function captureCropped(rect: DOMRect): Promise<CroppedShot | null> {
 }
 
 /**
- * Flaechenbudget des fertigen Bildes. Eine lange Seite mal Geraetepixel-
- * Dichte kommt schnell auf dreistellige Megapixel — das sprengt sowohl die
- * Bild-Ausgabe des Canvas als auch jede vernuenftige Dateigroesse im PDF.
- * Darueber wird proportional heruntergerechnet.
+ * Area budget for the finished image. A long page times the device pixel
+ * density quickly reaches hundreds of megapixels — which blows both the
+ * canvas's image output and any reasonable file size in the PDF. Above that,
+ * it is scaled down proportionally.
  */
 const MAX_AREA = 40_000_000;
 
-/** Bild auf das Flaechenbudget bringen — gibt das Original zurueck, wenn es passt. */
+/** Bring the image within the area budget — returns the original when it fits. */
 export function fitToBudget(canvas: HTMLCanvasElement): HTMLCanvasElement {
   const area = canvas.width * canvas.height;
   if (area <= MAX_AREA) return canvas;
@@ -98,31 +98,78 @@ export function fitToBudget(canvas: HTMLCanvasElement): HTMLCanvasElement {
   if (!ctx) return canvas;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(canvas, 0, 0, scaled.width, scaled.height);
-  log.info('Bild fuer das Encoding verkleinert', {
+  log.info('Image scaled down for encoding', {
     from: `${canvas.width}x${canvas.height}`,
     to: `${scaled.width}x${scaled.height}`,
   });
   return scaled;
 }
 
-/** Obergrenze gegen absurd lange Seiten (Canvas-/Zeitbudget). */
+/** Upper bound against absurdly long pages (canvas and time budget). */
 const MAX_SLICES = 12;
 
+/** The overlay that has to give way for the moment of the capture. */
+export interface Veil {
+  hide: () => void;
+  show: () => void;
+}
+
 /**
- * Animationen und Uebergaenge im Frame stilllegen, solange fotografiert wird.
+ * A single capture, once everything has come to rest — the common basis of
+ * every capture. It sits in a function because three expensively earned
+ * numbers come together here that must not appear anywhere twice:
  *
- * Ohne das faengt der Export die Seite mitten in ihren Scroll-Animationen ab:
- * eingeblendete Bloecke stehen halb transparent im Bild (sieht aus wie ein
- * Schatten quer ueber die Seite), Count-up-Zahlen zeigen Zwischenstaende
- * („77 %" statt „100 %"). Mit Dauer 0 springt jede CSS-Animation sofort in
- * ihren Endzustand, sobald sie ausgeloest wird.
+ * - **600 ms** render time *and* the hard limit of `captureVisibleTab`
+ *   (2 calls/s) — not a convenience but a requirement.
+ * - **Double `requestAnimationFrame`**: a single one is not enough, its
+ *   callback still runs *before* the next paint. The dimming was therefore
+ *   still in the picture at capture time. Only the second frame lies behind
+ *   the first one's paint.
+ * - **40 ms** afterwards catch slow compositor passes (`backdrop-filter`).
+ */
+async function captureSettled(
+  getRect: () => DOMRect,
+  veil?: Veil,
+): Promise<CroppedShot | null> {
+  await new Promise((r) => setTimeout(r, 600));
+  veil?.hide();
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
+  await new Promise((r) => setTimeout(r, 40));
+  try {
+    return await captureCropped(getRect());
+  } finally {
+    veil?.show();
+  }
+}
+
+/**
+ * Capture of the visible part of the frame, without scrolling and without
+ * stitching — for the detail shots of unfolded elements. The caller has
+ * already scrolled the element into view and frozen the page.
+ */
+export async function captureViewportShot(
+  getRect: () => DOMRect,
+  veil?: Veil,
+): Promise<HTMLCanvasElement | null> {
+  const shot = await captureSettled(getRect, veil);
+  return shot?.canvas ?? null;
+}
+
+/**
+ * Put animations and transitions in the frame to rest while photographing.
  *
- * `scroll-behavior: auto` gehoert zwingend dazu: bei `smooth` wuerde unser
- * `scrollTo` sanft animieren, und die unmittelbar danach gelesene
- * Scroll-Position waere schlicht falsch — die Slices lägen versetzt.
+ * Without it, the export catches the page in the middle of its scroll
+ * animations: blocks that fade in stand half transparent in the image (looking
+ * like a shadow across the page), count-up numbers show intermediate states
+ * ("77 %" instead of "100 %"). With duration 0, every CSS animation jumps
+ * straight to its end state as soon as it is triggered.
  *
- * JS-getriebene Zaehler laufen weiter; dagegen hilft nur die Wartezeit pro
- * Slice.
+ * `scroll-behavior: auto` is a mandatory part of this: with `smooth` our
+ * `scrollTo` would animate gently, and the scroll position read immediately
+ * afterwards would simply be wrong — the slices would sit offset.
+ *
+ * Counters driven by JS keep running; the only remedy there is the wait per
+ * slice.
  */
 const FREEZE_CSS = `*,*::before,*::after{
   animation-duration:0s!important;
@@ -133,7 +180,7 @@ const FREEZE_CSS = `*,*::before,*::after{
 }
 html{scroll-behavior:auto!important}`;
 
-function freezeAnimations(doc: Document): () => void {
+export function freezeAnimations(doc: Document): () => void {
   const added: HTMLStyleElement[] = [];
   const inject = (root: Document | ShadowRoot) => {
     try {
@@ -142,18 +189,18 @@ function freezeAnimations(doc: Document): () => void {
       (root instanceof ShadowRoot ? root : root.head)?.append(style);
       added.push(style);
     } catch {
-      /* Root nicht beschreibbar */
+      /* root not writable */
     }
   };
   try {
     inject(doc);
-    // Web Components bringen ihre eigenen Styles mit — die Regel oben
-    // erreicht sie nicht, sie muss in jeden offenen Shadow Root.
+    // Web components bring their own styles — the rule above does not reach
+    // them, it has to go into every open shadow root.
     for (const el of doc.querySelectorAll('*')) {
       if (el.shadowRoot) inject(el.shadowRoot);
     }
   } catch (e) {
-    log.warn('Animationen liessen sich nicht stilllegen', e);
+    log.warn('Animations could not be stilled', e);
   }
   return () => {
     for (const style of added) style.remove();
@@ -161,12 +208,12 @@ function freezeAnimations(doc: Document): () => void {
 }
 
 /**
- * Fixed/Sticky-Elemente wuerden sich beim Scroll-Stitching in jedem Slice
- * wiederholen (Header klebt auf jedem Streifen oben). Ab dem zweiten Slice
- * werden sie deshalb neutralisiert: `fixed` wird unsichtbar (behaelt keinen
- * Platz im Flow, fehlt also nur dort, wo es ohnehin schon im ersten Slice
- * steht), `sticky` faellt auf `static` zurueck und scrollt natuerlich mit.
- * Liefert eine Restore-Funktion, die die Original-Inline-Styles zuruecksetzt.
+ * Fixed and sticky elements would repeat in every slice when scroll-stitching
+ * (a header glued to the top of each strip). From the second slice onwards
+ * they are therefore neutralised: `fixed` becomes invisible (it takes no space
+ * in the flow, so it is only missing where it already stands in the first
+ * slice), `sticky` falls back to `static` and scrolls along naturally. Returns
+ * a restore function that puts the original inline styles back.
  */
 function suppressFixedElements(doc: Document): () => void {
   const touched: {
@@ -200,7 +247,7 @@ function suppressFixedElements(doc: Document): () => void {
   try {
     visit(doc);
   } catch (e) {
-    log.warn('Fixed/Sticky-Unterdrueckung fehlgeschlagen', e);
+    log.warn('Suppressing fixed/sticky elements failed', e);
   }
   return () => {
     for (const t of touched) {
@@ -211,14 +258,13 @@ function suppressFixedElements(doc: Document): () => void {
 }
 
 /**
- * Full-Page-Aufnahme eines Device-Frames als Canvas (der Aufrufer setzt
- * daraus das PDF zusammen): das Frame-Dokument wird in
- * Viewport-Schritten gescrollt, jeder Slice per captureVisibleTab
- * fotografiert (Limit: 2 Aufrufe/s, daher 600 ms Abstand) und auf ein
- * Canvas in voller Dokumenthoehe gestitcht. Marker und Notiz-Sprechblasen
- * des Overlays sind in jedem Slice enthalten. Fixed/Sticky-Elemente
- * erscheinen genau einmal — an ihrer natuerlichen Position im ersten Slice
- * (siehe `suppressFixedElements`).
+ * Full-page capture of a device frame as a canvas (the caller assembles the
+ * PDF from it): the frame document is scrolled in viewport-sized steps, every
+ * slice photographed via captureVisibleTab (limit: 2 calls/s, hence the 600 ms
+ * spacing) and stitched onto a canvas at the full document height. The
+ * overlay's markers and note bubbles are included in every slice. Fixed and
+ * sticky elements appear exactly once — at their natural position in the first
+ * slice (see `suppressFixedElements`).
  */
 export async function captureFullFrameShot(
   iframe: HTMLIFrameElement,
@@ -226,11 +272,11 @@ export async function captureFullFrameShot(
   zoom: number,
   onSlice?: () => void,
   /**
-   * Um jede einzelne Aufnahme herum aufgerufen. Die Ueberblendung, die den
-   * Frame waehrend des Scans abdeckt, wuerde sonst mitfotografiert — sie
-   * verschwindet fuer den Moment des Ausloesens und ist sofort wieder da.
+   * Called around every single capture. The overlay that covers the frame
+   * during the scan would otherwise be photographed along with it — it
+   * disappears for the moment of the shot and is back immediately after.
    */
-  veil?: { hide: () => void; show: () => void },
+  veil?: Veil,
 ): Promise<HTMLCanvasElement | null> {
   let win: Window;
   let docH: number;
@@ -245,30 +291,30 @@ export async function captureFullFrameShot(
     docH = Math.max(el.scrollHeight, viewH);
     previousScroll = { x: w.scrollX, y: w.scrollY };
   } catch {
-    // Frame nicht lesbar — dann wenigstens der sichtbare Ausschnitt.
+    // Frame not readable — then at least the visible part.
     const single = await captureCropped(getRect());
     return single?.canvas ?? null;
   }
 
   if (docH > MAX_SLICES * viewH) {
-    log.warn('Seite zu lang fuer Full-Page-Capture, schneide ab', {
+    log.warn('Page too long for a full-page capture, cutting it off', {
       docH,
       viewH,
     });
   }
 
   const parts: { docY: number; canvas: HTMLCanvasElement }[] = [];
-  let unit = 0; // Canvas-Pixel pro Dokument-Pixel
+  let unit = 0; // canvas pixels per document pixel
   let y = 0;
   let restoreFixed: (() => void) | null = null;
-  // Gilt ab dem ersten Slice: Scroll-Animationen sollen ueberall schon
-  // abgeschlossen sein, wenn ausgeloest wird.
+  // Applies from the first slice on: scroll animations should already be
+  // finished everywhere by the time the shutter goes.
   const restoreMotion = freezeAnimations(win.document);
   try {
     for (let i = 0; i < MAX_SLICES; i++) {
       const targetY = Math.max(0, Math.min(y, docH - viewH));
-      // Der erste Slice zeigt Header & Co. an ihrer echten Position — ab dem
-      // zweiten wuerden sie sich wiederholen und werden unterdrueckt.
+      // The first slice shows headers and friends at their real position — from
+      // the second on they would repeat, so they are suppressed.
       if (i === 1) restoreFixed = suppressFixedElements(win.document);
       try {
         win.scrollTo(0, targetY);
@@ -276,43 +322,22 @@ export async function captureFullFrameShot(
         break;
       }
       /**
-       * Tatsaechliche Scroll-Position zurueckholen. Die Sollposition ist
-       * gebrochen (Slice-Hoehe / Geraetepixel-Dichte), `scrollTo` rundet aber
-       * — und die Seite kann die Position zusaetzlich verschieben (Snap,
-       * Maximum am Dokumentende). Rechnet man weiter mit dem Sollwert, driften
-       * die Slices um bis zu einem Pixel gegeneinander und an jeder Naht
-       * bleibt eine feine Kante stehen.
+       * Fetch the actual scroll position back. The target position is
+       * fractional (slice height / device pixel density), but `scrollTo`
+       * rounds — and the page can shift the position further (snap, the
+       * maximum at the end of the document). Carrying on with the target value
+       * makes the slices drift against each other by up to a pixel, leaving a
+       * fine edge at every seam.
        */
       const scrolledY = Number.isFinite(win.scrollY) ? win.scrollY : targetY;
-      // Renderzeit + captureVisibleTab-Limit (2 Aufrufe/s).
-      await new Promise((r) => setTimeout(r, 600));
-      veil?.hide();
-      /**
-       * Warten, bis das Ausblenden auch wirklich *gezeichnet* ist.
-       *
-       * Ein einzelnes `requestAnimationFrame` genuegt dafuer nicht: dessen
-       * Callback laeuft noch *vor* dem naechsten Paint. Die Abdunklung stand
-       * damit zum Zeitpunkt der Aufnahme noch im Bild. Erst der zweite Frame
-       * liegt hinter dem Paint des ersten; die kurze Pause danach faengt
-       * zusaetzlich langsame Compositor-Durchlaeufe ab (backdrop-filter).
-       */
-      await new Promise((r) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => r(null))),
-      );
-      await new Promise((r) => setTimeout(r, 40));
-      let shot: CroppedShot | null;
-      try {
-        shot = await captureCropped(getRect());
-      } finally {
-        veil?.show();
-      }
+      const shot = await captureSettled(getRect, veil);
       if (!shot) break;
       onSlice?.();
 
       unit = shot.scale * zoom;
       parts.push({ docY: scrolledY, canvas: shot.canvas });
-      // Sichtbare Dokumenthoehe dieses Slices — kleiner als viewH, wenn der
-      // Frame am Fensterrand beschnitten ist; dann in kleineren Schritten weiter.
+      // Visible document height of this slice — smaller than viewH when the
+      // frame is clipped at the window edge; then continue in smaller steps.
       const covered = shot.canvas.height / unit;
       y = scrolledY + covered;
       if (scrolledY >= docH - viewH || y >= docH - 1) break;
@@ -322,18 +347,18 @@ export async function captureFullFrameShot(
       restoreFixed?.();
       restoreMotion();
     } catch {
-      /* Frame schon weg */
+      /* frame already gone */
     }
   }
 
   try {
     win.scrollTo(previousScroll.x, previousScroll.y);
   } catch {
-    /* Frame schon weg */
+    /* frame already gone */
   }
 
   if (parts.length === 0 || unit === 0) {
-    log.warn('Kein verwertbarer Slice — kein Bild', { parts: parts.length, unit, zoom });
+    log.warn('No usable slice — no image', { parts: parts.length, unit, zoom });
     return null;
   }
 
@@ -346,23 +371,23 @@ export async function captureFullFrameShot(
   full.width = width;
   full.height = Math.round(coveredH * unit);
   const ctx = full.getContext('2d')!;
-  // Deckender Grund: bliebe irgendwo ein Pixel unbeschrieben, zeigte das PNG
-  // dort Transparenz — in Viewern je nach Hintergrund als schwarzer Strich.
+  // An opaque ground: if a pixel anywhere stayed unwritten, the PNG would show
+  // transparency there — a black line in viewers, depending on the background.
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, full.width, full.height);
 
   /**
-   * Lueckenlos stapeln statt jeden Slice an seine gerundete Dokumentposition
-   * zu setzen: `docY * unit` rundet pro Slice unabhaengig, wodurch zwischen
-   * zwei Streifen ein Sub-Pixel klafft — genau die duennen dunklen Linien
-   * quer durchs Bild. Stattdessen wird mitgezaehlt, wie viele Canvas-Pixel
-   * schon stehen, und vom naechsten Slice nur der noch fehlende Teil kopiert.
+   * Stack them without gaps rather than placing each slice at its rounded
+   * document position: `docY * unit` rounds independently per slice, which
+   * leaves a sub-pixel gap between two strips — exactly those thin dark lines
+   * across the image. Instead, count how many canvas pixels already stand and
+   * copy only the still-missing part of the next slice.
    */
   let filled = 0;
   for (const part of parts) {
     const top = Math.round(part.docY * unit);
-    // Ueberlappung mit dem bereits Gezeichneten (der letzte Slice wird an
-    // `docH - viewH` geklemmt und ueberlappt den vorigen fast immer).
+    // Overlap with what is already drawn (the last slice is clamped to
+    // `docH - viewH` and almost always overlaps the previous one).
     const skip = Math.max(0, filled - top);
     const h = Math.min(part.canvas.height - skip, full.height - filled);
     if (h <= 0) continue;

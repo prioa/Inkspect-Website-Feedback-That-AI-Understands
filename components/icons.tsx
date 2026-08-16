@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 
 /**
- * Inline-SVG-Icons (Feather-Stil, stroke: currentColor). Als Komponenten
- * statt Icon-Font, damit im Shadow Tree nichts nachgeladen werden muss.
+ * Inline SVG icons (Feather style, stroke: currentColor). Components rather
+ * than an icon font, so nothing has to be fetched inside the shadow tree.
  */
 function Icon({ children, size = 18 }: { children: ReactNode; size?: number }) {
   return (
@@ -31,7 +31,7 @@ export const IconReload = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Kompass — Einstieg in die gefuehrte Tour. */
+/** Compass — the way into the guided tour. */
 export const IconCompass = ({ size }: IconProps) => (
   <Icon size={size}>
     <circle cx="12" cy="12" r="9" />
@@ -97,7 +97,7 @@ export const IconPen = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Klassischer Stift (Bearbeiten) — nicht der Freihand-Kringel von IconPen. */
+/** Classic pen (edit) — not the freehand squiggle of IconPen. */
 export const IconEditPen = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
@@ -123,7 +123,7 @@ export const IconArrow = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Griff zum Verschieben der Werkzeugleiste (sechs Punkte). */
+/** Grip for dragging the tool bar around (six dots). */
 export const IconGrip = ({ size }: IconProps) => (
   <Icon size={size}>
     <circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none" />
@@ -135,7 +135,7 @@ export const IconGrip = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Waagerechte Hilfslinie ueber die volle Breite — die Endkappen zeigen den Rand. */
+/** Horizontal guide line across the full width — the end caps show the edge. */
 export const IconHLine = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M3 12h18" />
@@ -144,7 +144,7 @@ export const IconHLine = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Senkrechte Hilfslinie ueber die volle Hoehe. */
+/** Vertical guide line across the full height. */
 export const IconVLine = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M12 3v18" />
@@ -168,7 +168,7 @@ export const IconPointer = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Element-Picker: Rahmen mit Cursor-Pfeil (DevTools-Inspektor-Metapher). */
+/** Element picker: a frame with a cursor arrow (the DevTools inspector metaphor). */
 export const IconInspect = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M10 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5" />
@@ -176,7 +176,7 @@ export const IconInspect = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Schrift-Inspector: Lupe mit „A" — Text unter dem Cursor untersuchen. */
+/** Font inspector: magnifier with an "A" — inspect the text under the cursor. */
 export const IconInspector = ({ size }: IconProps) => (
   <Icon size={size}>
     <circle cx="10" cy="10" r="7" />
@@ -193,7 +193,7 @@ export const IconTerminal = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Geraet drehen: Querformat-Rahmen mit Drehpfeil von oben. */
+/** Rotate device: landscape frame with a turning arrow above it. */
 export const IconRotateDevice = ({ size }: IconProps) => (
   <Icon size={size}>
     <rect x="2.5" y="11" width="13" height="10" rx="2" />
@@ -297,7 +297,19 @@ export const IconEyeOff = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Vollbild betreten: vier Ecken nach aussen. */
+/**
+ * Half-filled circle — the common sign for opacity. On the phone mockup it
+ * stands for "fades while idle". The fill sits on the path here, because the
+ * base rule sets `fill: none`.
+ */
+export const IconContrast = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
+/** Enter full window mode: four corners pointing outwards. */
 export const IconExpand = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M15 3h6v6" />
@@ -307,7 +319,7 @@ export const IconExpand = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Vollbild verlassen: Pfeile nach innen. */
+/** Leave full window mode: arrows pointing inwards. */
 export const IconCollapse = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M4 14h6v6" />
@@ -317,7 +329,7 @@ export const IconCollapse = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Fokus: Zielkreuz — stellt ein Device allein in die Reihe. */
+/** Focus: crosshair — puts one device on its own in the row. */
 export const IconFocus = ({ size }: IconProps) => (
   <Icon size={size}>
     <circle cx="12" cy="12" r="4" />
@@ -328,7 +340,7 @@ export const IconFocus = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Touch-Modus: tippender Finger. */
+/** Touch mode: a tapping finger. */
 export const IconTouch = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M9 11V5a2 2 0 0 1 4 0v6" />
@@ -358,7 +370,7 @@ export const IconMoon = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Theme folgt dem System: halb Sonne, halb Mond (Kreis mit Trennlinie). */
+/** Theme follows the system: half sun, half moon (circle with a divider). */
 export const IconThemeAuto = ({ size }: IconProps) => (
   <Icon size={size}>
     <circle cx="12" cy="12" r="9" />
@@ -383,7 +395,7 @@ export const IconHelp = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Zeilenfuellend zoomen: Rahmen mit Pfeilen nach links/rechts. */
+/** Zoom to fill the row: a frame with arrows pointing left and right. */
 export const IconFit = ({ size }: IconProps) => (
   <Icon size={size}>
     <rect x="3" y="6" width="18" height="12" rx="2" />
@@ -392,7 +404,7 @@ export const IconFit = ({ size }: IconProps) => (
   </Icon>
 );
 
-/** Device-Set: gestapelte Ebenen. */
+/** Device set: stacked layers. */
 export const IconLayers = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M12 2 2 7l10 5 10-5-10-5Z" />
@@ -402,8 +414,8 @@ export const IconLayers = ({ size }: IconProps) => (
 );
 
 /**
- * Full-Page-Modus: ein Geraet, dessen Inhalt ueber den Rahmen hinausragt —
- * die gestrichelte Linie ist die Falz (Unterkante des echten Viewports).
+ * Full-page mode: a device whose content spills past its frame — the dashed
+ * line is the fold (the bottom edge of the real viewport).
  */
 export const IconFullPage = ({ size }: IconProps) => (
   <Icon size={size}>
@@ -417,5 +429,18 @@ export const IconSave = ({ size }: IconProps) => (
   <Icon size={size}>
     <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
     <path d="M17 21v-8H7v8M7 3v5h8" />
+  </Icon>
+);
+
+/**
+ * Stand-in for a pointing finger: a click that unfolds something. It sits on
+ * feedback entries whose element only becomes visible after an interaction
+ * (slideout, accordion, form step).
+ */
+export const IconReveal = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <path d="M9 11V6a2 2 0 0 1 4 0v6" />
+    <path d="M13 12V9a2 2 0 0 1 4 0v3" />
+    <path d="M17 12v6a4 4 0 0 1-4 4h-1a5 5 0 0 1-4-2l-3-4a1.5 1.5 0 0 1 2.3-1.9L9 15" />
   </Icon>
 );

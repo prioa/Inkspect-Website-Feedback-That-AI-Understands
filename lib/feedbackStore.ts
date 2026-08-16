@@ -6,41 +6,41 @@ import { createLogger } from './log';
 const log = createLogger('feedback-store');
 
 /**
- * Persistenz fuer Feedback-Marker in storageLocal().
+ * Persistence for feedback markers in storageLocal().
  *
- * Jeder Marker ist an eine normalisierte URL (Landingpage) und ein
- * Device-Preset gebunden — angezeigt wird er nur auf genau dieser Seite.
- * storage.local statt Seiten-localStorage: ueberlebt Site-Datenloeschung,
- * ist origin-uebergreifend unter Kontrolle der Extension und laeuft nicht
- * in Quota-/Privacy-Grenzen einzelner Seiten.
+ * Every marker is bound to a normalised URL (landing page) and a device
+ * preset — it is only shown on exactly that page. storage.local rather than
+ * the page's localStorage: it survives site-data clearing, spans origins
+ * under the extension's control, and does not run into the quota or privacy
+ * limits of individual pages.
  */
 export interface FeedbackItem {
   id: string;
-  /** Normalisierte Seite (origin + pathname + search, ohne Hash). */
+  /** Normalised page (origin + pathname + search, without the hash). */
   url: string;
-  /** Preset-Id (z.B. 'iphone-se') — stabil ueber Sessions, anders als Instanz-uids. */
+  /** Preset id (e.g. 'iphone-se') — stable across sessions, unlike instance uids. */
   deviceId: string;
   shape: Shape;
   createdAt: number;
-  /** Abgehakt (Review-Workflow) — erledigte Marker werden gedimmt dargestellt. */
+  /** Ticked off (review workflow) — completed markers are drawn dimmed. */
   done?: boolean;
   /**
-   * Hier angelegt (nicht aus einem geteilten Link importiert). Nur eigene
-   * Marker lassen sich verschieben — fremdes Feedback bleibt, wo es der
-   * Ersteller gesetzt hat. Fehlt das Feld (Alt-Daten), gilt der Eintrag als
-   * eigener: vor dem Teilen-Feature konnte nichts Fremdes im Store liegen.
+   * Created here (not imported from a shared link). Only your own markers can
+   * be moved — someone else's feedback stays where its author put it. When the
+   * field is missing (old data) the entry counts as your own: before the
+   * sharing feature existed, nothing foreign could be in the store.
    */
   mine?: boolean;
 }
 
-/** Eigener Eintrag? Alt-Daten ohne Flag zaehlen als eigene. */
+/** Your own entry? Old data without the flag counts as your own. */
 export function isMine(item: FeedbackItem): boolean {
   return item.mine !== false;
 }
 
 const KEY = 'ink-feedback-v1';
 
-/** Hash abschneiden: #section ist Scroll-Zustand, keine andere Landingpage. */
+/** Cut the hash: #section is scroll state, not a different landing page. */
 export function normalizeUrl(href: string): string {
   try {
     const u = new URL(href);
@@ -51,8 +51,8 @@ export function normalizeUrl(href: string): string {
 }
 
 /**
- * Gehoeren zwei Seiten zur selben Domain (Origin)? Feedback fremder Domains
- * bleibt gespeichert, wird aber weder im Panel noch im Zaehler angezeigt.
+ * Do two pages belong to the same domain (origin)? Feedback from other
+ * domains stays stored, but appears in neither the panel nor the counter.
  */
 export function sameOrigin(a: string, b: string): boolean {
   try {
@@ -63,9 +63,9 @@ export function sameOrigin(a: string, b: string): boolean {
 }
 
 /**
- * Migriert Alt-Daten: fruehe Pen-Shapes trugen einen einzelnen Zug in
- * `points`, heute sind es mehrere in `strokes`. Ohne Migration crasht das
- * Rendering an `strokes.map`.
+ * Migrates old data: early pen shapes carried a single stroke in `points`,
+ * today there are several in `strokes`. Without the migration, rendering
+ * crashes at `strokes.map`.
  */
 function migrateShape(shape: Shape): Shape | null {
   if (shape.tool !== 'pen') return shape;
@@ -94,9 +94,9 @@ async function writeAll(items: FeedbackItem[]): Promise<void> {
   await storageLocal().set({ [KEY]: items });
 }
 
-// Schreiboperationen sind Read-Modify-Write-Zyklen auf demselben Key —
-// parallel gestartet wuerde der zweite `set` das Update des ersten
-// ueberschreiben (Lost Update). Die Kette serialisiert sie.
+// Writes are read-modify-write cycles on the same key — started in parallel,
+// the second `set` would overwrite the first one's update (lost update). The
+// chain serialises them.
 let writeQueue: Promise<unknown> = Promise.resolve();
 function enqueue<T>(op: () => Promise<T>): Promise<T> {
   const next = writeQueue.then(op, op);
@@ -104,12 +104,12 @@ function enqueue<T>(op: () => Promise<T>): Promise<T> {
   return next;
 }
 
-/** Alle Eintraege des Browsers — das Panel gruppiert selbst nach Seite. */
+/** Every entry in the browser — the panel groups them by page itself. */
 export async function loadAll(): Promise<FeedbackItem[]> {
   return readAll();
 }
 
-/** Fuegt Eintraege hinzu; bereits bekannte ids (Import-Merge) werden uebersprungen. */
+/** Adds entries; ids that are already known (import merge) are skipped. */
 export function addItems(newItems: FeedbackItem[]): Promise<number> {
   return enqueue(async () => {
     const all = await readAll();
@@ -131,7 +131,7 @@ export function replaceItem(item: FeedbackItem): Promise<void> {
   return replaceItems([item]);
 }
 
-/** Ersetzt mehrere Eintraege in einem Schreibzyklus (synchronisierte Marker). */
+/** Replaces several entries in one write cycle (synchronised markers). */
 export function replaceItems(items: FeedbackItem[]): Promise<void> {
   const byId = new Map(items.map((item) => [item.id, item]));
   return enqueue(async () =>
@@ -145,7 +145,7 @@ export function clearUrl(url: string): Promise<void> {
   );
 }
 
-/** Minimale Struktur-Validierung geteilter/importierter Eintraege. */
+/** Minimal structural validation of shared or imported entries. */
 export function sanitizeItems(data: unknown): FeedbackItem[] {
   if (!Array.isArray(data)) throw new Error('Not Inkspect feedback.');
   const valid = data.filter((item): item is FeedbackItem => {
@@ -158,18 +158,18 @@ export function sanitizeItems(data: unknown): FeedbackItem[] {
       typeof (i.shape as Shape).tool === 'string'
     );
   });
-  // Importiertes Feedback stammt per Definition von jemand anderem.
+  // Imported feedback comes, by definition, from someone else.
   return migrateItems(valid).map((item) => ({ ...item, mine: false }));
 }
 
-/** Fire-and-forget-Wrapper: UI-State ist fuehrend, Persistenz folgt. */
+/** Fire-and-forget wrapper: UI state leads, persistence follows. */
 export function persist(operation: Promise<unknown>, what: string): void {
   operation.catch((e: unknown) => {
-    // Nach einem Extension-Update/-Reload laeuft auf offenen Tabs noch das
-    // alte Content-Script — dessen storage-Zugriffe sterben mit "Extension
-    // context invalidated". Kein echter Defekt: zentral einmalig melden
-    // (die UI blendet dann den Reload-Hinweis ein), nicht pro Save spammen.
+    // After an extension update or reload, open tabs still run the old
+    // content script — its storage access dies with "Extension context
+    // invalidated". Not a real defect: report it centrally, once (the UI then
+    // shows the reload notice), rather than spamming per save.
     if (reportContextError(e)) return;
-    log.error(`${what} fehlgeschlagen`, e);
+    log.error(`${what} failed`, e);
   });
 }

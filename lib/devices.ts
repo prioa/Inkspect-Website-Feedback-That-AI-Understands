@@ -8,7 +8,7 @@ export interface DevicePreset {
 }
 
 export interface DeviceInstance extends DevicePreset {
-  /** Eindeutig pro Instanz — dasselbe Preset darf mehrfach im Grid stehen. */
+  /** Unique per instance — the same preset may appear in the grid twice. */
   uid: string;
   rotated: boolean;
 }
@@ -40,7 +40,7 @@ export function defaultDevices(): DeviceInstance[] {
   });
 }
 
-/** Logische CSS-Pixel des Viewports — das ist, worauf Media Queries reagieren. */
+/** Logical CSS pixels of the viewport — what media queries actually react to. */
 export function viewport(device: DeviceInstance): { width: number; height: number } {
   return device.rotated
     ? { width: device.height, height: device.width }
@@ -48,9 +48,9 @@ export function viewport(device: DeviceInstance): { width: number; height: numbe
 }
 
 /*
- * Persistenz in browser.storage.local: eigene Device-Presets des Nutzers und
- * das zuletzt benutzte Grid (welche Devices, Rotation, Zoom) — das Setup soll
- * Sessions ueberleben.
+ * Persistence in browser.storage.local: the user's own device presets and the
+ * grid they last used (which devices, rotation, zoom) — the setup is meant to
+ * outlive the session.
  */
 
 const CUSTOM_KEY = 'ink-devices-v1';
@@ -63,7 +63,7 @@ export function isCustomPreset(id: string): boolean {
   return id.startsWith('custom-');
 }
 
-/** Baut ein validiertes Custom-Preset; null bei unbrauchbaren Massen. */
+/** Builds a validated custom preset; null for unusable dimensions. */
 export function createCustomPreset(name: string, width: number, height: number): DevicePreset | null {
   const w = Math.round(width);
   const h = Math.round(height);
@@ -120,9 +120,9 @@ export async function saveGridState(state: GridState): Promise<void> {
 }
 
 /*
- * Device-Sets: mit einem Klick mehrere Viewports ins Grid holen. Eingebaute
- * Buendel (haeufige Kombinationen) plus eigene, benannte Layouts, die der
- * Nutzer aus dem aktuellen Grid speichert.
+ * Device sets: pull several viewports into the grid with one click. Built-in
+ * bundles (common combinations) plus the user's own named layouts, saved from
+ * the current grid.
  */
 
 export interface DeviceBundle {
@@ -132,12 +132,11 @@ export interface DeviceBundle {
 }
 
 /**
- * Eingebaute Schnell-Sets — Referenzen auf die Standard-Presets oben.
+ * Built-in quick sets — references to the standard presets above.
  *
- * Immer vom groessten zum kleinsten Device: so steht die breiteste Ansicht
- * links im Grid und die Reihe wird nach rechts hin schmaler. Der Aufruf
- * sortiert zusaetzlich nach Breite, damit das auch bei spaeteren Aenderungen
- * hier hält.
+ * Always largest device to smallest: that puts the widest view on the left of
+ * the grid and narrows the row towards the right. The call site sorts by
+ * width as well, so this still holds after later changes here.
  */
 export const DEVICE_BUNDLES: readonly DeviceBundle[] = [
   { id: 'mobile-hd', name: 'Desktop HD · iPhone SE', presetIds: ['desktop-hd', 'iphone-se'] },
@@ -146,7 +145,7 @@ export const DEVICE_BUNDLES: readonly DeviceBundle[] = [
   { id: 'full', name: 'Full range', presetIds: ['desktop-hd', 'laptop', 'ipad-pro', 'iphone-15'] },
 ];
 
-/** Ein vom Nutzer gespeichertes Grid-Layout (Presets + Rotation, benannt). */
+/** A grid layout saved by the user (presets plus rotation, named). */
 export interface Workspace {
   id: string;
   name: string;

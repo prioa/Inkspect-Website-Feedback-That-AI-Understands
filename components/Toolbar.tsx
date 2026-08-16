@@ -9,7 +9,7 @@ import {
 } from '@/lib/devices';
 import type { ThemePref } from '@/lib/settings';
 import { ANNOTATION_COLORS } from '@/lib/annotations';
-import { t } from '@/lib/i18n';
+import { useTip } from './Tooltip';
 import {
   IconCheck,
   IconClose,
@@ -17,6 +17,8 @@ import {
   IconCompass,
   IconDots,
   IconExpand,
+  IconEye,
+  IconEyeOff,
   IconFit,
   IconGlobe,
   IconHelp,
@@ -36,11 +38,11 @@ import {
   IconTrash,
 } from './icons';
 
-/** Einzeln schaltbare Sync-Bereiche (Toolbar-Menue). */
+/** Individually switchable sync areas (toolbar menu). */
 export interface SyncPrefs {
   scroll: boolean;
   hover: boolean;
-  /** Klicks, Eingaben und der Navigations-Angleich. */
+  /** Clicks, entries and the navigation alignment. */
   input: boolean;
 }
 
@@ -49,67 +51,84 @@ export type SyncKey = keyof SyncPrefs | 'all';
 interface Props {
   src: string;
   zoom: number;
-  /** Eingebaute + eigene Presets — die Menueliste. */
+  /** Built-in plus custom presets — the menu list. */
   presets: readonly DevicePreset[];
   editorOpen: boolean;
   sync: SyncPrefs;
   feedbackOpen: boolean;
   feedbackCount: number;
-  /** Es ist ein Zeichenwerkzeug aktiv — der Feedback-Knopf leuchtet dann mit. */
+  /**
+   * View switch: is your own work on the preview — markings drawn and saved
+   * changes applied? The state is global (it applies to the whole grid), which
+   * is why the switch sits in the bar and not in the feedback panel — there it
+   * would be hidden behind something collapsible.
+   */
+  editsShown: boolean;
+  /** Counter: every increment restarts the hint pulse on the eye. */
+  editsHint?: number;
+  /** There is anything on this page at all — otherwise no switch. */
+  hasEdits: boolean;
+  onToggleEdits: () => void;
+  /** A drawing tool is active — the feedback button then lights up with it. */
   annotating: boolean;
-  /** Der Schrift-Inspector ist aktiv (Hover zeigt Font-Infos). */
+  /** The font inspector is active (hovering shows font info). */
   inspecting: boolean;
   /**
-   * Die Framing-Header dieser Seite werden gerade entfernt. Sichtbar machen,
-   * solange es laeuft — sonst waere es ein stiller Eingriff.
+   * This page's framing headers are currently being removed. Make it visible
+   * for as long as it runs — otherwise it would be a silent change.
    */
   framingBypassed?: boolean;
-  /** Die Seite verbietet das Einbetten und laeuft gerade ohne Eingriff. */
+  /** The page forbids embedding and is currently running without the change. */
   framingBlocked?: boolean;
-  /** Eingriff beenden und die Freigabe dieser Seite zuruecknehmen. */
+  /** End the change and withdraw this page's permission. */
   onRevokeFraming?: () => void;
-  /** Eingriff nachtraeglich einschalten (aus dem blockierten Zustand). */
+  /** Switch the change on after the fact (out of the blocked state). */
   onEnableFraming?: () => void;
-  /** Aktuelles UI-Theme (System/Hell/Dunkel). */
+  /** Current UI theme (system/light/dark). */
   theme: ThemePref;
-  /** Eigene gespeicherte Grid-Layouts (Device-Sets). */
+  /** The user's own saved grid layouts (device sets). */
   workspaces: readonly Workspace[];
   onNavigate: (url: string) => void;
   onAddDevice: (presetId: string) => void;
-  /** Mehrere Presets auf einmal (Schnell-Set). */
+  /** Several presets at once (quick set). */
   onAddBundle: (presetIds: string[]) => void;
-  /** Legt ein eigenes Preset an (persistiert) und stellt es ins Grid. */
+  /** Creates a custom preset (persisted) and puts it on the grid. */
   onAddCustomDevice: (name: string, width: number, height: number) => void;
   onRemoveCustomPreset: (presetId: string) => void;
-  /** Ersetzt das Grid durch ein gespeichertes Layout. */
+  /** Replaces the grid with a saved layout. */
   onApplyWorkspace: (ws: Workspace) => void;
-  /** Speichert das aktuelle Grid als benanntes Layout. */
+  /** Saves the current grid as a named layout. */
   onSaveWorkspace: (name: string) => void;
   onDeleteWorkspace: (id: string) => void;
   onZoom: (zoom: number) => void;
-  /** Auto-Fit ist an: der Zoom haelt alle Karten in einer Zeile. */
+  /** Auto-fit is on: the zoom keeps every card in one row. */
   autoFit: boolean;
-  /** Schaltet Auto-Fit an/aus (an passt sofort ein). */
+  /** Switches auto-fit on and off (on fits immediately). */
   onToggleAutoFit: () => void;
-  /** Inkspect startet im Vollbild-Modus. */
+  /** Fits the zoom once — every card into one row. */
+  onFit: () => void;
+  /** Inkspect starts in full window mode. */
   startFullscreen: boolean;
   onToggleStartFullscreen: () => void;
-  /** Wie viele Feedback-Farben die Werkzeugleiste anbietet (2 oder 4). */
+  /** How many feedback colours the tool bar offers (2 or 4). */
   paletteColorCount: number;
   onSetPaletteColorCount: (count: number) => void;
   onReload: () => void;
   onToggleEditor: () => void;
-  /** Schaltet den Schrift-Inspector an/aus. */
+  /** Switches the font inspector on and off. */
   onToggleInspector: () => void;
-  /** Schaltet einen Sync-Bereich um — 'all' fuer alles an/aus. */
+  /** Toggles one sync area — 'all' for everything on or off. */
   onToggleSync: (key: SyncKey) => void;
   onToggleFeedback: () => void;
   onSetTheme: (theme: ThemePref) => void;
-  /** Oeffnet das Shortcuts-/Hilfe-Overlay. */
+  /** Opens the shortcuts/help overlay. */
   onHelp: () => void;
-  /** Startet die gefuehrte Einsteiger-Tour noch einmal von vorn. */
+  /** Starts the guided beginner tour again from the top. */
   onTour: () => void;
-  /** Wechselt in den Vollbild-Modus (Seite ueber das ganze Fenster). */
+  /** Show hints at all. */
+  hintsEnabled: boolean;
+  onToggleHints: (on: boolean) => void;
+  /** Switches to full window mode (the page across the whole window). */
   onFullscreen: () => void;
   onClose: () => void;
 }
@@ -130,6 +149,13 @@ const ZOOM_MIN = 0.2;
 const ZOOM_MAX = 1;
 const ZOOM_STEP = 0.05;
 
+/**
+ * How long the entrance runs — the last button starts at .34 s and takes
+ * .28 s (see `.toolbar--intro` in styles.ts). Generously rounded up: the class
+ * has to outlast the animation, or the bar would jump at the end.
+ */
+const INTRO_MS = 700;
+
 const SYNC_ROWS: { key: keyof SyncPrefs; label: string }[] = [
   { key: 'scroll', label: 'Scroll' },
   { key: 'hover', label: 'Hover' },
@@ -144,6 +170,10 @@ export function Toolbar({
   sync,
   feedbackOpen,
   feedbackCount,
+  editsShown,
+  editsHint = 0,
+  hasEdits,
+  onToggleEdits,
   annotating,
   inspecting,
   framingBypassed = false,
@@ -163,6 +193,7 @@ export function Toolbar({
   onZoom,
   autoFit,
   onToggleAutoFit,
+  onFit,
   startFullscreen,
   onToggleStartFullscreen,
   paletteColorCount,
@@ -175,13 +206,15 @@ export function Toolbar({
   onSetTheme,
   onHelp,
   onTour,
+  hintsEnabled,
+  onToggleHints,
   onFullscreen,
   onClose,
 }: Props) {
-  // Die Domain steht fest (Cross-Origin ist ohnehin gesperrt) — editierbar
-  // ist nur der Pfad. Eine eingefuegte volle URL derselben Origin wird auf
-  // ihren Pfad reduziert; fremde Origins landen unveraendert in onNavigate,
-  // das den verstaendlichen Hinweis zeigt.
+  // The domain is fixed (cross-origin is blocked anyway) — only the path is
+  // editable. A pasted full URL of the same origin is reduced to its path;
+  // foreign origins reach onNavigate unchanged, which shows the readable
+  // notice.
   const { origin, host } = (() => {
     try {
       const u = new URL(src);
@@ -199,9 +232,10 @@ export function Toolbar({
     }
   };
 
+  const tip = useTip();
   const [draft, setDraft] = useState(() => pathOf(src));
   useEffect(() => {
-    // Navigation in den Frames (Links, SPA-Routing) zieht die Anzeige nach.
+    // Navigation inside the frames (links, SPA routing) pulls the display along.
     setDraft(pathOf(src));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src]);
@@ -210,18 +244,21 @@ export function Toolbar({
     const value = draft.trim();
     if (!value) return;
     if (/^https?:\/\//i.test(value)) {
-      onNavigate(value); // volle URL — onNavigate validiert die Origin
+      onNavigate(value); // full URL — onNavigate validates the origin
       return;
     }
     onNavigate(origin + (value.startsWith('/') ? value : `/${value}`));
   };
 
   const [menuOpen, setMenuOpen] = useState(false);
-  // Ein einziges „More"-Menue buendelt alle Neben-Funktionen (Seiten-Werkzeuge,
-  // Sync, Theme, Shortcuts) — die Toolbar bleibt dadurch aufgeraeumt.
+  // The path is mostly display-only — it becomes editable on a click on the
+  // chip. That keeps the toolbar quiet without hiding navigation.
+  const [pathEditing, setPathEditing] = useState(false);
+  // A single "More" menu bundles every secondary function (page tools, sync,
+  // theme, shortcuts) — which keeps the toolbar tidy.
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 
-  // Inline-Feld „aktuelles Grid als Set speichern".
+  // Inline field for "save the current grid as a set".
   const [wsName, setWsName] = useState('');
   const submitWorkspace = () => {
     if (!wsName.trim()) return;
@@ -231,7 +268,7 @@ export function Toolbar({
 
   const syncAll = sync.scroll && sync.hover && sync.input;
 
-  // Inline-Form fuer eigene Viewport-Groessen im Add-Device-Menue.
+  // Inline form for custom viewport sizes in the add-device menu.
   const [customName, setCustomName] = useState('');
   const [customW, setCustomW] = useState('');
   const [customH, setCustomH] = useState('');
@@ -250,8 +287,8 @@ export function Toolbar({
     setMenuOpen(false);
   };
 
-  // Live-Vorschau des Seitenverhaeltnisses waehrend der Eingabe: die groessere
-  // Kante wird auf 42px normiert, das Verhaeltnis gekuerzt angezeigt.
+  // Live preview of the aspect ratio while typing: the longer edge is
+  // normalised to 42px and the ratio shown reduced.
   const customPreview = (() => {
     const pw = Number(customW);
     const ph = Number(customH);
@@ -273,68 +310,136 @@ export function Toolbar({
     onZoom(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next)));
   };
 
+  /**
+   * Entrance: runs once whenever the bar appears — when the tool is opened,
+   * and on the way back from full window mode, where it really does come back
+   * from the window edge. Afterwards the class goes, so that later changes
+   * inside the bar stay quiet.
+   */
+  const [intro, setIntro] = useState(true);
+  useEffect(() => {
+    const id = window.setTimeout(() => setIntro(false), INTRO_MS);
+    return () => window.clearTimeout(id);
+  }, []);
+
   return (
-    <header className="toolbar">
+    <header className={`toolbar${intro ? ' toolbar--intro' : ''}`}>
       <span className="toolbar__brand">
         Ink<em>spect</em>
       </span>
 
-      <form
-        className="omnibox"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submitDraft();
-        }}
-      >
-        <span className="omnibox__icon">
-          <IconGlobe size={15} />
-        </span>
-        <span className="omnibox__origin" title={origin}>
-          {host}
-        </span>
-        <input
-          className="omnibox__input"
-          value={draft}
-          onChange={(e) => setDraft(pathOf(e.target.value))}
-          spellCheck={false}
-          aria-label="Path"
-        />
+      {pathEditing ? (
+        <form
+          className="omnibox"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitDraft();
+            setPathEditing(false);
+          }}
+        >
+          <span className="omnibox__icon">
+            <IconGlobe size={15} />
+          </span>
+          <span className="omnibox__origin" title={origin}>
+            {host}
+          </span>
+          <input
+            className="omnibox__input"
+            value={draft}
+            onChange={(e) => setDraft(pathOf(e.target.value))}
+            onBlur={() => setPathEditing(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                // Do not fall through to the global Esc handler.
+                e.stopPropagation();
+                setDraft(pathOf(src));
+                setPathEditing(false);
+              }
+            }}
+            autoFocus
+            spellCheck={false}
+            aria-label="Path"
+          />
+        </form>
+      ) : (
         <button
           type="button"
-          className="icon-btn icon-btn--small omnibox__reload"
-          onClick={onReload}
-          title="Reload all frames"
+          className="toolbar__path"
+          onClick={() => setPathEditing(true)}
+          title={`${src} — click to edit the path`}
         >
-          <IconReload size={14} />
+          <span className="omnibox__icon">
+            <IconGlobe size={15} />
+          </span>
+          <span className="omnibox__origin">{host}</span>
+          <span className="toolbar__path-value">{draft}</span>
         </button>
-      </form>
+      )}
 
       <span className="toolbar__sep" />
 
-      {/* Kernaktionen — beschriftet, damit auf einen Blick klar ist, was sie tun. */}
+      {/* Core actions — labelled, so it is clear at a glance what they do. */}
       <div className="toolbar__group">
         <button
           className={`toolbar__btn toolbar__feedback${feedbackOpen || annotating ? ' icon-btn--active' : ''}`}
           onClick={onToggleFeedback}
           aria-pressed={feedbackOpen}
-          title="Annotation tools and the feedback list (or right-click a preview)"
+          {...tip('Annotation tools and the feedback list', { prefer: 'below' })}
         >
           <IconMessage size={16} />
           Feedback
           {feedbackCount > 0 && <span className="toolbar__count">{feedbackCount}</span>}
         </button>
+
+        {/* One switch for the whole view, next to feedback rather than in the
+            panel: it acts on the whole grid, and in the panel it was hidden
+            behind something collapsible.
+
+            Markings and applied changes were two buttons and answered one
+            question — am I looking at my version or at the page as it stands?
+            Four combinations, of which only two were ever meant.
+
+            It appears once there is something to switch; turned off it stays
+            even after the last entry is gone, or there would be no way back to
+            your own view. */}
+        {(hasEdits || !editsShown) && (
+          <button
+            // The counter as the key restarts the hint animation even while it
+            // is still running.
+            key={editsHint}
+            className={`toolbar__btn toolbar__toggle${editsShown ? ' is-on' : ''}${
+              editsHint > 0 ? ' toolbar__toggle--hint' : ''
+            }`}
+            // Anchor for the `edits-hidden` and `first-style-change` hints.
+            data-hint="edits"
+            aria-pressed={editsShown}
+            {...tip(
+              editsShown
+                ? 'Your markings and changes are shown — click for the original'
+                : 'Showing the original — click to bring your edits back',
+              { prefer: 'below' },
+            )}
+            onClick={onToggleEdits}
+          >
+            {editsShown ? <IconEye size={16} /> : <IconEyeOff size={16} />}
+            My edits
+            <span className="toolbar__state">{editsShown ? 'On' : 'Off'}</span>
+          </button>
+        )}
       </div>
 
       <span className="toolbar__sep" />
 
-      {/* Grid: Devices hinzufuegen, einpassen, zoomen. */}
+      {/* Grid: add devices, fit them, zoom. */}
       <div className="toolbar__group">
         <div className="add-device">
           <button
             className={`toolbar__btn${menuOpen ? ' icon-btn--active' : ''}`}
+            // Anchor for `device-removed` and `first-workspace`.
+            data-hint="devices"
             onClick={() => setMenuOpen((v) => !v)}
             aria-expanded={menuOpen}
-            title="Add device"
+            {...tip('Add device', { prefer: 'below' })}
           >
             <IconPlus size={16} />
             Devices
@@ -342,8 +447,8 @@ export function Toolbar({
 
           {menuOpen && (
             <>
-              {/* Transparenter Backdrop faengt Outside-Clicks — zuverlaessiger
-                  als document-Listener quer durch den Shadow Tree. */}
+              {/* A transparent backdrop catches outside clicks — more reliable
+                  than document listeners across the shadow tree. */}
               <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
               <div className="menu menu--wide" role="menu">
                 <div className="menu__title">Quick sets</div>
@@ -385,7 +490,7 @@ export function Toolbar({
                     {isCustomPreset(p.id) && (
                       <button
                         className="icon-btn icon-btn--small icon-btn--danger menu__delete"
-                        title="Delete this custom size"
+                        {...tip('Delete this custom size')}
                         onClick={() => onRemoveCustomPreset(p.id)}
                       >
                         <IconClose size={12} />
@@ -403,7 +508,7 @@ export function Toolbar({
                     <button
                       className="menu__item"
                       role="menuitem"
-                      title="Replace the grid with this set"
+                      {...tip('Replace the grid with this set')}
                       onClick={() => {
                         onApplyWorkspace(ws);
                         setMenuOpen(false);
@@ -417,7 +522,7 @@ export function Toolbar({
                     </button>
                     <button
                       className="icon-btn icon-btn--small icon-btn--danger menu__delete"
-                      title="Delete this set"
+                      {...tip('Delete this set')}
                       onClick={() => onDeleteWorkspace(ws.id)}
                     >
                       <IconTrash size={12} />
@@ -442,7 +547,7 @@ export function Toolbar({
                       type="submit"
                       className="menu__inline-add"
                       disabled={!wsName.trim()}
-                      title="Save current grid"
+                      {...tip('Save current grid as a set')}
                     >
                       <IconSave size={13} />
                     </button>
@@ -505,38 +610,6 @@ export function Toolbar({
           )}
         </div>
 
-        <div className="zoomer" title="Zoom">
-          <button
-            className="icon-btn icon-btn--small"
-            onClick={() => stepZoom(-1)}
-            disabled={zoom <= ZOOM_MIN}
-            aria-label="Zoom out"
-          >
-            <IconMinus size={14} />
-          </button>
-          <span className="zoomer__value">{Math.round(zoom * 100)}%</span>
-          <button
-            className="icon-btn icon-btn--small"
-            onClick={() => stepZoom(1)}
-            disabled={zoom >= ZOOM_MAX}
-            aria-label="Zoom in"
-          >
-            <IconPlus size={14} />
-          </button>
-          <button
-            className={`icon-btn icon-btn--small${autoFit ? ' icon-btn--active' : ''}`}
-            onClick={onToggleAutoFit}
-            aria-pressed={autoFit}
-            aria-label="Auto zoom — keep devices fitted to width"
-            title={
-              autoFit
-                ? 'Auto zoom is on — devices stay fitted to width. Click to turn off.'
-                : 'Auto zoom is off — click to fit devices to width and keep them fitted.'
-            }
-          >
-            <IconFit size={14} />
-          </button>
-        </div>
       </div>
 
       {framingBypassed && onRevokeFraming && (
@@ -545,13 +618,12 @@ export function Toolbar({
           <button
             className="toolbar__flag"
             onClick={onRevokeFraming}
-            title={
-              'This page forbids being embedded, so Inkspect strips those headers for frames of ' +
-              'this domain in this tab — the page\u2019s CSP is off inside them. ' +
-              'Click to stop and reload without the change.'
-            }
+            {...tip(
+              'This page blocks being shown inside another page. Inkspect has lifted that block for this domain, in this tab — which also turns off the page’s protection against injected scripts. Click to put the block back and reload.',
+              { prefer: 'below', wide: true },
+            )}
           >
-            CSP off in preview
+            Protection off in preview
           </button>
         </>
       )}
@@ -561,11 +633,10 @@ export function Toolbar({
           <button
             className="toolbar__flag toolbar__flag--muted"
             onClick={onEnableFraming}
-            title={
-              'This page forbids being embedded, so the device frames stay empty. ' +
-              'Click to show the preview \u2014 Inkspect then removes those headers for frames ' +
-              'of this domain, in this tab, while it is open.'
-            }
+            {...tip(
+              'This page blocks being shown inside another page, so the device frames stay empty. Click to lift the block for this domain, in this tab, while Inkspect is open.',
+              { prefer: 'below', wide: true },
+            )}
           >
             Preview blocked — show anyway
           </button>
@@ -574,13 +645,14 @@ export function Toolbar({
 
       <span className="toolbar__sep" />
 
-      {/* Vollbild ist der haeufigste Moduswechsel — fester Platz statt Menue. */}
+      {/* Full window is the most frequent mode change — a fixed place, not a menu. */}
       <div className="toolbar__group">
         <button
           className="icon-btn"
+          // Anchor for `fullscreen-left`.
+          data-hint="fullscreen"
           onClick={onFullscreen}
-          title="Full window mode — the page at full size with the feedback bar"
-          aria-label="Full window mode"
+          {...tip('Full window mode', { prefer: 'below' })}
         >
           <IconExpand />
         </button>
@@ -588,15 +660,15 @@ export function Toolbar({
 
       <span className="toolbar__sep" />
 
-      {/* „More": alle Neben-Funktionen beschriftet an einem Ort — haelt die
-          Toolbar aufgeraeumt und macht die Bedeutung sofort klar. */}
+      {/* "More": every secondary function labelled in one place — keeps the
+          toolbar tidy and makes the meaning immediately clear. */}
       <div className="toolbar__group">
         <span className="toolbar__menu">
           <button
             className={`icon-btn toolbar__more${moreMenuOpen ? ' icon-btn--active' : ''}`}
             onClick={() => setMoreMenuOpen((v) => !v)}
             aria-expanded={moreMenuOpen}
-            title="More tools & settings"
+            {...tip('More', { prefer: 'below' })}
           >
             <IconDots />
           </button>
@@ -604,6 +676,67 @@ export function Toolbar({
             <>
               <div className="menu-backdrop" onClick={() => setMoreMenuOpen(false)} />
               <div className="menu menu--wide" role="menu">
+                {/* View: moved here out of the toolbar — day to day this runs
+                    over auto-zoom or Cmd/Ctrl+scroll. */}
+                <div className="menu__title">View</div>
+                <button
+                  className="menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    onFit();
+                    setMoreMenuOpen(false);
+                  }}
+                >
+                  <span className="menu__item-icon">
+                    <IconFit size={15} />
+                  </span>
+                  <span className="menu__item-name">Fit devices to width</span>
+                </button>
+                <button
+                  className="menu__item"
+                  role="menuitemcheckbox"
+                  aria-checked={autoFit}
+                  {...tip('Keep devices fitted to width')}
+                  onClick={onToggleAutoFit}
+                >
+                  <span className="menu__item-name">Auto zoom</span>
+                  <span className="menu__check">{autoFit && <IconCheck size={14} />}</span>
+                </button>
+                <div className="menu__inline menu__zoom">
+                  <button
+                    className="icon-btn icon-btn--small"
+                    onClick={() => stepZoom(-1)}
+                    disabled={zoom <= ZOOM_MIN}
+                    aria-label="Zoom out"
+                  >
+                    <IconMinus size={14} />
+                  </button>
+                  <span className="zoomer__value">{Math.round(zoom * 100)}%</span>
+                  <button
+                    className="icon-btn icon-btn--small"
+                    onClick={() => stepZoom(1)}
+                    disabled={zoom >= ZOOM_MAX}
+                    aria-label="Zoom in"
+                  >
+                    <IconPlus size={14} />
+                  </button>
+                </div>
+                <div className="menu__empty">Cmd/Ctrl + scroll zooms the grid</div>
+                <button
+                  className="menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    onReload();
+                    setMoreMenuOpen(false);
+                  }}
+                >
+                  <span className="menu__item-icon">
+                    <IconReload size={15} />
+                  </span>
+                  <span className="menu__item-name">Reload previews</span>
+                </button>
+
+                <div className="menu__title menu__title--sep">Tools</div>
                 <button
                   className="menu__item"
                   role="menuitemcheckbox"
@@ -638,7 +771,7 @@ export function Toolbar({
                   className="menu__item"
                   role="menuitemcheckbox"
                   aria-checked={startFullscreen}
-                  title="Open Inkspect in full window mode from now on"
+                  {...tip('Open Inkspect in full window mode from now on')}
                   onClick={onToggleStartFullscreen}
                 >
                   <span className="menu__item-icon">
@@ -673,7 +806,7 @@ export function Toolbar({
                     className="menu__item"
                     role="menuitemradio"
                     aria-checked={paletteColorCount === count}
-                    title={`Offer ${count} colours in the feedback tool bar`}
+                    {...tip(`Offer ${count} colours in the feedback tool bar`)}
                     onClick={() => onSetPaletteColorCount(count)}
                   >
                     <span className="menu__item-icon menu__swatches">
@@ -731,14 +864,30 @@ export function Toolbar({
                   <span className="menu__item-icon">
                     <IconCompass size={15} />
                   </span>
-                  <span className="menu__item-name">{t('tourRestart')}</span>
+                  <span className="menu__item-name">{'Show tips again'}</span>
+                </button>
+                {/* The off switch for the hints sits right next to the one that
+                    turns them back on — whoever looks for one looks for the
+                    other in the same place. */}
+                <button
+                  className="menu__item"
+                  role="menuitemcheckbox"
+                  aria-checked={hintsEnabled}
+                  onClick={() => onToggleHints(!hintsEnabled)}
+                >
+                  <span className="menu__item-name">{'Tips while you work'}</span>
+                  <span className="menu__check">{hintsEnabled && <IconCheck size={14} />}</span>
                 </button>
               </div>
             </>
           )}
         </span>
 
-        <button className="icon-btn" onClick={onClose} title="Close Inkspect">
+        <button
+          className="icon-btn"
+          onClick={onClose}
+          {...tip('Close Inkspect', { prefer: 'below' })}
+        >
           <IconClose />
         </button>
       </div>

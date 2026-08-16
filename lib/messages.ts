@@ -1,4 +1,4 @@
-/** Nachrichten zwischen Content-Script und Background. */
+/** Messages between the content script and the background. */
 
 export interface FetchCssRequest {
   type: 'ink:fetch-css';
@@ -8,27 +8,27 @@ export interface FetchCssRequest {
 export interface FrameBypassRequest {
   type: 'ink:frame-bypass';
   enabled: boolean;
-  /** Domain der Vorschau — die Regel gilt nur fuer sie, nicht fuer alle Frames. */
+  /** Domain of the preview — the rule applies to it only, not to all frames. */
   host?: string;
 }
 
 /**
- * Vorab-Pruefung, ob eine URL sich als Frame einbetten laesst. Laeuft im
- * Background, weil das Content-Script die Antwort-Header nicht sieht.
+ * Checks up front whether a URL can be embedded as a frame. Runs in the
+ * background, because the content script never sees the response headers.
  */
 export interface FrameCheckRequest {
   type: 'ink:frame-check';
   url: string;
 }
 
-/** Screenshot des sichtbaren Tabs (fuer annotierte Device-Exports). */
+/** Screenshot of the visible tab (for annotated device exports). */
 export interface CaptureRequest {
   type: 'ink:capture';
 }
 
 /**
- * UI in diesem Tab geoeffnet/geschlossen — der Background setzt daraufhin
- * das Badge am Toolbar-Icon („ON"), damit der aktive Zustand sichtbar ist.
+ * The UI was opened or closed in this tab — the background then sets the
+ * badge on the toolbar icon ("ON") so the active state is visible.
  */
 export interface UiStateMessage {
   type: 'ink:ui-state';

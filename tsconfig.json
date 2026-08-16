@@ -5,5 +5,5 @@
     "strict": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["entrypoints", "components", "lib", "wxt.config.ts"]
+  "include": ["entrypoints", "components", "lib", "wxt.config.ts", ".wxt/wxt.d.ts"]
 }

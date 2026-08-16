@@ -1,8 +1,8 @@
 /**
- * Baut einen CSS-Pfad, der ein Element in einem *anderen* Frame derselben
- * Seite wiederfindet. Grundlage fuer Scroll- und Interaktions-Sync: die
- * Frames zeigen dasselbe Dokument, nur anders umbrochen — id bzw.
- * nth-of-type-Pfad identifizieren dasselbe Element zuverlaessig genug.
+ * Builds a CSS path that finds an element again in a *different* frame of the
+ * same page. The basis for scroll and interaction sync: the frames show the
+ * same document, only wrapped differently — an id or an nth-of-type path
+ * identifies the same element reliably enough.
  */
 export function cssPath(el: Element): string {
   const parts: string[] = [];
@@ -27,7 +27,7 @@ export function cssPath(el: Element): string {
   return parts.join(' > ');
 }
 
-/** querySelector, das bei kaputten Selektoren null liefert statt zu werfen. */
+/** querySelector that returns null on a broken selector instead of throwing. */
 export function findIn(doc: Document, path: string): Element | null {
   if (!path) return null;
   try {
@@ -38,9 +38,9 @@ export function findIn(doc: Document, path: string): Element | null {
 }
 
 /**
- * Pfad ueber Shadow-DOM-Grenzen hinweg: ein Segment pro Baum, aeusserster
- * zuerst. Cookie-Banner und Web Components leben in Shadow Roots — ein
- * reiner Dokument-Selektor findet deren Innenleben nicht.
+ * A path across shadow DOM boundaries: one segment per tree, outermost first.
+ * Cookie banners and web components live in shadow roots — a plain document
+ * selector never reaches inside them.
  */
 export function shadowPath(el: Element): string[] {
   const segments: string[] = [];
@@ -49,7 +49,7 @@ export function shadowPath(el: Element): string[] {
   while (node) {
     segments.unshift(cssPath(node));
     const root = node.getRootNode();
-    // Duck-Typing statt `instanceof ShadowRoot` — fremder Realm.
+    // Duck typing instead of `instanceof ShadowRoot` — foreign realm.
     node =
       root.nodeType === Node.DOCUMENT_FRAGMENT_NODE
         ? ((root as ShadowRoot).host ?? null)
@@ -59,7 +59,7 @@ export function shadowPath(el: Element): string[] {
   return segments;
 }
 
-/** Gegenstueck zu shadowPath: hangelt sich durch die Shadow Roots des Ziels. */
+/** Counterpart to shadowPath: walks down through the target's shadow roots. */
 export function findByShadowPath(doc: Document, segments: string[]): Element | null {
   let scope: Document | ShadowRoot = doc;
 
@@ -76,7 +76,7 @@ export function findByShadowPath(doc: Document, segments: string[]): Element | n
     if (!el) return null;
     if (i === segments.length - 1) return el;
 
-    if (!el.shadowRoot) return null; // closed Shadow Root — nicht erreichbar
+    if (!el.shadowRoot) return null; // closed shadow root — out of reach
     scope = el.shadowRoot;
   }
 

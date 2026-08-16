@@ -1,55 +1,71 @@
 import { frameDocument } from './framing';
 import { findByShadowPath, shadowPath } from './selector';
 import { applyHoverSim } from './hoverStyles';
+import { elementLabel, type RevealStep } from './annotations';
 import { createLogger } from './log';
 
 const log = createLogger('interaction-sync');
 
 /**
- * Spiegelt Benutzer-Interaktionen auf alle Preview-Frames: ein Klick (z.B.
- * Burger-Menue) oder eine Formulareingabe in einem Frame wird im jeweils
- * gleichen Element der anderen Frames wiederholt.
+ * Mirrors user interactions onto all preview frames: a click (a burger menu,
+ * say) or a form entry in one frame is repeated in the matching element of the
+ * others.
  *
- * - Ziel-Element kommt aus e.composedPath(), damit auch Klicks *innerhalb*
- *   von Shadow DOM (Cookie-Banner, Web Components) das echte Ziel treffen.
- * - Klick-Replay feuert die volle Pointer-Sequenz (pointerdown → mousedown →
- *   pointerup → mouseup → click), weil moderne Frameworks oft auf
- *   pointerdown statt click hoeren.
- * - Nur *echte* Events (isTrusted) werden gespiegelt — die synthetischen
- *   Replays der Zielframes sind untrusted und loesen keine Kaskade aus.
- * - Navigation hat zwei Sicherheitsnetze: Link-Klicks navigieren Ziel-Frames
- *   notfalls direkt per URL (wenn das Element-Replay ins Leere greift), und
- *   ein Watchdog zieht Frames nach, deren URL dauerhaft abweicht — etwa weil
- *   ein Klick in die Ladephase eines Frames fiel, in der noch keine
- *   Sync-Listener hingen.
+ * - The target element comes from e.composedPath(), so that clicks *inside*
+ *   shadow DOM (cookie banners, web components) hit the real target too.
+ * - Click replay fires the full pointer sequence (pointerdown → mousedown →
+ *   pointerup → mouseup → click), because modern frameworks often listen for
+ *   pointerdown rather than click.
+ * - Only *real* events (isTrusted) are mirrored — the synthetic replays in the
+ *   target frames are untrusted and set off no cascade.
+ * - Navigation has two safety nets: link clicks navigate target frames
+ *   directly by URL if need be (when the element replay grasps at nothing),
+ *   and a watchdog pulls along frames whose URL stays out of line — because a
+ *   click landed during a frame's loading phase, say, when no sync listeners
+ *   were attached yet.
  */
 const WATCHDOG_INTERVAL_MS = 700;
 
+/**
+ * How many clicks the unfold path keeps at most. No menu is deeper than a few
+ * levels; the cap keeps the path small without anyone having to decide which
+ * click was "important".
+ */
+const MAX_TRAIL = 8;
+
 export class InteractionSync {
-  /** Klicks & Eingaben spiegeln (inkl. Navigations-Angleich des Watchdogs). */
+  /** Mirror clicks and entries (including the watchdog's navigation alignment). */
   enabled = true;
-  /** Hover-Zustaende spiegeln — unabhaengig von Klicks/Eingaben schaltbar. */
+  /** Mirror hover states — switchable independently of clicks and entries. */
   hoverEnabled = true;
 
   /**
-   * Meldet die aktuelle Frame-URL, sobald sie sich aendert — auch bei
-   * SPA-Navigationen (pushState), die kein load-Event ausloesen.
+   * Reports the current frame URL whenever it changes — including SPA
+   * navigations (pushState), which fire no load event.
    */
   onUrlChange: ((href: string) => void) | null = null;
 
-  /** Feuert, wenn ein Klick eine Seiten-Navigation anstoesst (Ladeanzeige). */
+  /** Fires when a click starts a page navigation (loading indicator). */
   onNavigationStart: (() => void) | null = null;
 
+  /**
+   * Clicks of the running session, oldest first — the route to everything that
+   * only becomes visible through an interaction. Deliberately *one* path
+   * across all frames: the frames mirror each other, and a burger click is one
+   * logical interaction, not three. Kept per frame, it would multiply.
+   */
+  private trail: RevealStep[] = [];
+
   private readonly detachers = new Map<HTMLIFrameElement, () => void>();
-  /** Zuletzt synthetisch gehovertes Element pro Ziel-Frame (fuer mouseout). */
+  /** Last synthetically hovered element per target frame (for mouseout). */
   private readonly hovered = new Map<HTMLIFrameElement, Element>();
-  /** Frames im Touch-Modus: nehmen keine Hover-Spiegelung an und senden keine. */
+  /** Frames in touch mode: they accept no mirrored hover and send none. */
   private readonly touchFrames = new Set<HTMLIFrameElement>();
   private replaying = false;
 
-  /** Letzte bekannte URL pro Frame (Watchdog-Zustand). */
+  /** Last known URL per frame (watchdog state). */
   private readonly urls = new Map<HTMLIFrameElement, string>();
-  /** Ziel-URL einer im letzten Tick erkannten Einzel-Navigation. */
+  /** Target URL of a single navigation spotted in the last tick. */
   private pendingUrl: string | null = null;
   private lastReported: string | null = null;
   private watchdog: number | undefined;
@@ -63,20 +79,22 @@ export class InteractionSync {
     const onClick = (e: Event) => {
       if (!this.shouldMirror(e)) return;
       const el = composedTarget(e);
-      if (el) this.replayClick(iframe, el);
+      if (!el) return;
+      this.recordStep(el);
+      this.replayClick(iframe, el);
     };
 
     const onMouseOver = (e: Event) => {
       if (!this.shouldMirrorHover(e)) return;
-      // Touch-Frames kennen kein Hover — weder senden noch empfangen.
+      // Touch frames know no hover — they neither send nor receive it.
       if (this.touchFrames.has(iframe)) return;
       const el = composedTarget(e);
       if (el) this.replayHover(iframe, el);
     };
 
-    // Verlaesst der Zeiger den Frame ganz (relatedTarget == null), wuerde der
-    // simulierte Hover in den Ziel-Frames sonst haengen bleiben — es kommt ja
-    // kein weiteres mouseover mehr, das ihn abloest.
+    // If the pointer leaves the frame entirely (relatedTarget == null), the
+    // simulated hover in the target frames would otherwise stay stuck — no
+    // further mouseover is coming to replace it.
     const onMouseOut = (e: Event) => {
       if (!this.shouldMirrorHover(e)) return;
       if ((e as MouseEvent).relatedTarget == null) this.clearHover(iframe);
@@ -85,7 +103,7 @@ export class InteractionSync {
     const onInput = (e: Event) => {
       if (!this.shouldMirror(e)) return;
       const el = composedTarget(e);
-      // Checkbox/Radio/Select laufen ueber 'change' — hier nur Texteingaben.
+      // Checkbox/radio/select go through 'change' — text entry only here.
       if (isTextInput(el)) this.replayValue(iframe, el);
     };
 
@@ -116,8 +134,8 @@ export class InteractionSync {
   }
 
   /**
-   * Touch-Modus eines Frames setzen: er bekommt keine simulierten Hover mehr
-   * und spiegelt eigene Hover nicht auf die anderen Frames.
+   * Set a frame's touch mode: it receives no more simulated hover and does not
+   * mirror its own hover onto the other frames.
    */
   setTouch(iframe: HTMLIFrameElement, on: boolean): void {
     if (on) this.touchFrames.add(iframe);
@@ -128,10 +146,10 @@ export class InteractionSync {
     this.detachers.get(iframe)?.();
     this.detachers.delete(iframe);
     this.hovered.delete(iframe);
-    // urls bleibt absichtlich stehen: attach() ruft detach() als Cleanup vor
-    // jedem Re-Attach nach einer Navigation — der URL-Merker muss das
-    // ueberleben, sonst sieht der Watchdog die Navigation nie. Eintraege
-    // wirklich entfernter Frames raeumt der Tick auf.
+    // urls is deliberately left standing: attach() calls detach() as cleanup
+    // before every re-attach after a navigation — the URL note has to survive
+    // that, or the watchdog never sees the navigation. Entries for frames that
+    // really are gone are cleared by the tick.
     if (this.detachers.size === 0) this.stopWatchdog();
   }
 
@@ -140,7 +158,48 @@ export class InteractionSync {
     this.detachers.clear();
     this.hovered.clear();
     this.touchFrames.clear();
+    this.trail = [];
     this.stopWatchdog();
+  }
+
+  /** Unfold path of the running session (a copy), oldest step first. */
+  get revealTrail(): RevealStep[] {
+    return [...this.trail];
+  }
+
+  /**
+   * Runs `fn` without the events it triggers being mirrored or recorded.
+   * Without this, every programmatic click — while unfolding a hidden element,
+   * for instance — echoes into all the other frames; but the screenshot
+   * capture needs exactly one frame in the changed state. Nestable, so that a
+   * call inside a replay does not tear the protection down early.
+   */
+  runIsolated<T>(fn: () => T): T {
+    const before = this.replaying;
+    this.replaying = true;
+    try {
+      return fn();
+    } finally {
+      this.replaying = before;
+    }
+  }
+
+  /**
+   * Record a click into the unfold path. Left out is anything that cannot
+   * unfold: links (which navigate and reset the path anyway), form fields
+   * (they go through input/change) and a repeat of the previous step
+   * (double-click).
+   */
+  private recordStep(el: Element): void {
+    if (anchorUrl(el)) return;
+    if (isTextInput(el) || isCheckable(el) || isSelect(el)) return;
+
+    const sel = shadowPath(el).join(' >>> ');
+    if (!sel) return;
+    if (this.trail[this.trail.length - 1]?.sel === sel) return;
+
+    this.trail.push({ sel, label: elementLabel(el) });
+    if (this.trail.length > MAX_TRAIL) this.trail.shift();
   }
 
   private stopWatchdog(): void {
@@ -152,10 +211,10 @@ export class InteractionSync {
   }
 
   /**
-   * Erkennt Frames, deren URL von den anderen abweicht, und zieht sie nach.
-   * Gehandelt wird erst, wenn eine Einzel-Navigation einen weiteren Tick
-   * unbeantwortet bleibt — beim normalen Klick-Replay navigieren die
-   * uebrigen Frames von selbst und der Watchdog bleibt stumm.
+   * Spots frames whose URL differs from the others and pulls them along.
+   * Action is only taken once a single navigation goes unanswered for another
+   * tick — on a normal click replay the other frames navigate by themselves
+   * and the watchdog stays quiet.
    */
   private readonly watchdogTick = (): void => {
     const hrefs = new Map<HTMLIFrameElement, string>();
@@ -164,7 +223,7 @@ export class InteractionSync {
         const href = frameDocument(frame)?.location.href;
         if (href && href !== 'about:blank') hrefs.set(frame, href);
       } catch {
-        /* Frame nicht lesbar */
+        /* frame not readable */
       }
     }
 
@@ -180,14 +239,14 @@ export class InteractionSync {
       for (const [frame, href] of hrefs) {
         if (href === url) continue;
         const doc = frameDocument(frame);
-        // Ein noch ladender Frame ist vermutlich selbst unterwegs dorthin.
+        // A frame that is still loading is probably on its way there itself.
         if (doc?.readyState !== 'complete') continue;
-        log.info('Watchdog gleicht Navigation an', url);
+        log.info('Watchdog realigns the navigation', url);
         this.onNavigationStart?.();
         try {
           doc.defaultView?.location.assign(url);
         } catch {
-          /* Frame nicht beschreibbar */
+          /* frame not writable */
         }
       }
     }
@@ -198,10 +257,23 @@ export class InteractionSync {
       if (!this.detachers.has(frame)) this.urls.delete(frame);
     }
 
-    // SPA-Navigationen (kein load-Event) nach oben melden; der erste Frame
-    // gilt als massgeblich.
+    // Report SPA navigations (no load event) upwards; the first frame counts
+    // as authoritative.
     const current = hrefs.values().next().value ?? null;
     if (current && current !== this.lastReported) {
+      /**
+       * New page, new path: the openers of the old page no longer exist there.
+       * Here rather than in `attach()` — that runs per frame per load and would
+       * throw the path away as soon as the second frame finished loading. Via
+       * `lastReported` it also covers SPA navigation without a load event.
+       *
+       * The `null` case is explicitly *not* a navigation but the first
+       * measurement: `stopWatchdog` resets `lastReported`, and that already
+       * happens when all frames detach temporarily (React reattaches them
+       * afterwards). Without this distinction the next tick would delete the
+       * running session's path — and the marking just placed would get none.
+       */
+      if (this.lastReported !== null) this.trail = [];
       this.lastReported = current;
       this.onUrlChange?.(current);
     }
@@ -228,8 +300,8 @@ export class InteractionSync {
     const segments = shadowPath(el);
     if (segments.length === 0) return;
 
-    // Fallback fuer Link-Klicks: findet das Replay kein Gegenstueck (Frame
-    // laedt gerade, DOM weicht ab), navigieren wir direkt zur Ziel-URL.
+    // Fallback for link clicks: if the replay finds no counterpart (frame is
+    // loading, DOM differs), we navigate straight to the target URL.
     const navUrl = anchorUrl(el);
     if (navUrl) this.onNavigationStart?.();
 
@@ -243,11 +315,11 @@ export class InteractionSync {
         const other = findByShadowPath(doc, segments);
         if (!other) {
           if (navUrl) {
-            log.info('Klick-Replay ohne Treffer — navigiere per URL', navUrl);
+            log.info('Click replay found nothing — navigating by URL', navUrl);
             try {
               doc.defaultView?.location.assign(navUrl);
             } catch {
-              /* Frame nicht beschreibbar */
+              /* frame not writable */
             }
           }
           continue;
@@ -258,8 +330,8 @@ export class InteractionSync {
 
         dispatchPointerSequence(other, win);
 
-        // click() statt synthetischem click-Event: nur click() traegt die
-        // Aktivierungs-Semantik (Links folgen, Checkboxen toggeln).
+        // click() rather than a synthetic click event: only click() carries
+        // activation semantics (links follow, checkboxes toggle).
         if (typeof (other as HTMLElement).click === 'function') {
           (other as HTMLElement).click();
         } else {
@@ -269,15 +341,15 @@ export class InteractionSync {
         }
       }
     } catch (e) {
-      log.warn('Klick-Replay fehlgeschlagen', e);
+      log.warn('Click replay failed', e);
     } finally {
       this.replaying = false;
     }
   }
 
   /**
-   * Spiegelt Hover doppelt: synthetische pointer-/mouse-Events fuer
-   * JS-Handler und eine Marker-Klasse fuer duplizierte CSS-:hover-Regeln.
+   * Mirrors hover twice over: synthetic pointer/mouse events for JS handlers,
+   * and a marker class for the duplicated CSS :hover rules.
    */
   private replayHover(source: HTMLIFrameElement, el: Element): void {
     const segments = shadowPath(el);
@@ -310,13 +382,13 @@ export class InteractionSync {
         this.hovered.set(target, match);
       }
     } catch (e) {
-      log.warn('Hover-Replay fehlgeschlagen', e);
+      log.warn('Hover replay failed', e);
     } finally {
       this.replaying = false;
     }
   }
 
-  /** Loest die simulierte Hover-Kette in allen Ziel-Frames (Quelle verlassen). */
+  /** Clears the simulated hover chain in all target frames (source left). */
   private clearHover(source: HTMLIFrameElement): void {
     this.replaying = true;
     try {
@@ -338,7 +410,7 @@ export class InteractionSync {
         }
       }
     } catch (e) {
-      log.warn('Hover-Reset fehlgeschlagen', e);
+      log.warn('Hover reset failed', e);
     } finally {
       this.replaying = false;
     }
@@ -362,7 +434,7 @@ export class InteractionSync {
         dispatchIn(target, eventType);
       }
     } catch (e) {
-      log.warn('Eingabe-Replay fehlgeschlagen', e);
+      log.warn('Input replay failed', e);
     } finally {
       this.replaying = false;
     }
@@ -382,7 +454,7 @@ export class InteractionSync {
         dispatchIn(target, 'change');
       }
     } catch (e) {
-      log.warn('Checked-Replay fehlgeschlagen', e);
+      log.warn('Checked replay failed', e);
     } finally {
       this.replaying = false;
     }
@@ -390,31 +462,34 @@ export class InteractionSync {
 }
 
 /**
- * Absolute Ziel-URL, wenn der Klick einen normalen Link ausloest —
- * kein neuer Tab, kein Download, nur http(s).
+ * Absolute target URL, when the click triggers a normal link — no new tab, no
+ * download, http(s) only.
+ *
+ * Exported because unfolding hidden elements (`lib/reveal.ts`) asks the same
+ * question: a step that navigates unfolds nothing.
  */
-function anchorUrl(el: Element): string | null {
-  // Kein instanceof: das Element stammt aus dem Realm des Frames.
+export function anchorUrl(el: Element): string | null {
+  // No instanceof: the element comes from the frame's realm.
   const anchor = el.closest('a[href]') as HTMLAnchorElement | null;
   if (!anchor) return null;
   if (anchor.target && anchor.target !== '_self') return null;
   if (anchor.hasAttribute('download')) return null;
   const url = anchor.href;
   if (!url.startsWith('http:') && !url.startsWith('https:')) return null;
-  // Reine Hash-Spruenge sind keine Navigation (Scroll-Sync uebernimmt).
+  // Pure hash jumps are not navigation (the scroll sync takes over).
   const current = anchor.ownerDocument.location.href;
   if (url.split('#')[0] === current.split('#')[0]) return null;
   return url;
 }
 
-/** Echtes Event-Ziel, auch innerhalb von Shadow DOM (composedPath). */
+/** The real event target, shadow DOM included (composedPath). */
 function composedTarget(e: Event): Element | null {
   const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
   const first = (path[0] ?? e.target) as Node | null;
   return first && first.nodeType === Node.ELEMENT_NODE ? (first as Element) : null;
 }
 
-/** Event-Koordinaten in der Mitte des Ziel-Elements — Menues positionieren danach. */
+/** Event coordinates at the centre of the target element — menus position off them. */
 function pointerInit(el: Element): MouseEventInit {
   const rect = el.getBoundingClientRect();
   return {
@@ -427,7 +502,12 @@ function pointerInit(el: Element): MouseEventInit {
   };
 }
 
-function dispatchPointerSequence(el: Element, win: Window & typeof globalThis): void {
+/**
+ * The full pointer sequence before the click itself — modern frameworks often
+ * listen for `pointerdown` rather than `click`. Exported for `lib/reveal.ts`:
+ * an opener should be touched exactly the way mirroring touches it.
+ */
+export function dispatchPointerSequence(el: Element, win: Window & typeof globalThis): void {
   const base = pointerInit(el);
   const pointer = { ...base, pointerId: 1, isPrimary: true, pointerType: 'mouse' as const };
   const PointerCtor = win.PointerEvent ?? win.MouseEvent;
@@ -472,9 +552,9 @@ function isSelect(el: Element | null): el is HTMLSelectElement {
 }
 
 /**
- * Setzt value ueber den Prototyp-Setter des Frames. React ueberschreibt den
- * Instanz-Setter mit einem Tracker — direktes `el.value = x` wuerde die
- * anschliessenden input-Events dort als No-op verschlucken.
+ * Sets value through the frame's prototype setter. React overwrites the
+ * instance setter with a tracker — a direct `el.value = x` would make it
+ * swallow the following input events as a no-op.
  */
 function setNativeValue(el: Element & { value: string }, value: string): void {
   const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');

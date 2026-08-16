@@ -27,7 +27,7 @@ MARK UP THE RUNNING PAGE
 • Markings stick to the content while you scroll and re-anchor to their element after a reload
 • Move and resize your own markings by their outline; element picks stay locked to the DOM box they measured
 • A tidy panel groups all feedback per page and per device — check items off as you fix them, badges count what is still open
-• A guided tour on first open, and a shortcut sheet behind "?" whenever you need it
+• A coachmark points you at the first tool, then small hints explain each feature the moment you use it — and a shortcut sheet sits behind "?" whenever you need it
 
 ELEMENT PICKER WITH LIVE EDITS
 • Pick an element and rewrite its text, change font weight and size, drag padding and margins per edge or all four linked
@@ -53,7 +53,7 @@ SYNCED DEVICE PREVIEWS
 • Add, rotate and remove devices freely, define your own viewport sizes, save a grid as a named set — your setup is remembered across sessions
 
 FULL WINDOW MODE
-• The page at full size with a floating feedback bar you can drag anywhere — it snaps to the left edge or the bottom
+• The page at full size with a floating feedback bar you can drag anywhere — it snaps to any window edge, and becomes a vertical toolbox on the left or right
 • An optional floating phone mockup runs the same page in mobile width next to it
 • Inkspect can start in this mode by default
 
@@ -63,7 +63,7 @@ LIVE CSS EDITOR
 • Reset any sheet back to the original with one click
 
 WORKS WITH STUBBORN PAGES
-• Pages that refuse to be embedded (X-Frame-Options / frame-ancestors) can still be previewed via an explicit opt-in — scoped to the current tab and its preview frames only
+• Some sites tell browsers never to display them inside another page, which leaves the previews empty. Inkspect can lift that block — it asks you first, and the change covers the current tab and its preview frames only
 
 PRIVACY
 Inkspect stores your feedback locally in your browser. Nothing is uploaded anywhere — shared links carry the data inside the URL itself.

@@ -6,28 +6,50 @@ function ratio(offset: number, max: number): number {
 }
 
 /**
- * Haelt die Scroll-Position aller Preview-Frames synchron.
+ * Keeps the scroll position of all preview frames in sync.
  *
- * Synchronisiert wird das *Verhaeltnis*, nicht der absolute Offset — die Frames
- * haben unterschiedliche Inhaltshoehen, weil das Layout je nach Breite anders
- * umbricht.
+ * What is synced is the *ratio*, not the absolute offset — the frames have
+ * different content heights, because the layout wraps differently at each
+ * width.
  *
- * Neben dem Dokument-Scroll werden auch innere Scroll-Container erfasst
- * (Capture-Listener, weil Element-Scrolls nicht bubbeln); das Gegenstueck im
- * anderen Frame wird ueber einen CSS-Pfad gefunden.
+ * Besides the document scroll, inner scroll containers are picked up too
+ * (capture listeners, because element scrolls do not bubble); the counterpart
+ * in the other frame is found through a CSS path.
  */
 export class ScrollSync {
-  /** Scroll-Spiegelung ein-/ausschaltbar (Sync-Menue in der Toolbar). */
+  /** Scroll mirroring can be switched off (sync menu in the toolbar). */
   enabled = true;
+
+  /**
+   * Mirroring paused until the user scrolls for the first time.
+   *
+   * While the frames are still taking the page's position over, each of them
+   * gets its own *exact* position (see `seed`). Mirroring on top of that would
+   * only pull them apart again: it passes on a ratio, and with differently tall
+   * viewports that is an approximation — measurably so, a few dozen pixels. One
+   * frame finishing loading was enough to drag the others off their mark.
+   */
+  hold = false;
+
+  /**
+   * The user scrolled in one of the frames.
+   *
+   * Deliberately reported before the mirroring is filtered — even with
+   * mirroring off: the question is not whether it gets passed on, but whether
+   * any work is happening at all. The mockup ties its first fade to this (see
+   * `PhonePreview`). Only what we set ourselves stays out of it, and that is
+   * exactly the echo below.
+   */
+  onScroll?: () => void;
 
   private readonly detachers = new Map<HTMLIFrameElement, () => void>();
   private syncing = false;
   /**
-   * Zuletzt *programmatisch* gesetzte Position je Element. Das Setzen loest
-   * im Zielframe ein eigenes 'scroll' aus — das kommt aber erst im naechsten
-   * Frame an, also oft nach dem rAF-Guard unten. Ohne diese Quittung wuerde
-   * das Echo zurueckpropagieren und die Frames pendeln sichtbar hin und her
-   * (die Zielposition rundet je Frame minimal anders).
+   * The last position set *programmatically*, per element. Setting it fires a
+   * 'scroll' of its own in the target frame — but that only arrives on the
+   * next frame, so usually after the rAF guard below. Without this receipt the
+   * echo would propagate back and the frames would visibly oscillate (the
+   * target position rounds slightly differently in each frame).
    */
   private readonly echo = new WeakMap<Element, { top: number; left: number }>();
 
@@ -43,6 +65,19 @@ export class ScrollSync {
     this.detachers.set(iframe, () => doc.removeEventListener('scroll', onScroll, true));
   }
 
+  /**
+   * Set a frame's document position without it counting as a scroll of the
+   * user's: at start-up the page's own position is carried into every freshly
+   * loaded frame (see `scrollAnchor`).
+   *
+   * It runs through the same echo receipt as the mirroring — so the resulting
+   * 'scroll' neither propagates to the other frames (each one gets its own
+   * position, matched to its own layout) nor is reported as work.
+   */
+  seed(el: Element, top: number, left: number): void {
+    this.applyScroll(el, top, left);
+  }
+
   detach(iframe: HTMLIFrameElement): void {
     this.detachers.get(iframe)?.();
     this.detachers.delete(iframe);
@@ -54,17 +89,21 @@ export class ScrollSync {
   }
 
   /**
-   * Position setzen und quittieren. Steht das Ziel schon dort, passiert
-   * nichts — das spart das ganze Echo.
+   * Set the position and record it. If the target is already there, nothing
+   * happens — which saves the whole echo.
    */
   private applyScroll(el: Element, top: number, left: number): void {
     if (Math.abs(el.scrollTop - top) < 1 && Math.abs(el.scrollLeft - left) < 1) return;
     this.echo.set(el, { top, left });
-    el.scrollTop = top;
-    el.scrollLeft = left;
+    // Always instant: if the page sets `scroll-behavior: smooth`, even a plain
+    // scrollTop assignment would animate. The intermediate positions of that
+    // animation then do not match the echo receipt, count as scrolls of their
+    // own and propagate back — the frames drag each other back to the starting
+    // position and nobody gets anywhere.
+    el.scrollTo({ top, left, behavior: 'instant' });
   }
 
-  /** Stammt dieses 'scroll' aus unserem eigenen Setzen? Dann nicht weiterreichen. */
+  /** Did this 'scroll' come from our own setting? Then do not pass it on. */
   private isEcho(el: Element): boolean {
     const expected = this.echo.get(el);
     if (!expected) return false;
@@ -75,14 +114,19 @@ export class ScrollSync {
   }
 
   private propagate(source: HTMLIFrameElement, e: Event): void {
-    // Das Setzen von scrollTop loest in den Zielframes erneut 'scroll' aus.
-    // Ohne dieses Flag schaukeln sich die Frames gegenseitig auf.
-    if (!this.enabled || this.syncing) return;
-
     const target = e.target as Node | null;
     const element = target && target.nodeType === Node.ELEMENT_NODE ? (target as Element) : null;
     const scrolled = element ?? frameDocument(source)?.scrollingElement ?? null;
+    // Our own doing — the echo of a mirrored position or of `seed`. Not the
+    // user's work and nothing to pass on. The scroll that caused it has already
+    // been reported by its own frame.
     if (scrolled && this.isEcho(scrolled)) return;
+
+    this.onScroll?.();
+
+    // Setting scrollTop fires 'scroll' again in the target frames. Without
+    // this flag the frames would wind each other up.
+    if (!this.enabled || this.syncing || this.hold) return;
 
     this.syncing = true;
 

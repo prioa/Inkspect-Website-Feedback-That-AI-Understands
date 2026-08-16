@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, HTMLAttributes, PointerEvent as ReactPointerEvent } from 'react';
 import type { SelectedTarget, StyleChange, TextChange } from '@/lib/annotations';
+import { useFireHint } from '@/lib/hints';
+import { useHideTip, useTip } from './Tooltip';
 import {
   IconClose,
-  IconHelp,
+  IconGrip,
   IconLink,
   IconLinkOff,
   IconPin,
@@ -11,9 +13,9 @@ import {
   IconWarning,
 } from './icons';
 
-/** Auswahl fuer den Font-Weight-Regler des Element-Pickers. */
+/** Choices for the element picker's font-weight control. */
 const FONT_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
-/** Gelaeufige Namen der Font-Weights fuer die Dropdown-Beschriftung. */
+/** Common names of the font weights, for the dropdown labels. */
 const WEIGHT_NAMES: Record<number, string> = {
   100: 'Thin',
   200: 'Extra Light',
@@ -26,53 +28,80 @@ const WEIGHT_NAMES: Record<number, string> = {
   900: 'Black',
 };
 
-/** So viele Aenderungen stehen offen da — der Rest kommt hinter „+n more". */
+/** This many changes stand open — the rest sits behind "+n more". */
 const CHANGES_PREVIEW = 3;
+
+/**
+ * Ceiling for the text boxes that grow with their content. Beyond it they
+ * scroll: a page paragraph of twenty lines would otherwise push the save button
+ * out of the popup, and the popup itself off the screen.
+ */
+const TEXT_MAX_H = 200;
+
+/**
+ * Lay a text box out around what is in it, instead of standing at a fixed
+ * number of rows.
+ *
+ * The text field is filled with whatever the page happens to carry — a headline
+ * of three words or a paragraph of six lines. Three rows fitted neither: short
+ * texts sat in an empty box, and longer ones were cut off at the third line,
+ * behind a scrollbar you had to find before you could see what you were
+ * rewriting. The height is set on the element rather than through state,
+ * because it has to be right in the same frame the value changes in — otherwise
+ * the box visibly jumps a beat after every keystroke.
+ */
+function fitToText(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  // First back to nothing: `scrollHeight` never shrinks below the height
+  // already set, so without this the box could only ever grow.
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight + 2, TEXT_MAX_H)}px`;
+}
 
 export type SpacingKind = 'margin' | 'padding';
 export type Edge = 'top' | 'right' | 'bottom' | 'left';
-/** Margin und Padding lassen sich getrennt voneinander verknuepfen. */
+/** Margin and padding can be linked independently of each other. */
 export type LinkedSides = Record<SpacingKind, boolean>;
 
 const EDGES = ['top', 'right', 'bottom', 'left'] as const satisfies readonly Edge[];
 const EDGE_KEY = { top: 't', right: 'r', bottom: 'b', left: 'l' } as const;
 
 /**
- * Ein Eintrag der Aenderungsliste. Text- und Stil-Aenderungen werden hier zu
- * einer Liste vereint, damit „die ersten drei" ueber beide hinweg zaehlt.
+ * One entry of the change list. Text and style changes are merged into a
+ * single list here, so that "the first three" counts across both.
  */
 interface ChangeEntry {
   key: string;
   prop: string;
   from: string;
   to: string;
-  /** Textwerte sind lang und duerfen umbrechen. */
+  /** Text values are long and may wrap. */
   long?: boolean;
   onRevert: () => void;
 }
 
 export interface InspectPanelProps {
   sel: SelectedTarget;
-  /** Farbe des aktiven Werkzeugs — faerbt Rahmen und Kopf-Punkt. */
+  /** Colour of the active tool — tints the frame and the header dot. */
   color: string;
-  /** Viewport-Position aus `popupPlacement`. */
+  /** Viewport position from `popupPlacement`. */
   placement: CSSProperties;
   dragging: boolean;
   scope: 'class' | 'element';
   classSel: string | null;
-  /** Wie viele Elemente die Klassenregel tatsaechlich trifft. */
+  /** How many elements the class rule actually hits. */
   classMatches: number;
   linked: LinkedSides;
   changes: StyleChange[];
   textChange: TextChange | null;
-  /** Aktueller Inhalt des Textfelds (Entwurf, nicht die Messung). */
+  /** Current content of the text field (the draft, not the measurement). */
   textValue: string;
   note: string;
-  /** Wieder geoeffneter Marker — der Hauptknopf heisst dann „Update". */
+  /** A marker reopened — the main button then reads "Update". */
   isEditing: boolean;
-  /** Fuer die Groessenmessung der Platzierung. */
+  /** For measuring the size when placing it. */
   panelRef: (node: HTMLDivElement | null) => void;
-  /** Fertige Drag-Handler fuer die Kopfzeile. */
+  /** Ready-made drag handlers for the header. */
   headProps: HTMLAttributes<HTMLDivElement>;
   onScope: (scope: 'class' | 'element') => void;
   onToggleLink: (kind: SpacingKind) => void;
@@ -88,9 +117,9 @@ export interface InspectPanelProps {
 }
 
 /**
- * Bearbeiten-Popup des Element-Pickers: Text, Box-Model, Font, offene
- * Aenderungen und Notiz zum Marker. Reine Darstellung — geschrieben wird
- * ausschliesslich ueber die Callbacks in `AnnotationOverlay`.
+ * The element picker's edit popup: text, box model, font, open changes and the
+ * marker's note. Display only — writing happens exclusively through the
+ * callbacks in `AnnotationOverlay`.
  */
 export function InspectPanel({
   sel,
@@ -122,20 +151,68 @@ export function InspectPanel({
 }: InspectPanelProps) {
   const inClass = scope === 'class' && !!classSel;
   /**
-   * Selektor des Elements, dessen Textfeld schon fokussiert wurde. Klickt man
-   * einen Text an, springt der Cursor sofort ins Feld — aber nur einmal je
-   * Auswahl, sonst risse jedes Neu-Vermessen beim Tippen den Fokus zurueck.
+   * Selector of the element whose text field has already been focused. Click a
+   * text and the cursor jumps straight into the field — but only once per
+   * selection, or every remeasurement while typing would pull the focus back.
    */
   const focusedFor = useRef<string | null>(null);
-  const [showAllChanges, setShowAllChanges] = useState(false);
-  /** Ein anderes Element = wieder nur die Vorschau zeigen. */
-  useEffect(() => setShowAllChanges(false), [sel.selector]);
   /**
-   * Breite und Randabstand ergeben sich aus dem Layout statt aus festen Werten
-   * — die angezeigten Zahlen sind dort nur Messwerte, keine Stellschrauben.
+   * The two growing text boxes. A layout effect rather than a handler on the
+   * change: both values are controlled from outside (a revert, a different
+   * element, the text picked up from the page), and only the effect catches
+   * those too.
+   */
+  const textRef = useRef<HTMLTextAreaElement | null>(null);
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
+  const [showAllChanges, setShowAllChanges] = useState(false);
+  /**
+   * The default tab is deliberately lean: text (where there is any) and the
+   * note. Everything technical — scope, font, box model, change list — lives in
+   * the Style tab, so that the most common case ("rewrite it and note it") is
+   * not buried under tools.
+   */
+  const [tab, setTab] = useState<'content' | 'style'>('content');
+  // `tab` in the dependencies: a box that is not laid out measures nothing, so
+  // both have to be fitted again the moment the Content tab comes back.
+  useLayoutEffect(() => {
+    fitToText(textRef.current);
+  }, [textValue, tab]);
+  useLayoutEffect(() => {
+    fitToText(noteRef.current);
+  }, [note, tab]);
+  /** A different element = show only the preview again, tab back. */
+  useEffect(() => {
+    setShowAllChanges(false);
+    setTab('content');
+  }, [sel.selector]);
+
+  const fire = useFireHint();
+  const tip = useTip();
+  const tipText = useTip();
+  const hideTip = useHideTip();
+  // How the two tabs divide the work is the one thing the popup does not show
+  // by itself — rewriting text and changing looks appear identical.
+  useEffect(() => {
+    fire('first-element-pick');
+  }, [fire]);
+  // Class scope acts on elements you cannot even see at that moment.
+  //
+  // Whether the hint appears depends on whether the switch is visible right
+  // now — for an element without text of its own it exists in neither tab.
+  // That decision is made centrally via the anchor; here it is fired without
+  // hesitation.
+  useEffect(() => {
+    if (inClass) fire('first-class-scope');
+  }, [inClass, fire]);
+  /**
+   * Width and side spacing come out of the layout rather than fixed values —
+   * the numbers shown there are measurements, not dials.
    */
   const hasAutoMargin = EDGES.some((e) => sel.autoMargin[EDGE_KEY[e]]);
   const constrained = hasAutoMargin || sel.maxWidthRaw != null;
+
+  /** Id/class part of the label — the tag itself sits in the header chip. */
+  const labelRest = sel.label.startsWith(sel.tag) ? sel.label.slice(sel.tag.length) : sel.label;
 
   const entries: ChangeEntry[] = [
     ...(textChange
@@ -159,6 +236,29 @@ export function InspectPanel({
     })),
   ];
   const hasEdits = entries.length > 0;
+  /**
+   * Does the marker carry anything at all? A note counts just as much as a
+   * change — "this element is wrong" is the picker's most common case and needs
+   * not one dialled number. Without either, an empty box with a label would be
+   * left behind that nobody can interpret: the main button is then off and says
+   * what is missing, instead of offering to save.
+   */
+  const hasNote = note.trim().length > 0;
+  const canCommit = hasEdits || hasNote;
+
+  /**
+   * The one way to save — the main button and Enter in both text fields alike.
+   * The condition used to hang off the button only: Enter in an empty note
+   * field still created an empty marker, and the hint about the first style
+   * change stayed away in the process.
+   */
+  const commit = () => {
+    if (!canCommit) return;
+    // Saved style changes stay on the page — nothing else says that this is a
+    // switch rather than a final state.
+    if (changes.length > 0) fire('first-style-change');
+    onCommit();
+  };
 
   return (
     <div
@@ -167,15 +267,38 @@ export function InspectPanel({
       style={{ ...placement, borderColor: color }}
       onKeyDown={(e) => {
         e.stopPropagation();
-        if (e.key === 'Escape') onClose();
+        if (e.key !== 'Escape') return;
+        // Esc throws open changes away. Without feedback that looks like
+        // "saved and closed".
+        if (hasEdits) fire('inspect-discarded');
+        onClose();
       }}
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="anno__inspect-top">
-        <div className="anno__inspect-head" title="Drag to move" {...headProps}>
+        {/* Both prop sets carry `onPointerDown` — the drag wins, and the bubble
+            is removed by hand beforehand. Merely spreading them would have
+            switched the grip off silently. */}
+        <div
+          className="anno__inspect-head"
+          {...tip('Drag to move')}
+          {...headProps}
+          onPointerDown={(e) => {
+            hideTip();
+            headProps.onPointerDown?.(e);
+          }}
+        >
+          {/* Grip dots make it visible that the header drags the popup. */}
+          <span className="anno__inspect-grip" aria-hidden="true">
+            <IconGrip size={12} />
+          </span>
           <span className="anno__inspect-dot" style={{ background: color }} />
+          {/* Identity split in two: the tag as a chip, id/class as the title beside it. */}
+          <span className="anno__tagchip" title={sel.selector}>
+            {sel.tag}
+          </span>
           <span className="anno__inspect-title" title={sel.selector}>
-            {sel.label}
+            {labelRest}
           </span>
           <span className="anno__inspect-dims">
             {Math.round(sel.w)} × {Math.round(sel.h)}
@@ -183,237 +306,388 @@ export function InspectPanel({
           <button
             type="button"
             className="anno__ibtn"
-            title="Close (Esc)"
-            aria-label="Close"
+            {...tip('Close', { keys: 'Esc' })}
             onClick={onClose}
           >
             <IconClose size={15} />
           </button>
         </div>
 
-        <div className="anno__scope">
-          <div className="anno__seg" role="group" aria-label="Edit scope">
-            <button
-              type="button"
-              className={inClass ? 'is-active' : ''}
-              disabled={!classSel}
-              onClick={() => onScope('class')}
-              title={classSel ? `Edit every ${classSel}` : 'Element has no class'}
-            >
-              Class
-            </button>
-            <button
-              type="button"
-              className={!inClass ? 'is-active' : ''}
-              onClick={() => onScope('element')}
-              title="Edit only this element"
-            >
-              Element
-            </button>
-          </div>
-          {/* Sagt, was eine Aenderung wirklich trifft — bei Klassen-Scope also
-              den Selektor und wie viele Elemente daran haengen. */}
-          <span
-            className="anno__scope-sel"
-            title={
-              inClass
-                ? `${classSel} — ${classMatches} element${classMatches === 1 ? '' : 's'} on the page`
-                : 'Changes apply to this element only'
-            }
-          >
-            {inClass ? (
-              <>
-                {classSel}
-                <em className="anno__scope-count"> · {classMatches}×</em>
-              </>
-            ) : classSel ? (
-              'only this element'
-            ) : (
-              'no class — element only'
-            )}
-          </span>
-        </div>
-      </div>
-
-      {/* Wer einen Text anklickt, will ihn meist umschreiben — deshalb steht
-          das Textfeld vor Abstaenden und Schrift und bekommt den Fokus. */}
-      {sel.hasText && (
-        <div className="anno__inspect-text">
-          {/* Statt „Text“ das Element selbst — man sieht sofort, ob man gerade
-              eine Ueberschrift, einen Absatz oder ein Inline-Span umschreibt. */}
-          <span
-            className="anno__inspect-row-label anno__tag-label"
-            title={`Direct text of <${sel.tag}>`}
-          >
-            &lt;{sel.tag}&gt;
-          </span>
-          <textarea
-            className="anno__text-in"
-            rows={2}
-            value={textValue}
-            spellCheck={false}
-            aria-label="Element text"
-            title="Rewrite the text on the page"
-            ref={(node) => {
-              if (!node || focusedFor.current === sel.selector) return;
-              focusedFor.current = sel.selector;
-              node.focus();
-              // Cursor ans Ende statt alles zu markieren — ein Tippfehler
-              // soll nicht den ganzen Text ueberschreiben.
-              const end = node.value.length;
-              node.setSelectionRange(end, end);
-            }}
-            onChange={(ev) => onText(ev.target.value)}
-            onKeyDown={(ev) => {
-              // Wie im Notizfeld: Enter uebernimmt, Shift+Enter bricht um.
-              if (ev.key === 'Enter' && !ev.shiftKey) {
-                ev.preventDefault();
-                onCommit();
-              }
-            }}
-          />
-        </div>
-      )}
-
-      {/* Schrift gehoert zum Text und steht deshalb direkt darunter. */}
-      {sel.hasText && (
-        <div className="anno__inspect-row">
-          <span className="anno__inspect-row-label">Font</span>
-          <select
-            className="anno__inspect-weight"
-            value={sel.fontWeight}
-            aria-label="Font weight"
-            title={`Weight ${sel.fontWeight}${
-              WEIGHT_NAMES[sel.fontWeight] ? ` · ${WEIGHT_NAMES[sel.fontWeight]}` : ''
-            }`}
-            onChange={(ev) => onStyle('font-weight', ev.target.value)}
-          >
-            {!FONT_WEIGHTS.includes(sel.fontWeight) && (
-              <option value={sel.fontWeight}>{sel.fontWeight}</option>
-            )}
-            {FONT_WEIGHTS.map((w) => (
-              <option key={w} value={w}>
-                {WEIGHT_NAMES[w] ? `${w} · ${WEIGHT_NAMES[w]}` : w}
-              </option>
-            ))}
-          </select>
-          <div className="anno__inspect-size">
-            <NumberField
-              className="anno__font-in"
-              ariaLabel="Font size"
-              title="Font size · drag to change"
-              min={1}
-              value={Math.round(sel.fontSize)}
-              onValue={(v) => onStyle('font-size', `${Math.max(1, v)}px`)}
-            />
-            <span className="anno__inspect-unit">px</span>
-          </div>
-        </div>
-      )}
-
-      {/* Bei einem begrenzten Container ist max-width der eigentliche Hebel —
-          die Margins ringsum sind nur dessen Ergebnis. Beides wird vorerst nur
-          angezeigt, siehe Hinweis unter der Tabelle. */}
-      {sel.maxWidthRaw != null && (
-        <div className="anno__inspect-row">
-          <span className="anno__inspect-row-label">Width</span>
-          <span className="anno__inspect-prop">max-width</span>
-          <span className="anno__inspect-static" title="Read-only for now">
-            {sel.maxWidthRaw}
-          </span>
-        </div>
-      )}
-
-      <SpacingBox sel={sel} linked={linked} onToggleLink={onToggleLink} onSpacing={onSpacing} />
-
-      {constrained && (
-        <p className="anno__sp-warn">
-          <IconWarning size={12} />
-          <span>
-            This box is laid out by its container
-            {hasAutoMargin ? ' and centred with auto margins' : ''}. Writing a fixed pixel value
-            there would break it at other widths, so{' '}
-            {hasAutoMargin ? <b>max-width and auto margins</b> : <b>max-width</b>} stay read-only —
-            editing them is coming in a feature update. Padding still works.
-          </span>
-        </p>
-      )}
-
-      {hasEdits && (
-        <ChangeList
-          entries={entries}
-          showAll={showAllChanges}
-          onToggleAll={() => setShowAllChanges((v) => !v)}
-        />
-      )}
-
-      {/* Gleicher Aufbau wie das Textfeld — sonst sind die beiden dunklen
-          Kaesten nicht auseinanderzuhalten, sobald etwas drinsteht. */}
-      <div className="anno__inspect-text">
-        <span className="anno__inspect-row-label">Note</span>
-        <textarea
-          className="anno__text-in"
-          value={note}
-          spellCheck={false}
-          rows={2}
-          placeholder="What should change here?"
-          aria-label="Marker note"
-          onChange={(ev) => onNote(ev.target.value)}
-          onKeyDown={(ev) => {
-            // Enter uebernimmt Element + Notiz als Marker (Shift+Enter = Umbruch);
-            // Escape laeuft an den Popup-Handler durch und schliesst.
-            if (ev.key === 'Enter' && !ev.shiftKey) {
-              ev.preventDefault();
-              onCommit();
-            }
+        {/* Two worlds, two tabs: "Content" for day-to-day work (text + note),
+            "Style" for everything technical. The counter on the Style tab gives
+            away that changes are pending there, even while it is closed. */}
+        <div
+          className="anno__tabs"
+          role="tablist"
+          aria-label="Panel sections"
+          onKeyDown={(e) => {
+            // Arrow keys switch tabs and take the focus with them (roving
+            // tabindex) — with two tabs, left/Home is always Content and
+            // right/End always Style.
+            let next: 'content' | 'style' | null = null;
+            if (e.key === 'ArrowLeft' || e.key === 'Home') next = 'content';
+            if (e.key === 'ArrowRight' || e.key === 'End') next = 'style';
+            if (!next) return;
+            e.preventDefault();
+            setTab(next);
+            const tabs = e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+            tabs[next === 'content' ? 0 : 1]?.focus();
           }}
-        />
-      </div>
-
-      <div className="anno__inspect-foot">
-        <span
-          className="anno__inspect-hint"
-          tabIndex={0}
-          title="Saved changes stay applied while their marker is visible — hide or delete the feedback to remove them"
         >
-          <IconHelp size={15} />
-        </span>
-        <div className="anno__inspect-actions">
           <button
             type="button"
-            className="anno__inspect-btn"
+            role="tab"
+            id="anno-tab-content"
+            aria-selected={tab === 'content'}
+            aria-controls="anno-panel-content"
+            tabIndex={tab === 'content' ? 0 : -1}
+            className={`anno__tab${tab === 'content' ? ' is-active' : ''}`}
+            onClick={() => setTab('content')}
+            {...tip(sel.hasText ? 'Edit text and add a note' : 'Add a note')}
+          >
+            Content
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="anno-tab-style"
+            aria-selected={tab === 'style'}
+            aria-controls="anno-panel-style"
+            tabIndex={tab === 'style' ? 0 : -1}
+            className={`anno__tab${tab === 'style' ? ' is-active' : ''}`}
+            onClick={() => setTab('style')}
+            {...tip('Spacing, font and scope')}
+          >
+            Style
+            {entries.length > 0 && <em className="anno__tab-count">{entries.length}</em>}
+          </button>
+        </div>
+      </div>
+
+      {tab === 'content' && (
+        <div
+          className="anno__inspect-body"
+          role="tabpanel"
+          id="anno-panel-content"
+          aria-labelledby="anno-tab-content"
+        >
+          {/* The same switch as in the Style tab: under class scope, the text
+              field below writes into *all* matching elements. Anyone typing here
+              should see how far that reaches without changing tab. */}
+          {sel.hasText && (
+            <ScopeControl
+              inClass={inClass}
+              classSel={classSel}
+              classMatches={classMatches}
+              onScope={onScope}
+            />
+          )}
+
+          {/* Whoever clicks a text usually wants to rewrite it — which is why
+              the text field sits at the top and gets the focus. */}
+          {sel.hasText && (
+            <div className="anno__field">
+              <div className="anno__field-head">
+                <label
+                  className="anno__field-label"
+                  htmlFor="anno-text-in"
+                  {...tipText(`Direct text of <${sel.tag}>`)}
+                >
+                  Text
+                </label>
+                {/* The two fields look alike but do different things: one
+                    rewrites the page, the other the feedback. Until now that was
+                    only in the tooltip — that is to say, nowhere. */}
+                <span className="anno__field-hint">
+                  {inClass ? `rewrites ${classMatches} elements` : 'rewrites the page'}
+                </span>
+              </div>
+              <textarea
+                id="anno-text-in"
+                className="anno__text-in"
+                // One row as the floor — the height comes from the content
+                // (`fitToText`), and an empty box should not reserve three.
+                rows={1}
+                value={textValue}
+                spellCheck={false}
+                {...tip('Rewrite the text on the page')}
+                // Its own name wins: "Element text" describes the field, the
+                // tooltip describes the effect.
+                aria-label="Element text"
+                ref={(node) => {
+                  textRef.current = node;
+                  if (!node || focusedFor.current === sel.selector) return;
+                  focusedFor.current = sel.selector;
+                  // Before the focus: focusing a box still cut to one row would
+                  // scroll it, and the cursor would land off-screen.
+                  fitToText(node);
+                  node.focus();
+                  // Cursor to the end rather than selecting everything — a typo
+                  // should not overwrite the entire text.
+                  const end = node.value.length;
+                  node.setSelectionRange(end, end);
+                }}
+                onChange={(ev) => onText(ev.target.value)}
+                onKeyDown={(ev) => {
+                  // As in the note field: Enter commits, Shift+Enter wraps.
+                  if (ev.key === 'Enter' && !ev.shiftKey) {
+                    ev.preventDefault();
+                    commit();
+                  }
+                }}
+              />
+            </div>
+          )}
+
+          {/* Same build as the text field — otherwise the two dark boxes cannot
+              be told apart once there is something in them. */}
+          <div className="anno__field">
+            <div className="anno__field-head">
+              <label className="anno__field-label" htmlFor="anno-note-in">
+                Note
+              </label>
+              <span className="anno__field-hint">goes into the feedback</span>
+            </div>
+            <textarea
+              id="anno-note-in"
+              className="anno__text-in"
+              ref={noteRef}
+              value={note}
+              spellCheck={false}
+              // Two rows as the floor: a note starts empty, and a box that
+              // offers room for a sentence invites one. It grows from there.
+              rows={2}
+              placeholder="What should change here?"
+              aria-label="Marker note"
+              onChange={(ev) => onNote(ev.target.value)}
+              onKeyDown={(ev) => {
+                // Enter takes element + note as a marker (Shift+Enter = wrap);
+                // Escape falls through to the popup handler and closes.
+                if (ev.key === 'Enter' && !ev.shiftKey) {
+                  ev.preventDefault();
+                  commit();
+                }
+              }}
+            />
+          </div>
+
+          {/* Same hint line as in the markers' note popup. */}
+          <div className="anno__inspect-keys">Enter saves · Shift+Enter new line · Esc closes</div>
+        </div>
+      )}
+
+      {tab === 'style' && (
+        <div
+          className="anno__inspect-body"
+          role="tabpanel"
+          id="anno-panel-style"
+          aria-labelledby="anno-tab-style"
+        >
+          <ScopeControl
+            inClass={inClass}
+            classSel={classSel}
+            classMatches={classMatches}
+            onScope={onScope}
+          />
+
+          {/* Font only appears where there is direct text. */}
+          {sel.hasText && (
+            <div className="anno__inspect-row">
+              <span className="anno__inspect-row-label">Font</span>
+              <select
+                className="anno__inspect-weight"
+                value={sel.fontWeight}
+                {...tipText(
+                  `Weight ${sel.fontWeight}` +
+                    (WEIGHT_NAMES[sel.fontWeight] ? ` · ${WEIGHT_NAMES[sel.fontWeight]}` : ''),
+                )}
+                aria-label="Font weight"
+                onChange={(ev) => onStyle('font-weight', ev.target.value)}
+              >
+                {!FONT_WEIGHTS.includes(sel.fontWeight) && (
+                  <option value={sel.fontWeight}>{sel.fontWeight}</option>
+                )}
+                {FONT_WEIGHTS.map((w) => (
+                  <option key={w} value={w}>
+                    {WEIGHT_NAMES[w] ? `${w} · ${WEIGHT_NAMES[w]}` : w}
+                  </option>
+                ))}
+              </select>
+              <div className="anno__inspect-size">
+                <NumberField
+                  className="anno__font-in"
+                  ariaLabel="Font size"
+                  tip={'Font size · drag to change'}
+                  min={1}
+                  value={Math.round(sel.fontSize)}
+                  onValue={(v) => onStyle('font-size', `${Math.max(1, v)}px`)}
+                />
+                <span className="anno__inspect-unit">px</span>
+              </div>
+            </div>
+          )}
+
+          {/* In a constrained container, max-width is the actual lever — the
+              margins around it are only its result. Both are display-only for
+              now, see the note under the table. */}
+          {sel.maxWidthRaw != null && (
+            <div className="anno__inspect-row">
+              <span className="anno__inspect-row-label">Width</span>
+              <span className="anno__inspect-prop">max-width</span>
+              <span className="anno__inspect-static" {...tipText('Read-only for now')}>
+                {sel.maxWidthRaw}
+              </span>
+            </div>
+          )}
+
+          <SpacingBox sel={sel} linked={linked} onToggleLink={onToggleLink} onSpacing={onSpacing} />
+
+          {constrained && (
+            <p className="anno__sp-warn">
+              <IconWarning size={12} />
+              <span>
+                This box gets its width from the layout around it
+                {hasAutoMargin ? ' and is centred automatically' : ''}. A fixed pixel value here
+                would break it on other screen sizes, so{' '}
+                {hasAutoMargin ? <b>max-width and auto margins</b> : <b>max-width</b>} can only be
+                read for now — editing them is coming in a later update. Padding still works.
+              </span>
+            </p>
+          )}
+
+          {hasEdits && (
+            <ChangeList
+              entries={entries}
+              showAll={showAllChanges}
+              onToggleAll={() => setShowAllChanges((v) => !v)}
+            />
+          )}
+        </div>
+      )}
+
+      <div className="anno__inspect-foot">
+        {/* Reset only appears once there is something to take back — otherwise
+            the full width belongs to the main action. */}
+        {hasEdits && (
+          <button
+            type="button"
+            className="anno__inspect-btn anno__inspect-ghost"
             onClick={onReset}
-            disabled={!hasEdits}
-            title={hasEdits ? 'Revert all changes' : 'Nothing changed yet'}
+            {...tip('Revert all edits on this element')}
           >
             <IconUndo size={13} />
             Reset
           </button>
-          <button
-            type="button"
-            className="anno__inspect-btn anno__inspect-mark"
-            onClick={onCommit}
-            title={
-              isEditing
-                ? 'Update this marker'
-                : hasEdits
-                  ? 'Save element + changes to feedback'
-                  : 'Add element to feedback'
-            }
-          >
-            <IconPin size={13} />
-            {isEditing ? 'Update' : hasEdits ? 'Save' : 'Marker'}
-          </button>
-        </div>
+        )}
+        <button
+          type="button"
+          className="anno__inspect-btn anno__inspect-cta"
+          disabled={!canCommit}
+          onClick={commit}
+          {...tip(
+            'Saves to feedback — style and text edits stay applied while the marker is visible',
+          )}
+        >
+          <IconPin size={13} />
+          {/* The disabled button names the condition instead of promising a
+              save that would save nothing — a tooltip would not do, a `disabled`
+              button never shows one. */}
+          {!canCommit
+            ? 'Add a note or an edit'
+            : isEditing
+              ? 'Update marker'
+              : entries.length > 0
+                ? `Save ${entries.length} change${entries.length === 1 ? '' : 's'}`
+                : 'Add marker'}
+        </button>
       </div>
     </div>
   );
 }
 
 /**
- * Abstaende als schmale Tabelle: eine Zeile je Eigenschaft, Spalten T/R/B/L,
- * am Ende der Ketten-Knopf. Der Farbpunkt vor dem Namen ordnet die Zeile dem
- * Rahmen im Overlay zu.
+ * Scope: the whole class or just this element — and below it, in plain words,
+ * what that means.
+ *
+ * It appears in *both* tabs, because both of them write: under class scope the
+ * text field replaces the text of every matching element, not just the one
+ * clicked. Anyone typing in the Content tab therefore has to see how far that
+ * reaches — the match count belongs next to the field, not in another tab.
+ */
+function ScopeControl({
+  inClass,
+  classSel,
+  classMatches,
+  onScope,
+}: {
+  inClass: boolean;
+  classSel: string | null;
+  classMatches: number;
+  onScope: (scope: 'class' | 'element') => void;
+}) {
+  const tip = useTip();
+  const plural = classMatches === 1 ? '' : 's';
+  return (
+    <div className="anno__scope">
+      <div className="anno__scope-row">
+        <span className="anno__inspect-row-label">Apply to</span>
+        <div className="anno__seg" role="group" aria-label="Apply changes to">
+          <button
+            type="button"
+            className={inClass ? 'is-active' : ''}
+            disabled={!classSel}
+            onClick={() => onScope('class')}
+            {...tip(classSel ? 'Edit every element with this class' : 'Element has no class')}
+          >
+            Class
+            {/* The number belongs on the button that triggers it — in the
+                Content tab it is otherwise the one warning that gets missed. */}
+            {classSel && classMatches > 1 && (
+              <em className="anno__seg-count">{classMatches}</em>
+            )}
+          </button>
+          <button
+            type="button"
+            className={!inClass ? 'is-active' : ''}
+            onClick={() => onScope('element')}
+            {...tip('Edit only this element')}
+          >
+            This element
+          </button>
+        </div>
+      </div>
+      {/* Says in plain words what a change really hits — under class scope, the
+          selector and how many elements hang off it. */}
+      <span
+        className="anno__scope-note"
+        title={
+          inClass
+            ? `${classSel} — ${classMatches} element${plural} on this page`
+            : 'Changes apply to this element only'
+        }
+      >
+        {inClass ? (
+          <>
+            <span className="anno__scope-sel">{classSel}</span>
+            <em className="anno__scope-count">
+              {' '}
+              — affects {classMatches} element{plural} on this page
+            </em>
+          </>
+        ) : classSel ? (
+          'Changes apply to this element only'
+        ) : (
+          'No class — changes apply to this element only'
+        )}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Spacing as a narrow table: one row per property, columns T/R/B/L, the link
+ * button at the end. The colour dot before the name ties the row to the frame
+ * in the overlay.
  */
 function SpacingBox({
   sel,
@@ -426,6 +700,7 @@ function SpacingBox({
   onToggleLink: (kind: SpacingKind) => void;
   onSpacing: (kind: SpacingKind, edge: Edge, value: number) => void;
 }) {
+  const tipText = useTip();
   const row = (kind: SpacingKind) => (
     <>
       <span className="anno__sp-lab">
@@ -435,13 +710,13 @@ function SpacingBox({
       {EDGES.map((edge) => {
         const value = Math.round(sel[kind][EDGE_KEY[edge]]);
         if (kind === 'margin' && sel.autoMargin[EDGE_KEY[edge]]) {
-          // Gesperrt statt Zahlenfeld: der gemessene Wert ist nur das Ergebnis
-          // von `auto`. Ihn zurueckzuschreiben ersetzt die Zentrierung.
+          // Locked rather than a number field: the measured value is only the
+          // result of `auto`. Writing it back replaces the centring.
           return (
             <span
               key={edge}
               className="anno__sp-auto"
-              title={`margin-${edge} is auto — currently ${value}px, not editable yet`}
+              {...tipText(`margin-${edge} is auto — currently ${value}px, not editable yet`)}
             >
               auto
             </span>
@@ -452,7 +727,7 @@ function SpacingBox({
             key={edge}
             className={`anno__sp-in${value === 0 ? ' is-zero' : ''}`}
             ariaLabel={`${kind} ${edge}`}
-            title={`${kind}-${edge} · drag to change`}
+            tip={`${kind}-${edge} · drag to change`}
             min={kind === 'padding' ? 0 : undefined}
             value={value}
             onValue={(v) => onSpacing(kind, edge, v)}
@@ -464,11 +739,11 @@ function SpacingBox({
         className={`anno__link${linked[kind] ? ' is-active' : ''}`}
         aria-pressed={linked[kind]}
         onClick={() => onToggleLink(kind)}
-        title={
+        {...tipText(
           linked[kind]
             ? `${kind}: sides linked — one edit changes all four`
-            : `${kind}: link all four sides`
-        }
+            : `${kind}: link all four sides`,
+        )}
       >
         {linked[kind] ? <IconLink size={12} /> : <IconLinkOff size={12} />}
       </button>
@@ -491,8 +766,8 @@ function SpacingBox({
 }
 
 /**
- * Offene Aenderungen als Chips. Die ersten drei stehen immer da, der Rest
- * klappt auf — und jede laesst sich einzeln zuruecknehmen.
+ * Open changes as chips. The first three always stand there, the rest unfolds
+ * — and each can be taken back on its own.
  */
 function ChangeList({
   entries,
@@ -503,6 +778,7 @@ function ChangeList({
   showAll: boolean;
   onToggleAll: () => void;
 }) {
+  const tipText = useTip();
   const hidden = entries.length - CHANGES_PREVIEW;
   const shown = showAll ? entries : entries.slice(0, CHANGES_PREVIEW);
   return (
@@ -519,7 +795,7 @@ function ChangeList({
               type="button"
               className="anno__chg-x"
               onClick={e.onRevert}
-              title={`Revert ${e.prop}`}
+              {...tipText(`Revert ${e.prop}`)}
               aria-label={`Revert ${e.prop}`}
             >
               <IconClose size={10} />
@@ -537,20 +813,22 @@ function ChangeList({
 }
 
 /**
- * Zahlenfeld mit Scrub-Gestik: Klick fokussiert (Tippen), Ziehen aendert den
- * Wert direkt (Figma/DevTools-Standard). Shift ziehen = 10er-Schritte.
+ * Number field with a scrub gesture: a click focuses it (typing), dragging
+ * changes the value directly (the Figma/DevTools standard). Shift-drag = steps
+ * of ten.
  */
 function NumberField({
   className,
   ariaLabel,
-  title,
+  tip,
   min,
   value,
   onValue,
 }: {
   className: string;
   ariaLabel: string;
-  title: string;
+  /** Ready-made tooltip text (contains measurements). */
+  tip: string;
   min?: number;
   value: number;
   onValue: (v: number) => void;
@@ -558,17 +836,23 @@ function NumberField({
   const scrub = useRef<{ startX: number; startVal: number; moved: boolean; pointerId: number } | null>(
     null,
   );
+  const tipProps = useTip()(tip);
   return (
     <input
       className={className}
       type="number"
       step={1}
       min={min}
+      // The tooltip props carry an onPointerDown of their own; scrubbing starts
+      // at the same place here. Hence merged by hand rather than spread —
+      // otherwise one of the two would drop out silently.
+      onPointerEnter={tipProps.onPointerEnter}
+      onPointerLeave={tipProps.onPointerLeave}
       aria-label={ariaLabel}
-      title={title}
       value={value}
       onChange={(ev) => onValue(Number(ev.target.value) || 0)}
       onPointerDown={(e: ReactPointerEvent<HTMLInputElement>) => {
+        tipProps.onPointerDown();
         if (e.button !== 0) return;
         scrub.current = { startX: e.clientX, startVal: value, moved: false, pointerId: e.pointerId };
       }}
@@ -582,10 +866,10 @@ function NumberField({
           try {
             e.currentTarget.setPointerCapture(e.pointerId);
           } catch {
-            /* schon freigegeben */
+            /* already released */
           }
         }
-        e.preventDefault(); // keine Textauswahl waehrend des Ziehens
+        e.preventDefault(); // no text selection while dragging
         const step = e.shiftKey ? 10 : 1;
         onValue(s.startVal + Math.round((dx * 0.5) / step) * step);
       }}
@@ -594,7 +878,7 @@ function NumberField({
         scrub.current = null;
         if (s?.moved) {
           e.preventDefault();
-          e.currentTarget.blur(); // nach dem Ziehen keinen Fokus behalten
+          e.currentTarget.blur(); // do not keep the focus after the drag
         }
       }}
       onLostPointerCapture={() => {

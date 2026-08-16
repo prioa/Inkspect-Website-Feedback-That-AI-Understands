@@ -7,42 +7,44 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { UI_CSS } from '@/components/styles';
 import { addItems } from '@/lib/feedbackStore';
 import { decodeShare, extractShareFromHash } from '@/lib/share';
+import { captureScrollAnchor } from '@/lib/scrollAnchor';
 import type { ToggleMessage } from '@/lib/messages';
 import { createLogger } from '@/lib/log';
 
 const HOST_ID = 'inkspect-root';
 
-/** Fenster-Event zum Oeffnen/Schliessen — SW-unabhaengig, u. a. fuer Tests. */
+/** Window event for opening/closing — independent of the SW, used by tests. */
 export const TOGGLE_EVENT = 'inkspect:toggle';
 
 /**
- * Offen-Zustand pro Tab: sessionStorage ueberlebt F5/Reload (das Content-
- * Script stirbt dabei mit), bleibt aber tab-lokal und verschwindet mit dem
- * Tab. Manche Seiten sperren den Zugriff (Sandbox) — deshalb ueberall guarded.
+ * Open state per tab: sessionStorage survives F5/reload (the content script
+ * dies with it) but stays tab-local and disappears with the tab. Some pages
+ * block access to it (sandbox) — hence the guards everywhere.
  */
 const OPEN_FLAG = 'ink-ui-open';
-/** Zuletzt in den Vorschauen geoeffnete Seite — App.tsx schreibt sie. */
+/** The page last opened in the previews — App.tsx writes it. */
 const PAGE_KEY = 'ink-ui-page';
 
 export default defineContentScript({
   matches: ['*://*/*'],
-  // Bewusst per Manifest statt scripting.executeScript registriert — letzteres
-  // lehnt das grosse minifizierte Bundle ab ("isn't UTF-8 encoded"). Das Script
-  // bleibt dormant (nur Listener), bis der Nutzer das Icon klickt.
+  // Registered via the manifest rather than scripting.executeScript on
+  // purpose — the latter rejects the large minified bundle ("isn't UTF-8
+  // encoded"). The script stays dormant (listeners only) until the user
+  // clicks the icon.
   runAt: 'document_idle',
   noScriptStartedPostMessage: true,
 
   main() {
     const log = createLogger('content');
 
-    // Die Preview-iframes laden dieselbe Origin — ohne den Guard wuerde sich
-    // die UI in jedem Frame erneut mounten.
+    // The preview iframes load the same origin — without the guard the UI
+    // would mount itself again in every frame.
     if (window.top !== window) {
-      log.debug('in Sub-Frame geladen — kein Mount', location.href);
+      log.debug('loaded in a sub-frame — not mounting', location.href);
       return;
     }
 
-    log.info('content script aktiv auf', location.href);
+    log.info('content script active on', location.href);
 
     let root: Root | null = null;
     let host: HTMLDivElement | null = null;
@@ -50,26 +52,33 @@ export default defineContentScript({
 
     function open(withFeedback = false): void {
       if (host) {
-        log.debug('open() ignoriert — UI bereits offen');
+        log.debug('open() ignored — the UI is already open');
         return;
       }
       log.info('open UI');
 
+      // Where the page stands *now* — measured before anything of ours is in
+      // the document: the overlay would sit in front of every reading point,
+      // and `overflow: hidden` below takes the scrollbar away. The previews
+      // start at this position (see `lib/scrollAnchor`).
+      const scroll = captureScrollAnchor(window);
+      if (scroll) log.debug('Scroll position carried over', scroll.ratioY, scroll.path.join(' >>> '));
+
       try {
         sessionStorage.setItem(OPEN_FLAG, withFeedback ? 'feedback' : '1');
       } catch {
-        /* Seite blockiert sessionStorage */
+        /* The page blocks sessionStorage */
       }
 
-      // Aktiv-Zustand ans Toolbar-Icon melden (Badge „ON").
+      // Report the active state to the toolbar icon ("ON" badge).
       void browser.runtime
         .sendMessage({ type: 'ink:ui-state', open: true })
         .catch(() => undefined);
 
       host = document.createElement('div');
       host.id = HOST_ID;
-      // `all: initial` kappt vererbte Seiten-Styles, bevor position/z-index
-      // gesetzt werden — die Reihenfolge im cssText ist relevant.
+      // `all: initial` cuts inherited page styles before position/z-index are
+      // set — the order within cssText matters.
       host.style.cssText =
         'all: initial; position: fixed; inset: 0; z-index: 2147483647;';
 
@@ -82,8 +91,8 @@ export default defineContentScript({
       const container = document.createElement('div');
       shadow.append(container);
 
-      // An documentElement, nicht an body: so greifen Body-Styles der Seite
-      // (transform, filter, contain) nicht auf unser position:fixed durch.
+      // On documentElement, not on body: that way the page's body styles
+      // (transform, filter, contain) cannot reach through to our position:fixed.
       document.documentElement.append(host);
 
       previousOverflow = document.documentElement.style.overflow;
@@ -98,6 +107,7 @@ export default defineContentScript({
             shadowRoot: shadow,
             onClose: close,
             initialFeedbackOpen: withFeedback,
+            initialScroll: scroll,
           }),
         ),
       );
@@ -110,11 +120,11 @@ export default defineContentScript({
         .catch(() => undefined);
       try {
         sessionStorage.removeItem(OPEN_FLAG);
-        // Nur ein Reload soll die zuletzt gezeigte Unterseite wiederherstellen —
-        // wer die UI schliesst, startet beim naechsten Mal auf der Tab-Seite.
+        // Only a reload should restore the subpage last shown — closing the UI
+        // means starting on the tab's own page next time.
         sessionStorage.removeItem(PAGE_KEY);
       } catch {
-        /* Seite blockiert sessionStorage */
+        /* The page blocks sessionStorage */
       }
       root?.unmount();
       root = null;
@@ -128,48 +138,48 @@ export default defineContentScript({
       else open();
     }
 
-    // Aus dem Background (Icon-Klick).
+    // From the background (icon click).
     browser.runtime.onMessage.addListener((message) => {
       if ((message as ToggleMessage)?.type !== 'ink:toggle') return;
       log.debug('toggle empfangen, offen?', !!host);
       toggle();
     });
 
-    // SW-unabhaengiger Ausloeser (Tests, spaeter evtl. Tastenkuerzel).
+    // Trigger that does not need the SW (tests, possibly a shortcut later).
     window.addEventListener(TOGGLE_EVENT, () => {
       log.debug('toggle via window-event, offen?', !!host);
       toggle();
     });
 
-    // Empfaenger-Flow des Feedback-Teilens: haengt im Hash ein
-    // #ink-feedback=…-Payload, wird es importiert und die UI oeffnet sich
-    // direkt mit dem Feedback-Panel.
+    // Receiving end of feedback sharing: if an #ink-feedback=… payload hangs
+    // in the hash, it is imported and the UI opens straight away with the
+    // feedback panel.
     const shared = extractShareFromHash(location.hash);
     if (shared) {
       void decodeShare(shared)
         .then(async (items) => {
           const added = await addItems(items);
           log.info('geteiltes Feedback importiert', { total: items.length, neu: added });
-          // Hash entfernen, damit Reload/Copy der URL den Payload nicht schleppt.
+          // Drop the hash, so a reload or a copied URL does not drag the payload along.
           history.replaceState(null, '', location.pathname + location.search);
-          // Empfaenger sollen das importierte Feedback sofort sehen.
+          // Recipients should see the imported feedback immediately.
           open(true);
         })
-        .catch((e: unknown) => log.error('geteiltes Feedback unlesbar', e));
+        .catch((e: unknown) => log.error('shared feedback could not be read', e));
     } else {
-      // War die UI in diesem Tab offen, ueberlebt sie F5/Reload.
+      // If the UI was open in this tab, it survives F5/reload.
       let flag: string | null = null;
       try {
         flag = sessionStorage.getItem(OPEN_FLAG);
       } catch {
-        /* Seite blockiert sessionStorage */
+        /* The page blocks sessionStorage */
       }
       if (flag) {
-        log.info('UI-Zustand wiederhergestellt (Reload)');
+        log.info('UI state restored (reload)');
         open(flag === 'feedback');
       }
     }
 
-    log.debug('content script bereit (dormant)');
+    log.debug('content script ready (dormant)');
   },
 });

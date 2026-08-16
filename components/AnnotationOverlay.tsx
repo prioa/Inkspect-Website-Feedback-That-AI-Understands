@@ -33,92 +33,125 @@ import { InspectPanel } from './InspectPanel';
 import type { Edge, LinkedSides, SpacingKind } from './InspectPanel';
 
 interface Props {
-  /** Logische Viewport-Groesse des Frames (unskaliert). */
+  /** Logical viewport size of the frame (unscaled). */
   width: number;
   height: number;
   zoom: number;
-  /** Nur im Korrekturmodus faengt das Overlay Pointer-Events ab. */
+  /** Only in mark-up mode does the overlay catch pointer events. */
   active: boolean;
   shapes: Shape[];
   /**
-   * Element-Marker, deren gespeicherte CSS-Aenderungen angewendet bleiben —
-   * unabhaengig davon, ob die Marker (roten Rahmen) sichtbar sind. So kann man
-   * im Dev-Modus die Korrektur *sehen*, ohne die Markierungen einzublenden.
-   * Faellt zurueck auf `shapes`, wenn nicht gesetzt.
+   * Element markers whose saved CSS changes stay applied — regardless of
+   * whether the markers (the red frames) are visible. That way you can *see*
+   * the correction in dev mode without showing the markings. Falls back to
+   * `shapes` when not set.
    */
   styleShapes?: Shape[];
-  /** Shape-Ids erledigter Eintraege — gedimmt gerendert, ohne Notiz-Bubble. */
+  /**
+   * Whether the "My edits" switch is currently on. When saving, that
+   * decides whether the values dialled in the popup may stay on the page (the
+   * marker takes them over) or disappear along with the popup — otherwise a
+   * change would stick to the page that the switch does not even show.
+   */
+  stylesApplied?: boolean;
+  /** Shape ids of completed entries — rendered dimmed, without a note bubble. */
   dimmedIds?: Set<string>;
   /**
-   * Shape-Ids fremder (importierter) Markierungen — die lassen sich nicht
-   * verschieben, nur eigene.
+   * Shape ids of foreign (imported) markings — those cannot be moved, only your
+   * own can.
    */
   lockedIds?: Set<string>;
   tool: Tool;
   color: string;
   frameEl: HTMLIFrameElement | null;
-  /** Zaehlt Frame-Loads hoch — der Scroll-Listener muss dann neu haengen. */
+  /** Counts frame loads — the scroll listener has to reattach then. */
   loadCount: number;
   /**
-   * Notizen als Sprechblasen direkt im Overlay rendern — an waehrend des
-   * Screenshot-Exports, damit der Text am richtigen Punkt im Bild steht.
-   * Unabhaengig davon erscheint die Notiz beim Hover ueber dem Marker.
+   * Counts every unfold of a hidden element. Otherwise remeasuring the element
+   * markers hangs off scrolling alone — a slideout that opens without a scroll
+   * would leave the markers standing on their old boxes.
+   */
+  revealNonce?: number;
+  /**
+   * Render notes as speech bubbles directly in the overlay — on during the
+   * screenshot export, so that the text stands at the right point in the image.
+   * Independently of this, the note appears on hovering the marker.
    */
   showNotes?: boolean;
-  /** Marker, der gerade per Panel-Klick angeflogen wurde — pulsiert kurz. */
+  /** The marker just flown to by a panel click — pulses briefly. */
   flashShapeId?: string | null;
-  /** Aendert sich pro Flash — startet die CSS-Animation neu. */
+  /** Changes per flash — restarts the CSS animation. */
   flashNonce?: number;
   /**
-   * Gerade fertiggestellte Markierung bei ausgeblendeten Markern — sie bleibt
-   * kurz stehen und blendet dann weich aus, statt hart zu verschwinden.
+   * A marking just finished while markers are hidden — it stays briefly and
+   * then fades out softly, rather than disappearing abruptly.
    */
   fadingShapeId?: string | null;
-  /** Marker, dessen Panel-Eintrag gerade gehovert wird — ruhig hervorheben. */
+  /** The marker whose panel entry is being hovered — highlight it quietly. */
   hoverShapeId?: string | null;
-  /** Doppelklick auf einen Marker (App): Notiz-Editor mit dem Text oeffnen. */
+  /** Double-click on a marker (App): open the note editor with its text. */
   editRequest?: NoteEditRequest | null;
+  /** Right-click in the frame (app): pin the element under the cursor + popup. */
+  pickRequest?: ElementPickRequest | null;
   onAdd: (shape: Shape) => void;
   onSetNote: (shapeId: string, note: string) => void;
   /**
-   * Nachtraegliche Aenderungen an einem Element-Marker uebernehmen — das
-   * Popup laesst sich per Klick auf das markierte Element wieder oeffnen.
+   * Take over later changes to an element marker — the popup can be reopened by
+   * clicking the marked element.
    */
   onUpdateShape?: (shapeId: string, patch: ElementShapePatch) => void;
-  /** Markierung loeschen (Bestaetigung uebernimmt die App). */
+  /** Delete a marking (the app takes care of the confirmation). */
   onDeleteShape?: (shapeId: string) => void;
-  /** Verschobene Markierung uebernehmen (Dokumentraum-Versatz). */
+  /** Take on a marking that was moved (offset in document space). */
   onMoveShape?: (shapeId: string, dx: number, dy: number) => void;
-  /** Neue Eckpunkte einer in der Groesse geaenderten Box uebernehmen. */
+  /** Take over the new corner points of a resized box. */
   onResizeShape?: (
     shapeId: string,
     box: { x1: number; y1: number; x2: number; y2: number },
   ) => void;
   /**
-   * Abstand eines Linienpaars setzen (null = einzelne Linie). Laeuft nur in
-   * den UI-State; gespeichert wird ueber `onCommitShape`, wenn das Feld den
-   * Fokus verliert — sonst schriebe jeder Tastendruck in den Store.
+   * Set the gap of a line pair (null = a single line). This only goes into the
+   * UI state; saving happens through `onCommitShape` when the field loses
+   * focus — otherwise every keystroke would write into the store.
    */
   onSetLineGap?: (shapeId: string, gap: number | null) => void;
-  /** Aktuellen Stand einer Markierung speichern. */
+  /** Save a marking as it currently stands. */
   onCommitShape?: (shapeId: string) => void;
 }
 
-/** Beim erneuten Speichern eines Element-Markers aenderbare Felder. */
+/** Fields that may change when an element marker is saved again. */
 export type ElementShapePatch = Partial<
   Pick<
     ElementShape,
-    'x' | 'y' | 'w' | 'h' | 'note' | 'styleChanges' | 'styleTarget' | 'styleScope' | 'textChange'
+    | 'x'
+    | 'y'
+    | 'w'
+    | 'h'
+    | 'note'
+    | 'styleChanges'
+    | 'styleTarget'
+    | 'styleScope'
+    | 'textChange'
+    | 'textScope'
   >
 >;
 
-/** Von der App gemeldeter Editier-Wunsch (Doppelklick im Frame). */
-export interface NoteEditRequest {
-  shapeId: string;
-  /** Klickpunkt in Dokument-Koordinaten — dort erscheint der Editor. */
+/** A pick requested by the app (a right-click in the frame). */
+export interface ElementPickRequest {
+  /** Click point in the frame viewport coordinates (unscaled). */
   x: number;
   y: number;
-  /** Zaehlt pro Doppelklick hoch — oeffnet den Editor auch erneut. */
+  /** Counts per right-click — picks the same spot again too. */
+  nonce: number;
+}
+
+/** An edit requested by the app (a double-click in the frame). */
+export interface NoteEditRequest {
+  shapeId: string;
+  /** Click point in document coordinates — the editor appears there. */
+  x: number;
+  y: number;
+  /** Counts per double-click — reopens the editor as well. */
   nonce: number;
 }
 
@@ -128,21 +161,21 @@ interface TextDraft {
   value: string;
 }
 
-/** Offener Notiz-Editor zum zuletzt gesetzten oder doppelt geklickten Marker. */
+/** Open note editor for the marker last placed or double-clicked. */
 interface NoteDraft {
   shapeId: string;
-  /** Ankerpunkt in Dokument-Koordinaten. */
+  /** Anchor point in document coordinates. */
   x: number;
   y: number;
   value: string;
   /**
-   * Text beim Oeffnen (Editier-Session per Doppelklick). Gesetzt darf der
-   * Commit auch leeren; beim Anlegen bleibt "leer" schlicht "keine Notiz".
+   * The text at opening time (an edit session via double-click). Once set, the
+   * commit may also empty it; when creating, "empty" simply means "no note".
    */
   initial?: string;
 }
 
-/** Bounding-Box im Dokumentraum (Live-Messung eines Element-Markers). */
+/** Bounding box in document space (live measurement of an element marker). */
 interface BoxRect {
   x: number;
   y: number;
@@ -151,25 +184,25 @@ interface BoxRect {
 }
 
 const MIN_DRAG = 3;
-/** Toleranz um die Marker-Box fuer den Notiz-Hover (Dokument-Pixel). */
+/** Tolerance around the marker box for the note hover (document pixels). */
 const HOVER_PAD = 8;
 
 /**
- * Handgezeichnete Rahmen („comic style") statt sauberer Rechtecke. Portiert
- * die CSS-Vorlage nach SVG: pro Ecke ein *Paar* Radien (waagerecht/senkrecht),
- * die sich stark unterscheiden — eine Ecke laeuft fast ueber die ganze Kante,
- * die gegenueberliegende bleibt spitz. Dazu ungleiche Strichstaerken (links
- * und unten kraeftiger, wie mit dem Pinsel gezogen) und eine leichte Drehung.
+ * Hand-drawn frames ("comic style") rather than clean rectangles. Ports the CSS
+ * original to SVG: per corner a *pair* of radii (horizontal/vertical) that
+ * differ strongly — one corner runs almost the whole edge, the opposite one
+ * stays sharp. Plus uneven stroke weights (heavier on the left and at the
+ * bottom, as if drawn with a brush) and a slight rotation.
  *
- * Prozentwerte wie in CSS: waagerechte Radien beziehen sich auf die Breite,
- * senkrechte auf die Hoehe — jeweils im Uhrzeigersinn ab links oben.
+ * Percentages as in CSS: horizontal radii refer to the width, vertical ones to
+ * the height — clockwise from the top left in each case.
  */
 interface SketchVariant {
-  /** [TL, TR, BR, BL] — Anteil der Breite. */
+  /** [TL, TR, BR, BL] — fraction of the width. */
   rx: [number, number, number, number];
-  /** [TL, TR, BR, BL] — Anteil der Hoehe. */
+  /** [TL, TR, BR, BL] — fraction of the height. */
   ry: [number, number, number, number];
-  /** Kraeftiger gezogene Seiten. */
+  /** The sides drawn more strongly. */
   heavy: ReadonlyArray<'top' | 'right' | 'bottom' | 'left'>;
   /** Leichte Schieflage in Grad. */
   tilt: number;
@@ -182,12 +215,12 @@ const SKETCH_VARIANTS: readonly SketchVariant[] = [
 ];
 
 /**
- * Unter dieser Kantenlaenge (Dokument-Pixel) waere die grosse Rundung nicht
- * mehr lesbar — dort bleibt es bei einer dezent angeschraegten Box.
+ * Below this edge length (document pixels) the large rounding would no longer
+ * be legible — there a discreetly skewed box remains.
  */
 const SKETCH_MIN = 26;
 
-/** Stabile Variante je Markierung: dieselbe Id ergibt immer dieselbe Form. */
+/** A stable variant per marking: the same id always yields the same shape. */
 function sketchVariantOf(id: string): SketchVariant {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
@@ -197,16 +230,16 @@ function sketchVariantOf(id: string): SketchVariant {
 interface SketchPaths {
   /** Geschlossene Kontur. */
   outline: string;
-  /** Nur die kraeftigen Seiten — als zweiter, dickerer Strich obenauf. */
+  /** Only the strong sides — a second, thicker stroke on top. */
   heavy: string;
-  /** Drehung in Grad um die Mitte der Box. */
+  /** Rotation in degrees about the centre of the box. */
   tilt: number;
 }
 
 /**
- * Baut die Pfade eines handgezeichneten Rahmens. Ueberlappende Radien werden
- * wie in CSS proportional heruntergerechnet, sonst wuerden sich die Boegen
- * benachbarter Ecken auf einer kurzen Kante ueberschneiden.
+ * Builds the paths of a hand-drawn frame. Overlapping radii are scaled down
+ * proportionally as in CSS, or the arcs of neighbouring corners would intersect
+ * on a short edge.
  */
 function sketchRect(
   x: number,
@@ -216,21 +249,21 @@ function sketchRect(
   variant: SketchVariant,
 ): SketchPaths {
   const tiny = w < SKETCH_MIN || h < SKETCH_MIN;
-  // Zu kleine Boxen: Rundung stark zuruecknehmen, Schieflage bleibt.
+  // Boxes that are too small: pull the rounding back sharply, the skew stays.
   const damp = tiny ? 0.12 : 1;
   /**
-   * Bewusste Abweichung von der CSS-Vorlage: dort sind die Boxen quadratisch,
-   * ein Radius von 95% der Breite sieht deshalb gut aus. Eine Markierung um
-   * ein 900x44-Element wuerde damit zur Linse — die Ecken des Elements laegen
-   * ausserhalb. Die kuerzere Kante deckelt darum alle Radien; die Handschrift
-   * (eine weit ausholende Ecke, die gegenueberliegende spitz) bleibt erhalten.
+   * A deliberate departure from the CSS original: there the boxes are square,
+   * so a radius of 95% of the width looks good. A marking around a 900x44
+   * element would become a lens that way — the element's corners would lie
+   * outside it. The shorter edge therefore caps every radius; the handwriting
+   * (one sweeping corner, the opposite one sharp) is preserved.
    */
   const cap = Math.min(w, h) * 0.9;
   const rx = variant.rx.map((v) => Math.min(v * damp * w, cap));
   const ry = variant.ry.map((v) => Math.min(v * damp * h, cap));
 
-  // CSS-Regel: passen zwei Radien nicht auf ihre gemeinsame Kante, werden
-  // *alle* mit demselben Faktor verkleinert.
+  // CSS rule: if two radii do not fit on their shared edge, *all* of them are
+  // scaled down by the same factor.
   const ratio = (extent: number, a: number, b: number) => (a + b <= 0 ? 1 : extent / (a + b));
   const f = Math.min(
     1,
@@ -274,17 +307,21 @@ function sketchRect(
   };
 }
 
-/** Wie stark eine Markierung gerade hervorgehoben wird. */
+/** How strongly a marking is currently highlighted. */
 type Emphasis = 'none' | 'hover' | 'drag';
 
-/** Markierungen, die als handgezeichnete Box gerendert werden. */
-function isSketchShape(shape: Shape): boolean {
+/**
+ * Markings that show hover and dragging in their own frame — the box markings.
+ * They need no second box around them, whether their frame is hand-drawn
+ * (rectangle) or plain (element).
+ */
+function drawsOwnEmphasis(shape: Shape): boolean {
   return shape.tool === 'rect' || shape.tool === 'element';
 }
 
 /**
- * Aktions-Knoepfe im sichtbaren Frame halten (Bildschirm-Pixel). `margin`
- * ist die halbe Ausdehnung der Leiste — sie ist um ihren Punkt zentriert.
+ * Keep the action buttons inside the visible frame (screen pixels). `margin` is
+ * half the extent of the bar — it is centred on its point.
  */
 function clampAct(value: number, extent: number, margin: number): number {
   const max = Math.max(margin, extent - margin);
@@ -298,26 +335,26 @@ function actionAnchor(shape: Shape): Point {
 }
 
 /**
- * Konturstaerke der Markierungen in Bildschirm-Pixeln. Bewusst duenn: die
- * Rahmen sollen den Inhalt einfassen, nicht zudecken — die Farbe traegt die
- * Aussage, nicht die Dicke.
+ * Outline weight of the markings in screen pixels. Deliberately thin: the
+ * frames should enclose the content, not cover it — the colour carries the
+ * message, not the thickness.
  */
 const STROKE_PX = 1.6;
-/** Freihand bleibt kraeftiger — ein hauchduenner Kritzelstrich wirkt zittrig. */
+/** Freehand stays heavier — a hair-thin scribble looks shaky. */
 const PEN_STROKE_PX = 2.4;
-/** Eckenradius der Rahmen in Bildschirm-Pixeln. */
+/** Corner radius of the frames, in screen pixels. */
 const CORNER_PX = 5;
 
 /**
- * Griffe an Rechteck/Ellipse. Das Kuerzel nennt die Kanten, die der Griff
- * zieht (`nw` = oben links, `e` = rechte Kante).
+ * Handles on a rectangle or ellipse. The shorthand names the edges the
+ * handle drags (`nw` = top left, `e` = right edge).
  */
 type HandleId = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 const HANDLE_IDS: HandleId[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
-/** Fangradius eines Griffs in Bildschirm-Pixeln. */
+/** Catch radius of a handle, in screen pixels. */
 const HANDLE_HIT = 9;
 
-/** Cursor-Modifier des Overlays pro Griff. */
+/** Cursor modifier of the overlay, per handle. */
 const HANDLE_CURSOR: Record<HandleId, string> = {
   nw: 'nwse',
   se: 'nwse',
@@ -329,7 +366,7 @@ const HANDLE_CURSOR: Record<HandleId, string> = {
   w: 'ew',
 };
 
-/** Nur aufgezogene Boxen lassen sich in der Groesse aendern (Pfeil nicht). */
+/** Only boxes that were drawn out can be resized (not the arrow). */
 function isResizable(shape: Shape): shape is BoxShape & { tool: 'rect' | 'ellipse' } {
   return shape.tool === 'rect' || shape.tool === 'ellipse';
 }
@@ -341,7 +378,7 @@ function handlePos(b: { x: number; y: number; w: number; h: number }, id: Handle
   };
 }
 
-/** Griff unter dem Punkt (Dokumentraum) oder null. */
+/** The handle under the point (document space), or null. */
 function handleAt(shape: Shape, p: Point, tol: number): HandleId | null {
   const b = shapeBounds(shape);
   if (!b) return null;
@@ -353,7 +390,7 @@ function handleAt(shape: Shape, p: Point, tol: number): HandleId | null {
   );
 }
 
-/** Neue Eckpunkte, wenn `handle` auf `p` gezogen wird. Ueberkreuzen ist erlaubt. */
+/** New corner points when `handle` is dragged to `p`. Crossing over is allowed. */
 function resizeBox(shape: BoxShape, handle: HandleId, p: Point) {
   const box = {
     x1: Math.min(shape.x1, shape.x2),
@@ -369,10 +406,9 @@ function resizeBox(shape: BoxShape, handle: HandleId, p: Point) {
 }
 
 /**
- * Unsichtbare Trefferflaeche entlang der Kontur einer Markierung. Ausserhalb
- * des Korrekturmodus faengt das Overlay als Ganzes keine Events (sonst waere
- * die Seite nicht mehr bedienbar) — nur diese Konturen tun es, damit sich
- * Markierungen trotzdem greifen und skalieren lassen.
+ * An invisible hit area along a marking's outline. Outside correction mode the
+ * overlay as a whole catches no events (or the page could no longer be used) —
+ * only these outlines do, so that markings can still be grabbed and scaled.
  */
 function renderHitShape(shape: Shape, tol: number) {
   const hit = {
@@ -414,7 +450,7 @@ function renderHitShape(shape: Shape, tol: number) {
       );
     case 'pin':
     case 'text': {
-      // Punktfoermig: die ganze Flaeche ist der Griff.
+      // Point-sized: the whole area is the handle.
       const b = shapeBounds(shape);
       return b ? (
         <rect
@@ -447,7 +483,7 @@ function renderHitShape(shape: Shape, tol: number) {
   }
 }
 
-/** Sichtbarer Frame-Ausschnitt in Dokument-Koordinaten. */
+/** The visible section of the frame, in document coordinates. */
 interface View {
   x: number;
   y: number;
@@ -456,9 +492,9 @@ interface View {
 }
 
 /**
- * Beschriftungen sitzen im Dokumentraum, sind aber Bildschirm-Elemente: am
- * Rand gezeichnete Labels laegen sonst ausserhalb des sichtbaren Ausschnitts.
- * Klemmt die linke obere Ecke einer Label-Box in `view` ein.
+ * Labels sit in document space but are screen elements: labels drawn at the
+ * edge would otherwise lie outside the visible crop. Clamps the top-left corner
+ * of a label box into `view`.
  */
 function clampLabel(x: number, y: number, w: number, h: number, zoom: number, view?: View) {
   if (!view) return { x, y };
@@ -469,7 +505,7 @@ function clampLabel(x: number, y: number, w: number, h: number, zoom: number, vi
   };
 }
 
-/** elementFromPoint, das in offene Shadow Roots absteigt (Web Components). */
+/** elementFromPoint that descends into open shadow roots (web components). */
 function deepElementFromPoint(doc: Document, x: number, y: number): Element | null {
   let el = doc.elementFromPoint(x, y);
   while (el?.shadowRoot) {
@@ -482,7 +518,7 @@ function deepElementFromPoint(doc: Document, x: number, y: number): Element | nu
 
 const numOf = (v: string) => Number.parseFloat(v) || 0;
 
-/** Bounding-Box, Label und Box-Model eines Elements (Dokumentraum). */
+/** Bounding box, label and box model of an element (document space). */
 function measureTarget(el: Element, win: Window): ElementTarget {
   const r = el.getBoundingClientRect();
   const cs = win.getComputedStyle(el);
@@ -499,8 +535,9 @@ function measureTarget(el: Element, win: Window): ElementTarget {
 }
 
 /**
- * Laengster direkter Textknoten mit Inhalt. Nur er wird bearbeitet: einfach
- * `textContent` zu setzen wuerde Kind-Elemente (Icons, <span>) mit wegwerfen.
+ * The longest direct text node with content. Only that gets edited: simply
+ * setting `textContent` would throw away child elements (icons, <span>) along
+ * with it.
  */
 function directTextNode(el: Element): Text | null {
   let best: Text | null = null;
@@ -513,19 +550,19 @@ function directTextNode(el: Element): Text | null {
   return best;
 }
 
-/** Direktes, nicht-leeres Text-Kind? Nur dann sind Font-Regler und Textfeld sinnvoll. */
+/** A direct, non-empty text child? Only then do font controls and a text field make sense. */
 function hasDirectText(el: Element): boolean {
   return directTextNode(el) != null;
 }
 
-/** Sichtbarer Text des Elements, ohne die Einrueckung aus dem Quelltext. */
+/** Visible text of the element, without the indentation from the source. */
 function directTextOf(el: Element): string {
   return directTextNode(el)?.textContent?.trim() ?? '';
 }
 
 /**
- * Text des Elements ersetzen. Die umgebenden Leerzeichen des Knotens bleiben
- * stehen — sonst klebt der Text an benachbarten Inline-Elementen.
+ * Replace the element's text. The node's surrounding spaces stay — otherwise
+ * the text sticks to neighbouring inline elements.
  */
 function writeDirectText(el: Element, value: string): void {
   const node = directTextNode(el);
@@ -536,14 +573,14 @@ function writeDirectText(el: Element, value: string): void {
   node.textContent = `${lead}${value}${tail}`;
 }
 
-/** Vom Popup bearbeitbare Eigenschaften — fuer den Reset in beiden Scopes. */
+/** Properties editable from the popup — for the reset in both scopes. */
 const EDITABLE_PROPS = [
   'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
   'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
   'font-weight', 'font-size', 'max-width',
 ];
 
-/** Klassen-Selektor des Elements (`.a.b`), Tailwind-sicher escaped. */
+/** Class selector of the element (`.a.b`), escaped Tailwind-safely. */
 function classSelectorOf(el: Element): string | null {
   const parts = Array.from(el.classList);
   if (parts.length === 0) return null;
@@ -554,12 +591,64 @@ function classSelectorOf(el: Element): string | null {
   }
 }
 
+/**
+ * Every element a change in the chosen scope hits. Element scope is exactly
+ * one; class scope everything the selector finds in the document — the same set
+ * the match count in the popup names.
+ */
+function scopeTargets(el: HTMLElement, doc: Document, useClass: boolean): HTMLElement[] {
+  if (!useClass) return [el];
+  const classSel = classSelectorOf(el);
+  if (!classSel) return [el];
+  try {
+    const found = Array.from(doc.querySelectorAll<HTMLElement>(classSel));
+    return found.length > 0 ? found : [el];
+  } catch {
+    return [el];
+  }
+}
+
+/** A single CSS property plus its shorthand (`padding` → all four sides). */
+function propsOf(prop: string): string[] {
+  return prop === 'margin' || prop === 'padding'
+    ? ALL_EDGES.map((e) => `${prop}-${e}`)
+    : [prop];
+}
+
+/**
+ * The original text per element, before the picker overwrote it.
+ *
+ * A style can be taken back by deleting the property — the page's CSS then
+ * applies again. Text knows no such "nothing": whoever wants to take it back
+ * has to know the old one. Under class scope every element hit has its *own*
+ * old text; the marker only holds the one of the element clicked. Hence here,
+ * per element and only at runtime — after a reload the original text is back in
+ * the page anyway.
+ */
+const TEXT_ORIGINALS = new WeakMap<HTMLElement, string>();
+
+/** Set the text across the whole scope, saving each original along the way. */
+function writeScopedText(targets: HTMLElement[], value: string): void {
+  for (const t of targets) {
+    if (!TEXT_ORIGINALS.has(t)) TEXT_ORIGINALS.set(t, directTextOf(t));
+    writeDirectText(t, value);
+  }
+}
+
+/** The counterpart: every element gets its own original text back. */
+function restoreScopedText(targets: HTMLElement[], fallback: string): void {
+  for (const t of targets) {
+    writeDirectText(t, TEXT_ORIGINALS.get(t) ?? fallback);
+    TEXT_ORIGINALS.delete(t);
+  }
+}
+
 const PICKER_STYLE_ID = '__dv-picker-css__';
 
 /**
- * Liefert die CSSStyleDeclaration einer vom Picker verwalteten Regel im Frame
- * (Klassen-Scope). Ein eigenes <style> haelt die Regeln; so wirken Aenderungen
- * live auf alle Elemente mit dieser Klasse, bis Reset oder Reload.
+ * Returns the CSSStyleDeclaration of a rule managed by the picker in the frame
+ * (class scope). A <style> of its own holds the rules; that way changes act
+ * live on every element with that class, until reset or reload.
  */
 function pickerRuleStyle(doc: Document, selector: string): CSSStyleDeclaration | null {
   let styleEl = doc.getElementById(PICKER_STYLE_ID) as HTMLStyleElement | null;
@@ -590,11 +679,11 @@ const MARGIN_PROPS = {
 } as const;
 
 /**
- * Welche Margin-Seiten stehen im CSS auf `auto`? `getComputedStyle` verraet das
- * nicht — es liefert fuer Margins den *benutzten* Wert, aus `margin: 0 auto`
- * wird dort z. B. `448px`. Die Typed-OM-Variante gibt dagegen den berechneten
- * Wert und damit `auto` zurueck. Wo es sie nicht gibt (Firefox), erkennt der
- * Rueckfall wenigstens die waagerechte Zentrierung an der Geometrie.
+ * Which margin sides are set to `auto` in the CSS? `getComputedStyle` does not
+ * give that away — for margins it returns the *used* value, so `margin: 0 auto`
+ * becomes `448px` there. The Typed OM variant, by contrast, returns the
+ * computed value and therefore `auto`. Where it does not exist (Firefox), the
+ * fallback at least recognises horizontal centring from the geometry.
  */
 function autoMarginSides(el: HTMLElement, win: Window): BoxEdges<boolean> {
   const out: BoxEdges<boolean> = { t: false, r: false, b: false, l: false };
@@ -605,7 +694,7 @@ function autoMarginSides(el: HTMLElement, win: Window): BoxEdges<boolean> {
       try {
         out[side] = String(map.get(prop)) === 'auto';
       } catch {
-        /* Eigenschaft nicht lesbar */
+        /* property not readable */
       }
     }
     return out;
@@ -617,7 +706,7 @@ function autoMarginSides(el: HTMLElement, win: Window): BoxEdges<boolean> {
   if (!parent || ml <= 0 || Math.abs(ml - mr) > 1) return out;
   const pcs = win.getComputedStyle(parent);
   const inner = parent.clientWidth - numOf(pcs.paddingLeft) - numOf(pcs.paddingRight);
-  // Element plus beide Margins fuellt den Elternteil genau aus -> auto-zentriert.
+  // The element plus both margins fills the parent exactly -> auto-centred.
   if (Math.abs(inner - (el.offsetWidth + ml + mr)) < 2) {
     out.l = true;
     out.r = true;
@@ -625,7 +714,7 @@ function autoMarginSides(el: HTMLElement, win: Window): BoxEdges<boolean> {
   return out;
 }
 
-/** Vollstaendiger Picker-Zustand inkl. lebendem DOM-Bezug und Font-Werten. */
+/** The complete picker state, including the live DOM reference and font values. */
 function buildSelected(el: HTMLElement, win: Window): SelectedTarget {
   const cs = win.getComputedStyle(el);
   const maxWidthRaw = cs.maxWidth && cs.maxWidth !== 'none' ? cs.maxWidth : null;
@@ -635,7 +724,7 @@ function buildSelected(el: HTMLElement, win: Window): SelectedTarget {
     tag: el.tagName.toLowerCase(),
     autoMargin: autoMarginSides(el, win),
     maxWidthRaw,
-    // Nur px sind als Zahl bedienbar; `80%` oder `60ch` bleiben Anzeige.
+    // Only px are usable as a number; `80%` or `60ch` stay display only.
     maxWidth: maxWidthRaw?.endsWith('px') ? numOf(maxWidthRaw) : null,
     fontWeight: Number.parseInt(cs.fontWeight, 10) || 400,
     fontSize: numOf(cs.fontSize),
@@ -647,52 +736,83 @@ function buildSelected(el: HTMLElement, win: Window): SelectedTarget {
 const ALL_EDGES = ['top', 'right', 'bottom', 'left'] as const;
 
 /**
- * Gespeicherte Aenderungen eines Markers wieder auf die Seite anwenden — beim
- * erneuten Oeffnen des Popups (auch nach einem Reload) zeigt die Vorschau dann
- * wieder die Sollwerte und laesst sich von dort weiterbearbeiten.
+ * Apply a marker's saved changes to the page again — on reopening the popup
+ * (after a reload too) the preview then shows the target values again and can
+ * be edited on from there.
  */
 function applyStoredChanges(shape: ElementShape, el: HTMLElement, doc: Document): void {
-  // Text haengt am Element selbst, nie an einer Klassenregel.
-  if (shape.textChange) writeDirectText(el, shape.textChange.to);
+  const useClass = (shape.styleScope ?? 'class') === 'class' && classSelectorOf(el) != null;
+  // Text knows no rule — it is written into every element of the scope.
+  // `textScope` is missing in old data: that only ever affected this element.
+  if (shape.textChange) {
+    writeScopedText(scopeTargets(el, doc, shape.textScope === 'class'), shape.textChange.to);
+  }
   const changes = shape.styleChanges ?? [];
   if (changes.length === 0) return;
   const classSel = classSelectorOf(el);
-  const target =
-    (shape.styleScope ?? 'class') === 'class' && classSel
-      ? pickerRuleStyle(doc, classSel)
-      : el.style;
+  const target = useClass && classSel ? pickerRuleStyle(doc, classSel) : el.style;
   for (const c of changes) {
-    if (c.prop === 'margin' || c.prop === 'padding') {
-      for (const edge of ALL_EDGES) target?.setProperty(`${c.prop}-${edge}`, c.to, 'important');
-    } else {
-      target?.setProperty(c.prop, c.to, 'important');
-    }
+    for (const p of propsOf(c.prop)) target?.setProperty(p, c.to, 'important');
   }
 }
 
-/** Gegenstueck zu `applyStoredChanges` — nimmt die Eigenschaften wieder zurueck. */
+/**
+ * The counterpart to `applyStoredChanges` — takes the properties back again.
+ * Clearing happens in *both* possible targets (inline style and class rule),
+ * not only in the saved scope: anyone who switched while editing would
+ * otherwise leave a value behind that nothing clears afterwards — the change
+ * would then stick to the page even though the "My edits" switch was off.
+ */
 function removeStoredChanges(shape: ElementShape, el: HTMLElement, doc: Document): void {
-  if (shape.textChange) writeDirectText(el, shape.textChange.from);
+  if (shape.textChange) {
+    restoreScopedText(
+      scopeTargets(el, doc, shape.textScope === 'class'),
+      shape.textChange.from,
+    );
+  }
   const changes = shape.styleChanges ?? [];
   if (changes.length === 0) return;
   const classSel = classSelectorOf(el);
-  const target =
-    (shape.styleScope ?? 'class') === 'class' && classSel
-      ? pickerRuleStyle(doc, classSel)
-      : el.style;
+  const targets = [el.style, classSel ? pickerRuleStyle(doc, classSel) : null];
   for (const c of changes) {
-    if (c.prop === 'margin' || c.prop === 'padding') {
-      for (const edge of ALL_EDGES) target?.removeProperty(`${c.prop}-${edge}`);
-    } else {
-      target?.removeProperty(c.prop);
+    for (const p of propsOf(c.prop)) for (const t of targets) t?.removeProperty(p);
+  }
+}
+
+/**
+ * Take only the pending changes out of both targets — and no further property.
+ * The coarse version (`clearPickerProps`) would also hit values the page itself
+ * set inline; merely closing the popup must not break anything nobody touched.
+ */
+function clearPendingProps(el: HTMLElement, doc: Document, pending: StyleChange[]): void {
+  if (pending.length === 0) return;
+  const classSel = classSelectorOf(el);
+  const rule = classSel ? pickerRuleStyle(doc, classSel) : null;
+  for (const c of pending) {
+    for (const p of propsOf(c.prop)) {
+      el.style.removeProperty(p);
+      rule?.removeProperty(p);
     }
   }
 }
 
 /**
- * Ausgangswerte fuer die Aenderungsliste beim Wieder-Oeffnen: aktuelle Messung,
- * ueberschrieben mit den gespeicherten Vorher-Werten des Markers — der Diff
- * laeuft so weiter gegen das unveraenderte Original, nicht gegen Zwischenstaende.
+ * Take away everything the popup itself may have written — in both targets. The
+ * coarse broom behind "Reset": there, clearing out is the intention.
+ */
+function clearPickerProps(el: HTMLElement, doc: Document): void {
+  const classSel = classSelectorOf(el);
+  const rule = classSel ? pickerRuleStyle(doc, classSel) : null;
+  for (const p of EDITABLE_PROPS) {
+    el.style.removeProperty(p);
+    rule?.removeProperty(p);
+  }
+}
+
+/**
+ * Starting values for the change list on reopening: the current measurement,
+ * overwritten with the marker's saved before-values — the diff therefore keeps
+ * running against the unchanged original, not against intermediate states.
  */
 function originalsFromStored(
   sel: SelectedTarget,
@@ -732,18 +852,21 @@ export function AnnotationOverlay({
   active,
   shapes,
   styleShapes,
+  stylesApplied = true,
   dimmedIds,
   lockedIds,
   tool,
   color,
   frameEl,
   loadCount,
+  revealNonce = 0,
   showNotes = false,
   flashShapeId = null,
   flashNonce = 0,
   fadingShapeId,
   hoverShapeId = null,
   editRequest = null,
+  pickRequest = null,
   onAdd,
   onSetNote,
   onUpdateShape,
@@ -758,43 +881,45 @@ export function AnnotationOverlay({
   const [draft, setDraft] = useState<Shape | null>(null);
   const [picked, setPicked] = useState<ElementTarget | null>(null);
   /**
-   * Per Klick fixiertes Element — bleibt stehen, damit sich sein Box-Model
-   * (Margin/Padding) und ggf. der Font live im Popup bearbeiten lassen.
+   * The element pinned by a click — it stays put, so that its box model
+   * (margin/padding) and possibly the font can be edited live in the popup.
    */
   const [selected, setSelected] = useState<SelectedTarget | null>(null);
   /**
-   * Zielt eine Aenderung auf die ganze Klasse (Standard, wirkt auf alle
-   * Elemente mit dieser Klasse) oder nur auf das einzelne Element?
+   * Does a change target the whole class (the default, acting on every element
+   * with that class) or only the single element?
    */
   const [scope, setScope] = useState<'class' | 'element'>('class');
   /**
-   * Alle vier Seiten gemeinsam bearbeiten — fuer Margin und Padding getrennt,
-   * weil man meist nur eines von beiden gleichmaessig haelt.
+   * Edit all four sides together — separately for margin and padding, because
+   * usually only one of the two is kept even.
    */
   const [linked, setLinked] = useState<LinkedSides>({ margin: false, padding: false });
-  /** Notiz-Entwurf im Popup — wird beim Uebernehmen mit dem Marker gespeichert. */
+  /** Note draft in the popup — saved with the marker when taking it over. */
   const [popupNote, setPopupNote] = useState('');
   /**
-   * Textfeld des Popups. Eigener State statt direkt aus dem DOM gelesen: beim
-   * Zurueckschreiben trimmt die Messung, ein getipptes Leerzeichen wuerde sonst
-   * mitten im Wort verschwinden. Null = kein Text am Element.
+   * Text field of the popup. Its own state rather than read straight from the
+   * DOM: when writing back, the measurement trims, and a typed space would
+   * otherwise disappear in the middle of a word. Null = no text on the element.
    */
   const [textEdit, setTextEdit] = useState<string | null>(null);
-  /** Wieder geoeffneter Element-Marker — Speichern aktualisiert ihn statt neu anzulegen. */
+  /** A reopened element marker — saving updates it instead of creating a new one. */
   const [editingId, setEditingId] = useState<string | null>(null);
-  /** Vom Nutzer per Drag gewaehlte Popup-Position (Viewport-Pixel) — null = automatisch. */
+  /** Popup position chosen by the user by dragging (viewport pixels) — null = automatic. */
   const [popupPos, setPopupPos] = useState<Point | null>(null);
   const [popupDragging, setPopupDragging] = useState(false);
-  /** Laufende Drag-Geste am Popup-Kopf (Griffpunkt relativ zur Popup-Ecke). */
+  /** A drag under way on the popup header (grip relative to the popup corner). */
   const popupDragRef = useRef<{ dx: number; dy: number; pointerId: number } | null>(null);
   /**
-   * Gemessene Popup-Groesse — damit die Platzierung gegen die *echte* Kante
-   * klemmt und nicht gegen geschaetzte Konstanten. Startwert entspricht dem
-   * Panel mit Text-, Font- und Notizfeld.
+   * The measured popup size — so that placement clamps against the *real* edge
+   * and not against estimated constants. The initial value corresponds to the
+   * panel with a text, font and note field.
    */
-  const [popupSize, setPopupSize] = useState({ w: 300, h: 480 });
+  // The initial estimate matches the Content tab — the ResizeObserver below
+  // corrects to the real size immediately.
+  const [popupSize, setPopupSize] = useState({ w: 300, h: 340 });
   const popupObsRef = useRef<ResizeObserver | null>(null);
-  /** Ausgangswerte beim Fixieren — Basis fuer die Aenderungsliste im Feedback. */
+  /** Starting values when pinning — the basis for the change list in the feedback. */
   const originalRef = useRef<{
     margin: BoxEdges;
     padding: BoxEdges;
@@ -804,17 +929,17 @@ export function AnnotationOverlay({
     text: string;
   } | null>(null);
   /**
-   * Cursorposition (Dokumentraum) fuer die Linien-Vorschau: sobald das
-   * Werkzeug gewaehlt ist, laeuft die Linie halbtransparent mit, der Klick
-   * setzt sie dann genau dort ab.
+   * Cursor position (document space) for the line preview: as soon as the tool
+   * is chosen, the line travels along semi-transparently, and the click then
+   * places it exactly there.
    */
   const [lineGhost, setLineGhost] = useState<Point | null>(null);
   /**
-   * Markierung, die gerade an der Maus haengt. Verschoben wird sie erst beim
-   * Loslassen im Store — waehrend des Zugs zeigt das Overlay den Versatz.
+   * The marking currently hanging off the mouse. It is only moved in the store
+   * on release — during the drag the overlay shows the offset.
    */
-  /** Eigene Markierung unterm Cursor — Cursor wird zum Greifer, der Marker
-   *  bekommt einen Greif-Rahmen. */
+  /** Your own marking under the cursor — the cursor becomes a grabber and the
+   *  marker gets a grab frame. */
   const [grabId, setGrabId] = useState<string | null>(null);
   const [movingShape, setMovingShape] = useState<{
     id: string;
@@ -822,11 +947,11 @@ export function AnnotationOverlay({
     dy: number;
     from: Point;
   } | null>(null);
-  /** Griff unterm Cursor (Markierung + Ecke) — zeigt den Resize-Cursor an. */
+  /** The handle under the cursor (marking + corner) — shows the resize cursor. */
   const [hoverHandle, setHoverHandle] = useState<{ id: string; handle: HandleId } | null>(null);
   /**
-   * Laufende Groessenaenderung. Wie beim Verschieben wandert waehrend des Zugs
-   * nur der UI-State mit; gespeichert wird beim Loslassen.
+   * A resize in progress. As with moving, only the UI state travels along
+   * during the drag; saving happens on release.
    */
   const [resizing, setResizing] = useState<{
     id: string;
@@ -835,22 +960,37 @@ export function AnnotationOverlay({
   } | null>(null);
 
   /**
-   * Live-Geometrie der Element-Marker (Doc-Koordinaten), neu vermessen wenn
-   * sich Layout aendert — vor allem beim An/Aus der gespeicherten CSS-
-   * Aenderungen: die Seite fliesst dann um, und der rote Rahmen soll am
-   * Element kleben bleiben statt an der urspruenglichen Stelle.
+   * Live geometry of the element markers (document coordinates), remeasured
+   * when the layout changes — above all when the saved CSS changes are switched
+   * on or off: the page reflows then, and the red frame should stay stuck to
+   * the element rather than to its original spot.
    */
   const [elemRects, setElemRects] = useState<Record<string, BoxRect>>({});
-  const displayShapes: Shape[] = shapes.map((s) =>
-    s.tool === 'element' && elemRects[s.id] ? { ...s, ...elemRects[s.id] } : s,
-  );
+
+  /**
+   * The follow-up for everything except element markers: the distance their
+   * anchor element has travelled since being drawn. A pin on a menu item would
+   * otherwise hang off fixed document coordinates and sit beside it as soon as
+   * the menu opens differently at another frame width.
+   *
+   * Display only — the stored shape is untouched. The offset is formed fresh in
+   * every measuring pass from (current anchor position − stored original
+   * position) and never accumulated; it therefore cannot be applied twice.
+   */
+  const [anchorShift, setAnchorShift] = useState<Record<string, Point>>({});
+
+  const displayShapes: Shape[] = shapes.map((s) => {
+    if (s.tool === 'element') return elemRects[s.id] ? { ...s, ...elemRects[s.id] } : s;
+    const shift = anchorShift[s.id];
+    return shift ? translateShape(s, shift.x, shift.y) : s;
+  });
   const dimmed = dimmedIds;
 
-  /** Eigene Markierung — fremde (importierte) bleiben, wo der Ersteller sie setzte. */
+  /** Our own marking — imported ones stay where their author put them. */
   const mine = (s: Shape) => isMovableShape(s) && !lockedIds?.has(s.id);
 
-  // Kein veralteter Hover-Rahmen, wenn Werkzeug/Modus wechseln. Auch das
-  // fixierte Element loslassen — der DOM-Bezug gilt nur im Element-Werkzeug.
+  // No stale hover frame when the tool or mode changes. Release the pinned
+  // element too — the DOM reference only applies in the element tool.
   useEffect(() => {
     setPicked(null);
     setSelected(null);
@@ -860,18 +1000,17 @@ export function AnnotationOverlay({
     setLineGhost(null);
   }, [tool, active]);
 
-  // Frame-Reload macht den DOM-Bezug des fixierten Elements ungueltig.
+  // A frame reload invalidates the pinned element's DOM reference.
   useEffect(() => {
     setSelected(null);
     setEditingId(null);
   }, [loadCount]);
 
   /**
-   * Gespeicherte Stil-Aenderungen verhalten sich wie die Marker selbst:
-   * nach jedem Frame-Load wieder anwenden (kein Reset beim Seiten-Reload)
-   * und zuruecknehmen, sobald das Feedback ausgeblendet oder der Eintrag
-   * geloescht wird — `shapes` ist bereits die sichtbarkeitsgefilterte
-   * Liste des Devices.
+   * Saved style changes behave like the markers themselves: reapplied after
+   * every frame load (no reset on a page reload) and taken back as soon as the
+   * feedback is hidden or the entry deleted — `shapes` is already the device's
+   * visibility-filtered list.
    */
   const styledShapes = (styleShapes ?? shapes).filter(
     (s): s is ElementShape =>
@@ -893,55 +1032,78 @@ export function AnnotationOverlay({
         applied.push([s, el]);
       }
     } catch {
-      /* Frame nicht lesbar */
+      /* frame not readable */
     }
     return () => {
       try {
         for (const [s, el] of applied) removeStoredChanges(s, el, win.document);
       } catch {
-        /* Frame schon entladen */
+        /* frame already unloaded */
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [styleSig, frameEl, loadCount]);
 
-  // Element-Marker an ihrer *aktuellen* Element-Position vermessen. Laeuft per
-  // rAF, also nach dem Anwenden/Zuruecknehmen der CSS-Aenderungen (der Reflow
-  // ist dann fertig) — der rote Rahmen springt so mit dem Element mit.
+  // Measure element markers at their *current* element position. Runs via rAF,
+  // so after applying or reverting the CSS changes (the reflow is finished by
+  // then) — that way the red frame jumps along with the element.
+  // Covers both references: the `selector` of the element markers and the
+  // `anchor` of every other tool — both are measured in the same pass.
   const elemSig = shapes
-    .filter((s): s is ElementShape => s.tool === 'element')
-    .map((s) => `${s.id}:${s.selector ?? ''}`)
+    .map((s) => `${s.id}:${s.tool === 'element' ? (s.selector ?? '') : (s.anchor ?? '')}`)
     .join('|');
   useEffect(() => {
     const win = frameEl?.contentWindow;
     if (!win) return;
-    // Eigene rAF (nicht die des Frames!): ein cross-origin-blockierter Frame
-    // wirft schon beim Zugriff auf window.cancelAnimationFrame einen
-    // SecurityError. Die Frame-Reads selbst stehen im try/catch.
+    // Our own rAF (not the frame's!): a cross-origin blocked frame throws a
+    // SecurityError on merely accessing window.cancelAnimationFrame. The frame
+    // reads themselves are inside try/catch.
     const raf = requestAnimationFrame(() => {
       const next: Record<string, BoxRect> = {};
+      const shifts: Record<string, Point> = {};
       try {
         const doc = win.document;
         const sx = win.scrollX;
         const sy = win.scrollY;
         for (const s of shapes) {
-          if (s.tool !== 'element' || !s.selector) continue;
+          if (s.tool !== 'element') {
+            // The follow-up for the other tools: only possible when an original
+            // position was recorded at drawing time (missing in old data — those
+            // simply stay where they are).
+            if (!s.anchor || s.anchorX == null || s.anchorY == null) continue;
+            const el = findByShadowPath(doc, s.anchor.split(' >>> '));
+            if (!el) continue;
+            const r = (el as HTMLElement).getBoundingClientRect();
+            if (r.width <= 0 && r.height <= 0) continue;
+            const dx = r.left + sx - s.anchorX;
+            const dy = r.top + sy - s.anchorY;
+            // Below half a pixel, moving is not worth it — and an empty entry
+            // keeps `displayShapes` cheap.
+            if (Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5) shifts[s.id] = { x: dx, y: dy };
+            continue;
+          }
+          if (!s.selector) continue;
           const el = findByShadowPath(doc, s.selector.split(' >>> '));
           if (!el) continue;
           const r = (el as HTMLElement).getBoundingClientRect();
+          // An invisible element (a folded menu, an accordion) returns nothing
+          // but zeros. Taking those over would squash the marker to 0x0 at the
+          // scroll origin — the stored box is the better information then.
+          if (r.width <= 0 && r.height <= 0) continue;
           next[s.id] = { x: r.left + sx, y: r.top + sy, w: r.width, h: r.height };
         }
       } catch {
-        return; // Frame nicht lesbar — dann bleiben die gespeicherten Koordinaten
+        return; // frame not readable — the stored coordinates then stand
       }
       setElemRects(next);
+      setAnchorShift(shifts);
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [elemSig, styleSig, scroll.x, scroll.y, loadCount, frameEl]);
+  }, [elemSig, styleSig, scroll.x, scroll.y, loadCount, revealNonce, frameEl]);
 
-  // Nach Scroll die Geometrie des fixierten Elements neu vermessen, damit
-  // Box-Model-Overlay und Popup am Element kleben bleiben.
+  // After a scroll, remeasure the pinned element's geometry, so that the box
+  // model overlay and the popup stay stuck to the element.
   useEffect(() => {
     const el = selected?.el;
     const win = frameEl?.contentWindow;
@@ -954,8 +1116,8 @@ export function AnnotationOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scroll.x, scroll.y]);
 
-  // Ref-Spiegel der Drafts: Commit wird von pointerdown *und* blur aufgerufen —
-  // ueber die Ref bleiben die Commits idempotent.
+  // Ref mirrors of the drafts: commit is called by pointerdown *and* blur —
+  // going through the ref keeps the commits idempotent.
   const [textDraft, setTextDraftState] = useState<TextDraft | null>(null);
   const textDraftRef = useRef<TextDraft | null>(null);
   const setTextDraft = (value: TextDraft | null) => {
@@ -963,7 +1125,7 @@ export function AnnotationOverlay({
     setTextDraftState(value);
   };
 
-  /** Rahmen des Notiz-Editors — Fokuswechsel *innerhalb* schliessen ihn nicht. */
+  /** Frame of the note editor — a focus change *inside* it does not close it. */
   const noteBoxRef = useRef<HTMLDivElement | null>(null);
   const [noteDraft, setNoteDraftState] = useState<NoteDraft | null>(null);
   const noteDraftRef = useRef<NoteDraft | null>(null);
@@ -972,9 +1134,10 @@ export function AnnotationOverlay({
     setNoteDraftState(value);
   };
 
-  // Der Cursor gehoert ins Notizfeld, sobald der Editor aufgeht. `autoFocus`
-  // allein reicht nicht: der Pointer-Up des Aufziehens landet danach und holt
-  // den Fokus zurueck ins Overlay — deshalb explizit nach dem Layout setzen.
+  // The cursor belongs in the note field as soon as the editor opens.
+  // `autoFocus` alone is not enough: the pointer-up of the drawing lands
+  // afterwards and pulls the focus back into the overlay — hence set it
+  // explicitly after the layout.
   const noteFieldRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     if (!noteDraft) return;
@@ -982,17 +1145,17 @@ export function AnnotationOverlay({
       const field = noteFieldRef.current;
       if (!field) return;
       field.focus();
-      // Bestehenden Text nicht ueberschreiben, sondern anhaengen lassen.
+      // Do not overwrite existing text, let it be appended instead.
       field.setSelectionRange(field.value.length, field.value.length);
     });
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteDraft?.shapeId]);
 
-  // Doppelklick auf einen Marker (von der App gemeldet, weil die Events im
-  // Interaktionsmodus im Frame landen) oder Edit aus dem Feedback-Panel:
-  // Element-Marker oeffnen ihr Bearbeiten-Popup wieder, alle anderen den
-  // Notiz-Editor mit dem vorhandenen Text am Klickpunkt.
+  // Double-click on a marker (reported by the app, because in interaction mode
+  // the events land in the frame) or an edit from the feedback panel: element
+  // markers reopen their edit popup, everything else the note editor with the
+  // existing text at the click point.
   useEffect(() => {
     if (!editRequest) return;
     const shape = shapes.find((s) => s.id === editRequest.shapeId);
@@ -1016,27 +1179,45 @@ export function AnnotationOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editRequest?.nonce]);
 
-  // Notiz eines Markers beim Ueberfahren einblenden. Getroffen wird per
-  // Bounding-Box-Mathe statt per Hit-Element im SVG — so schluckt das Overlay
-  // im Interaktionsmodus keine Klicks, die zur Seite gehoeren. Die Blase
-  // haengt an der Mausposition (Dokumentraum) und laeuft mit.
+  // Right-click in the frame (reported by the app — in interaction mode the
+  // events land in the frame document): pin the element under the cursor and
+  // open the edit popup. The coordinates are frame viewport pixels, and the hit
+  // test runs directly in the frame — no zoom conversion needed.
+  useEffect(() => {
+    if (!pickRequest) return;
+    const win = frameEl?.contentWindow;
+    if (!win) return;
+    try {
+      const el = deepElementFromPoint(win.document, pickRequest.x, pickRequest.y);
+      if (!el || el.tagName === 'HTML') return;
+      pickTarget(buildSelected(el as HTMLElement, win));
+    } catch {
+      /* frame not readable */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickRequest?.nonce]);
+
+  // Show a marker's note on hover. Hits are worked out with bounding-box maths
+  // rather than the hit element in the SVG — that way the overlay swallows no
+  // clicks in interaction mode that belong to the page. The bubble hangs off the
+  // mouse position (document space) and travels along.
   const [hoverNote, setHoverNote] = useState<{ id: string; x: number; y: number } | null>(null);
   const notedShapes = displayShapes.filter((s) => !dimmed?.has(s.id) && noteOf(s) != null);
   const notedRef = useRef(notedShapes);
   notedRef.current = notedShapes;
 
   /**
-   * Markierung unterm Cursor — sie bekommt die Aktions-Knoepfe (Bearbeiten,
-   * Loeschen) eingeblendet; Element-Marker zusaetzlich einen kraeftigeren
-   * Rahmen als Hinweis auf das Bearbeiten-Popup.
+   * The marking under the cursor — it gets the action buttons (edit, delete)
+   * shown; element markers additionally a heavier frame as a hint at the edit
+   * popup.
    */
   const [hoverElemId, setHoverElemId] = useState<string | null>(null);
-  /** Zeiger sitzt auf den Aktions-Knoepfen (Bearbeiten/Loeschen) — Hover halten. */
+  /** The pointer sits on the action buttons (edit/delete) — hold the hover. */
   const actionHoverRef = useRef(false);
   /**
-   * Verzoegertes Loeschen des Element-Hovers: der Weg vom Marker hoch zu den
-   * Aktions-Knoepfen fuehrt kurz durch „leeren" Raum — ohne Nachlauf wuerden
-   * die Knoepfe verschwinden, bevor der Zeiger sie erreicht.
+   * Delayed clearing of the element hover: the way from the marker up to the
+   * action buttons briefly leads through "empty" space — without a delay the
+   * buttons would disappear before the pointer reached them.
    */
   const hoverClearTimer = useRef(0);
   const setHoverElem = (id: string | null) => {
@@ -1044,12 +1225,11 @@ export function AnnotationOverlay({
     setHoverElemId(id);
   };
   /**
-   * Hover mit Nachlauf loeschen. Die Aktions-Leiste liegt als eigenes Element
-   * ueber dem Frame: sobald der Zeiger sie erreicht, hoert die Maus-Bewegung
-   * im Frame auf zu feuern und das Overlay meldet „verlassen". Ohne Nachlauf
-   * raeumte das den Hover ab, waehrend der Zeiger noch unterwegs zu den
-   * Knoepfen ist — sie blitzten einmal auf und waeren dann nicht mehr
-   * erreichbar.
+   * Clear the hover with a delay. The action bar lies as an element of its own
+   * over the frame: as soon as the pointer reaches it, mouse movement in the
+   * frame stops firing and the overlay reports "left". Without the delay that
+   * would clear the hover while the pointer is still on its way to the buttons —
+   * they would flash once and then be unreachable.
    */
   const clearHoverSoon = () => {
     window.clearTimeout(hoverClearTimer.current);
@@ -1059,9 +1239,8 @@ export function AnnotationOverlay({
   };
   useEffect(() => () => window.clearTimeout(hoverClearTimer.current), []);
   /**
-   * Markierungen, die sich hier bearbeiten lassen: abgehakte (ausgegraute)
-   * und fremde (gesperrte) bleiben aussen vor — fuer sie gibt es weder
-   * Stift noch Loeschen.
+   * Markings that can be edited here: ticked (greyed out) and foreign (locked)
+   * ones stay out — for those there is neither a pen nor a delete.
    */
   const hoverableShapes = displayShapes.filter(
     (s) => !dimmed?.has(s.id) && !lockedIds?.has(s.id),
@@ -1072,12 +1251,12 @@ export function AnnotationOverlay({
   const updateHover = (x: number, y: number) => {
     const id = hitNote(x, y);
     setHoverNote(id ? { id, x, y } : null);
-    // Solange der Zeiger auf den Aktions-Knoepfen sitzt, den Hover halten.
+    // While the pointer sits on the action buttons, hold the hover.
     if (actionHoverRef.current) return;
-    // Verschachtelte Markierungen: die *kleinste* treffende waehlen (die
-    // spezifischste), damit auch ein Marker in einem Marker hoverbar ist —
-    // nicht bloss der zuletzt gezeichnete. Hilfslinien spannen den ganzen
-    // Frame und landen dadurch von selbst hinten.
+    // Nested markings: choose the *smallest* one hit (the most specific), so
+    // that a marker inside a marker can be hovered too — not just the one drawn
+    // last. Guide lines span the whole frame and therefore end up at the back by
+    // themselves.
     let best: Shape | null = null;
     let bestArea = Infinity;
     for (const s of hoverableRef.current) {
@@ -1100,7 +1279,7 @@ export function AnnotationOverlay({
     if (best) {
       setHoverElem(best.id);
     } else if (hoverElemId) {
-      // Nicht sofort loeschen — dem Zeiger Zeit lassen, die Knoepfe zu treffen.
+      // Do not clear immediately — give the pointer time to reach the buttons.
       window.clearTimeout(hoverClearTimer.current);
       hoverClearTimer.current = window.setTimeout(() => {
         if (!actionHoverRef.current) setHoverElemId(null);
@@ -1124,8 +1303,8 @@ export function AnnotationOverlay({
     return null;
   };
 
-  // Im Interaktionsmodus laufen die Mausbewegungen im Frame selbst — dort
-  // lauschen und in Dokument-Koordinaten (pageX/pageY) hit-testen.
+  // In interaction mode the mouse movements run in the frame itself — listen
+  // there and hit-test in document coordinates (pageX/pageY).
   useEffect(() => {
     const win = frameEl?.contentWindow;
     if (!win) return;
@@ -1137,11 +1316,10 @@ export function AnnotationOverlay({
       raf = requestAnimationFrame(() => updateHover(pageX, pageY));
     };
     const onOut = (e: MouseEvent) => {
-      // `relatedTarget == null` heisst: der Zeiger hat das Frame-Dokument
-      // verlassen. Das passiert auch auf dem Weg zur Aktions-Leiste, denn die
-      // liegt als Element des Overlays *ueber* dem Frame — deshalb mit
-      // Nachlauf raeumen, sonst verschwinden die Knoepfe genau dann, wenn man
-      // sie anfassen will.
+      // `relatedTarget == null` means: the pointer has left the frame document.
+      // That also happens on the way to the action bar, since that lies as an
+      // element of the overlay *above* the frame — hence clear with a delay, or
+      // the buttons disappear exactly when you want to touch them.
       if (e.relatedTarget == null) {
         setHoverNote(null);
         clearHoverSoon();
@@ -1152,7 +1330,7 @@ export function AnnotationOverlay({
       win.addEventListener('mousemove', onMove, { passive: true });
       win.document.addEventListener('mouseout', onOut, true);
     } catch {
-      return; // Frame nicht lesbar
+      return; // frame not readable
     }
 
     return () => {
@@ -1161,14 +1339,14 @@ export function AnnotationOverlay({
         win.removeEventListener('mousemove', onMove);
         win.document.removeEventListener('mouseout', onOut, true);
       } catch {
-        /* Frame schon weg */
+        /* frame already gone */
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frameEl, loadCount]);
 
-  // Scroll-Position des Frames verfolgen, damit die Markierungen am Inhalt
-  // kleben bleiben. try/catch: der Frame kann blockiert (cross-origin) sein.
+  // Track the frame's scroll position, so that the markings stay stuck to the
+  // content. try/catch: the frame may be blocked (cross-origin).
   useEffect(() => {
     const win = frameEl?.contentWindow;
     if (!win) return;
@@ -1179,7 +1357,7 @@ export function AnnotationOverlay({
         const el = win.document.scrollingElement;
         setScroll({ x: el?.scrollLeft ?? 0, y: el?.scrollTop ?? 0 });
       } catch {
-        /* Frame nicht lesbar */
+        /* frame not readable */
       }
     };
     const onScroll = () => {
@@ -1199,15 +1377,15 @@ export function AnnotationOverlay({
       try {
         win.removeEventListener('scroll', onScroll);
       } catch {
-        /* Frame schon weg */
+        /* frame already gone */
       }
     };
   }, [frameEl, loadCount]);
 
-  // Im Zeichenmodus liegt das Overlay ueber dem Frame und wuerde Wheel-Events
-  // schlucken — zum Scrollen an den Frame weiterreichen. Nativer Listener mit
-  // passive:false, weil Reacts onWheel passiv am Root haengt und preventDefault
-  // (gegen das Mitscrollen des Grids dahinter) dort wirkungslos waere.
+  // In draw mode the overlay lies over the frame and would swallow wheel events
+  // — pass them on to the frame for scrolling. A native listener with
+  // passive:false, because React's onWheel hangs passively off the root and
+  // preventDefault (against the grid behind scrolling along) would be useless there.
   useEffect(() => {
     const svg = svgRef.current;
     if (!active || !svg) return;
@@ -1215,15 +1393,15 @@ export function AnnotationOverlay({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const factor = e.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1;
-      // Durch `zoom` teilen: der Frame ist skaliert dargestellt, also muss die
-      // Scroll-Strecke im Frame-Raum groesser sein, damit sich der Inhalt am
-      // Bildschirm genauso schnell bewegt wie beim nativen Scrollen (sonst
-      // kriecht die Seite bei Fit-to-Width-Zoom < 1).
+      // Divide by `zoom`: the frame is displayed scaled, so the scroll distance
+      // in frame space has to be larger for the content to move at the same
+      // speed on screen as with native scrolling (otherwise the page crawls at
+      // a fit-to-width zoom < 1).
       const k = factor / (zoom || 1);
       try {
         frameEl?.contentWindow?.scrollBy(e.deltaX * k, e.deltaY * k);
       } catch {
-        /* Frame nicht lesbar */
+        /* frame not readable */
       }
     };
 
@@ -1232,13 +1410,13 @@ export function AnnotationOverlay({
   }, [active, frameEl, zoom]);
 
   /**
-   * Callback-Ref am Panel: haelt `popupSize` aktuell, damit die Klemmung der
-   * Wirklichkeit folgt (Text- und Font-Zeile fehlen je nach Element, die
-   * Aenderungsliste waechst beim Bearbeiten).
+   * A callback ref on the panel: keeps `popupSize` current, so that the clamping
+   * follows reality (the text and font rows are missing depending on the
+   * element, and the change list grows while editing).
    *
-   * Muss *vor* dem `return null` weiter unten stehen: Hooks duerfen nicht an
-   * einem Ausstieg vorbeilaufen, sonst rendert ein leeres Overlay weniger
-   * Hooks als ein volles (React-Fehler #300).
+   * Must stand *before* the `return null` further down: hooks must not be
+   * skipped past an exit, or an empty overlay renders fewer hooks than a full
+   * one (React error #300).
    */
   const measurePopup = useCallback((node: HTMLDivElement | null) => {
     popupObsRef.current?.disconnect();
@@ -1256,27 +1434,32 @@ export function AnnotationOverlay({
     popupObsRef.current = obs;
   }, []);
 
-  // Ausblenden nur, wenn wirklich nichts zu tun ist. Bei ausgeblendeten
-  // Markern mit gespeicherten CSS-Aenderungen bleibt das Overlay gemountet,
-  // sonst wuerde der Cleanup die Aenderungen von der Seite zuruecknehmen —
-  // die Wirkung (Fonts/Padding) soll im Dev-Modus sichtbar bleiben.
-  if (!active && shapes.length === 0 && styledShapes.length === 0) return null;
+  // Hide only when there really is nothing to do. With markers hidden but saved
+  // CSS changes present, the overlay stays mounted, or the cleanup would take
+  // the changes back off the page — the effect (fonts/padding) should stay
+  // visible in dev mode. A right-click pick (pickRequest/selected) needs the
+  // overlay too, even without a marking: its popup hangs off it — and the pick
+  // effect may only run when the body below this guard has been executed
+  // (otherwise pickTarget and friends would never be initialised).
+  if (!active && shapes.length === 0 && styledShapes.length === 0 && !selected && !pickRequest) {
+    return null;
+  }
 
   /**
-   * Doppelklick ausserhalb des Korrekturmodus: Notiz-Editor oeffnen.
+   * Double-click outside correction mode: open the note editor.
    *
-   * Die App lauscht dafuer zusaetzlich im Frame-Dokument, doch die
-   * Trefferflaechen (`.anno__hit--area`) liegen ueber dem iframe und
-   * verschlucken den Doppelklick, bevor er dort ankommt — genau wie beim
-   * Wheel-Weiterreichen daneben. Wer den Marker trifft, wird deshalb hier
-   * bedient; alles andere laeuft unveraendert an die Seite durch.
+   * The app additionally listens in the frame document for this, but the hit
+   * areas (`.anno__hit--area`) lie over the iframe and swallow the double-click
+   * before it arrives there — exactly as with the wheel forwarding next to it.
+   * Whoever hits the marker is therefore served here; everything else passes
+   * through to the page unchanged.
    */
   const handleDoubleClick = (e: ReactMouseEvent) => {
     if (active) return;
     const rect = svgRef.current!.getBoundingClientRect();
     const x = (e.clientX - rect.left) / zoom + scroll.x;
     const y = (e.clientY - rect.top) / zoom + scroll.y;
-    // Hinterste zuerst — die liegen im Overlay obenauf.
+    // Backmost first — those lie on top in the overlay.
     for (let i = displayShapes.length - 1; i >= 0; i--) {
       const shape = displayShapes[i];
       if (!shape || dimmed?.has(shape.id)) continue;
@@ -1289,7 +1472,7 @@ export function AnnotationOverlay({
         y <= b.y + b.h + HOVER_PAD
       ) {
         e.preventDefault();
-        // Element-Marker: Bearbeiten-Popup wieder oeffnen statt Notiz-Editor.
+        // Element marker: reopen the edit popup rather than the note editor.
         if (
           shape.tool === 'element' &&
           !lockedIds?.has(shape.id) &&
@@ -1313,8 +1496,11 @@ export function AnnotationOverlay({
     };
   };
 
-  /** Element unter dem Cursor im Frame-Dokument bestimmen. */
-  const elementAt = (e: ReactPointerEvent, win: Window): HTMLElement | null => {
+  /** Determine the element under the cursor in the frame document. */
+  const elementAt = (
+    e: { clientX: number; clientY: number },
+    win: Window,
+  ): HTMLElement | null => {
     const rect = svgRef.current!.getBoundingClientRect();
     const el = deepElementFromPoint(
       win.document,
@@ -1325,19 +1511,19 @@ export function AnnotationOverlay({
     return el as HTMLElement;
   };
 
-  const pickAt = (e: ReactPointerEvent): ElementTarget | null => {
+  const pickAt = (e: { clientX: number; clientY: number }): ElementTarget | null => {
     const win = frameEl?.contentWindow;
     if (!win) return null;
     try {
       const el = elementAt(e, win);
       return el ? measureTarget(el, win) : null;
     } catch {
-      return null; // Frame nicht lesbar
+      return null; // frame not readable
     }
   };
 
-  /** Element per Klick fixieren — inkl. lebendem DOM-Bezug und Font-Werten. */
-  const selectAt = (e: ReactPointerEvent): SelectedTarget | null => {
+  /** Pin an element by clicking — including the live DOM reference and font values. */
+  const selectAt = (e: { clientX: number; clientY: number }): SelectedTarget | null => {
     const win = frameEl?.contentWindow;
     if (!win) return null;
     try {
@@ -1349,11 +1535,52 @@ export function AnnotationOverlay({
   };
 
   /**
-   * Mehrere Eigenschaften live setzen und neu vermessen — so folgen Overlay und
-   * Popup-Werte sofort. Klassen-Scope schreibt in eine verwaltete Regel (wirkt
-   * auf alle Elemente der Klasse), Element-Scope inline. Beide mit `important`,
-   * damit die Aenderung sichtbar wird und Element-Scope die Klassenregel schlaegt.
-   * Nicht persistent ueber einen Reload (wie DevTools).
+   * Pin an element and open the edit popup — the shared core of an element-tool
+   * click and a right-click. Picking the same element again closes it (toggle);
+   * if the element already carries a marker, its values open rather than a
+   * second marker.
+   */
+  const pickTarget = (target: SelectedTarget | null) => {
+    setPicked(null);
+    if (target && selected?.el === target.el) {
+      closeInspect(); // Toggle: erneut geklickt -> schliessen
+    } else if (target) {
+      const existing = onUpdateShape
+        ? [...displayShapes]
+            .reverse()
+            .find(
+              (s): s is ElementShape =>
+                s.tool === 'element' && !lockedIds?.has(s.id) && s.selector === target.selector,
+            )
+        : undefined;
+      if (existing) {
+        openForShape(existing, target);
+        return;
+      }
+      // Remember the starting values, to diff the changes for the feedback later.
+      originalRef.current = {
+        margin: { ...target.margin },
+        padding: { ...target.padding },
+        fontWeight: target.fontWeight,
+        fontSize: target.fontSize,
+        maxWidth: target.maxWidth,
+        text: target.text,
+      };
+      setSelected(target);
+      setEditingId(null);
+      setPopupNote(''); // the note belongs to whichever element is pinned
+      setTextEdit(target.hasText ? target.text : null);
+    } else {
+      closeInspect();
+    }
+  };
+
+  /**
+   * Set several properties live and remeasure — so that the overlay and the
+   * popup values follow immediately. Class scope writes into a managed rule
+   * (acting on every element of the class), element scope inline. Both with
+   * `important`, so that the change becomes visible and element scope beats the
+   * class rule. Not persistent across a reload (like DevTools).
    */
   const writeStyles = (entries: Array<[string, string]>) => {
     const el = selected?.el;
@@ -1365,16 +1592,54 @@ export function AnnotationOverlay({
       for (const [prop, value] of entries) target?.setProperty(prop, value, 'important');
       setSelected(buildSelected(el, win));
     } catch {
-      /* Frame nicht mehr lesbar */
+      /* frame no longer readable */
     }
   };
 
   const setStyle = (prop: string, value: string) => writeStyles([[prop, value]]);
 
   /**
-   * Text des fixierten Elements live in der Seite ersetzen. Das Layout fliesst
-   * dabei um — deshalb anschliessend neu vermessen, damit Rahmen und Box-Model
-   * am Element bleiben.
+   * Switch the scope — and take the values already set along.
+   *
+   * Without that move they would stay where they were written: anyone who first
+   * dials the padding under "Class" and then switches to "This element" would
+   * still have changed every element of the class, while the popup claims "only
+   * this one". So clear both targets first, then rewrite the diff against the
+   * starting values in the new target.
+   */
+  const changeScope = (next: 'class' | 'element') => {
+    if (next === scope) return;
+    setScope(next);
+    const el = selected?.el;
+    const win = frameEl?.contentWindow;
+    if (!el || !win) return;
+    try {
+      const doc = win.document;
+      const pending = buildChanges(selected!);
+      const text = buildTextChange(selected!);
+      clearPendingProps(el, doc, pending);
+      const classSel = next === 'class' ? classSelectorOf(el) : null;
+      const target = classSel ? pickerRuleStyle(doc, classSel) : el.style;
+      for (const c of pending) {
+        for (const p of propsOf(c.prop)) target?.setProperty(p, c.to, 'important');
+      }
+      // The text moves along: the old scope gets its original text back, the new
+      // one the draft.
+      if (text) {
+        restoreScopedText(scopeTargets(el, doc, scope === 'class'), text.from);
+        writeScopedText(scopeTargets(el, doc, next === 'class'), text.to);
+      }
+      setSelected(buildSelected(el, win));
+    } catch {
+      /* frame no longer readable */
+    }
+  };
+
+  /**
+   * Replace the text live in the page — under class scope in every element the
+   * selector hits (the number stands on the switch). The layout reflows in the
+   * process, so remeasure afterwards, keeping the frame and the box model on
+   * the element.
    */
   const writeText = (value: string) => {
     const el = selected?.el;
@@ -1382,14 +1647,14 @@ export function AnnotationOverlay({
     setTextEdit(value);
     if (!el || !win) return;
     try {
-      writeDirectText(el, value);
+      writeScopedText(scopeTargets(el, win.document, scope === 'class'), value);
       setSelected(buildSelected(el, win));
     } catch {
-      /* Frame nicht mehr beschreibbar */
+      /* frame no longer writable */
     }
   };
 
-  /** Margin/Padding setzen — bei aktivem Link alle vier Seiten zugleich. */
+  /** Set margin or padding — with the link active, all four sides at once. */
   const editSpacing = (kind: SpacingKind, edge: Edge, v: number) => {
     const value = `${kind === 'padding' ? Math.max(0, v) : v}px`;
     const edges = linked[kind] ? ALL_EDGES : [edge];
@@ -1397,19 +1662,16 @@ export function AnnotationOverlay({
   };
 
   /**
-   * Eine einzelne Aenderung zuruecknehmen: die Eigenschaft wird aus beiden
-   * moeglichen Zielen entfernt (Inline-Stil und verwaltete Klassenregel), damit
-   * wieder das CSS der Seite greift statt eines gleich lautenden Overrides.
-   * Die Kurzform `margin`/`padding` betrifft dabei alle vier Seiten.
+   * Revert a single change: the property is removed from both possible targets
+   * (inline style and the managed class rule), so that the page's CSS applies
+   * again rather than an override that says the same thing. The shorthand
+   * `margin`/`padding` affects all four sides in the process.
    */
   const revertChange = (change: StyleChange) => {
     const el = selected?.el;
     const win = frameEl?.contentWindow;
     if (!el || !win) return;
-    const props =
-      change.prop === 'margin' || change.prop === 'padding'
-        ? ALL_EDGES.map((e) => `${change.prop}-${e}`)
-        : [change.prop];
+    const props = propsOf(change.prop);
     try {
       for (const p of props) el.style.removeProperty(p);
       const classSel = classSelectorOf(el);
@@ -1417,40 +1679,51 @@ export function AnnotationOverlay({
       if (style) for (const p of props) style.removeProperty(p);
       setSelected(buildSelected(el, win));
     } catch {
-      /* Frame nicht mehr lesbar */
+      /* frame no longer readable */
     }
   };
 
-  /** Nur die Textaenderung zuruecknehmen — der Rest bleibt stehen. */
+  /**
+   * Revert only the text change — the rest stays. Every element hit gets its
+   * *own* original text back, not that of the one clicked (under class scope
+   * those are different).
+   */
   const revertText = () => {
     const original = originalRef.current?.text;
-    if (original != null) writeText(original);
+    const el = selected?.el;
+    const win = frameEl?.contentWindow;
+    if (original == null) return;
+    setTextEdit(original);
+    if (!el || !win) return;
+    try {
+      restoreScopedText(scopeTargets(el, win.document, scope === 'class'), original);
+      setSelected(buildSelected(el, win));
+    } catch {
+      /* frame no longer writable */
+    }
   };
 
-  /** Alle vom Popup gesetzten Werte entfernen — inline, Klassenregel und Text. */
+  /** Remove every value set by the popup — inline, class rule and text. */
   const resetStyles = () => {
     const el = selected?.el;
     const win = frameEl?.contentWindow;
     if (!el || !win) return;
     try {
-      for (const p of EDITABLE_PROPS) el.style.removeProperty(p);
-      const classSel = classSelectorOf(el);
-      const style = classSel ? pickerRuleStyle(win.document, classSel) : null;
-      if (style) for (const p of EDITABLE_PROPS) style.removeProperty(p);
+      clearPickerProps(el, win.document);
       const original = originalRef.current?.text;
       if (original != null && selected?.hasText) {
-        writeDirectText(el, original);
+        restoreScopedText(scopeTargets(el, win.document, scope === 'class'), original);
         setTextEdit(original);
       }
       setSelected(buildSelected(el, win));
     } catch {
-      /* Frame nicht mehr lesbar */
+      /* frame no longer readable */
     }
   };
 
   /**
-   * Diff der aktuellen Werte gegen die Ausgangswerte beim Fixieren. Gleichmaessig
-   * geaenderte Seiten fasst die Kurzform zusammen (`margin: 8px → 12px`).
+   * Diff of the current values against the starting values at pinning time.
+   * Sides changed evenly are folded into the shorthand (`margin: 8px → 12px`).
    */
   const buildChanges = (sel: SelectedTarget): StyleChange[] => {
     const o = originalRef.current;
@@ -1495,7 +1768,7 @@ export function AnnotationOverlay({
     return out;
   };
 
-  /** Geaenderter Text gegen den Ausgangstext beim Fixieren — null ohne Aenderung. */
+  /** Changed text against the starting text at pinning time — null without a change. */
   const buildTextChange = (sel: SelectedTarget): TextChange | null => {
     const from = originalRef.current?.text;
     if (from == null || !sel.hasText) return null;
@@ -1503,8 +1776,8 @@ export function AnnotationOverlay({
     return to.trim() === from.trim() ? null : { from, to: to.trim() };
   };
 
-  /** Popup schliessen und den Editier-Zustand vollstaendig zuruecksetzen. */
-  const closeInspect = () => {
+  /** Clear the editing state only — the page stays as it currently is. */
+  const resetInspectState = () => {
     setSelected(null);
     setEditingId(null);
     setPopupNote('');
@@ -1512,9 +1785,39 @@ export function AnnotationOverlay({
   };
 
   /**
-   * Popup fuer einen bestehenden Element-Marker wieder oeffnen: gespeicherte
-   * Aenderungen erneut anwenden (nach einem Reload waeren sie sonst weg) und
-   * den Diff wieder gegen die Original-Werte laufen lassen.
+   * Close the popup without saving. Whatever was dialled on the page in the
+   * popup then belongs to nobody — so it goes. It used to stay behind: visibly
+   * changed, noted in no marker and therefore no longer reachable by the
+   * "My edits" switch either. A marker reopened afterwards gets its saved values
+   * back.
+   */
+  const closeInspect = () => {
+    const el = selected?.el;
+    const win = frameEl?.contentWindow;
+    if (el && win && selected) {
+      try {
+        const doc = win.document;
+        const pending = buildChanges(selected);
+        const text = buildTextChange(selected);
+        // Without pending changes the page stays untouched — merely looking and
+        // closing again must not touch anything.
+        if (pending.length > 0 || text) {
+          clearPendingProps(el, doc, pending);
+          if (text) restoreScopedText(scopeTargets(el, doc, scope === 'class'), text.from);
+          const saved = editingId ? styledShapes.find((s) => s.id === editingId) : undefined;
+          if (saved) applyStoredChanges(saved, el, doc);
+        }
+      } catch {
+        /* frame no longer readable */
+      }
+    }
+    resetInspectState();
+  };
+
+  /**
+   * Reopen the popup for an existing element marker: reapply the saved changes
+   * (after a reload they would otherwise be gone) and let the diff run against
+   * the original values again.
    */
   const openForShape = (shape: ElementShape, target: SelectedTarget) => {
     const win = frameEl?.contentWindow;
@@ -1526,19 +1829,21 @@ export function AnnotationOverlay({
       setSelected(next);
       setTextEdit(next.hasText ? next.text : null);
     } catch {
-      setSelected(target); // Frame nicht (mehr) beschreibbar — Werte nur anzeigen
+      setSelected(target); // frame no longer writable — only display the values
       setTextEdit(target.hasText ? target.text : null);
     }
-    setScope(shape.styleScope ?? 'class');
+    // A marker without style changes has no `styleScope` — the text scope then
+    // says what it referred to.
+    setScope(shape.styleScope ?? shape.textScope ?? 'class');
     setPopupNote(shape.note ?? '');
     setEditingId(shape.id);
   };
 
   /**
-   * Popup fuer einen gespeicherten Marker oeffnen, dessen Element erst noch
-   * ueber den Selektor aufgeloest werden muss (Doppelklick, Panel-Edit).
-   * `false`, wenn das Element auf der Seite nicht mehr auffindbar ist —
-   * der Aufrufer faellt dann auf den Notiz-Editor zurueck.
+   * Open the popup for a saved marker whose element still has to be resolved
+   * through the selector (double-click, panel edit). `false` when the element
+   * can no longer be found on the page — the caller then falls back to the note
+   * editor.
    */
   const reopenShape = (shape: ElementShape): boolean => {
     const win = frameEl?.contentWindow;
@@ -1552,28 +1857,28 @@ export function AnnotationOverlay({
       openForShape(shape, buildSelected(el, win));
       return true;
     } catch {
-      return false; // Frame nicht lesbar
+      return false; // frame not readable
     }
   };
 
   /**
-   * Stift-Knopf am gehoverten Marker. Element-Marker oeffnen ihr Popup
-   * (Werte *und* Notiz); alle anderen Markierungen den Notiz-Editor — genau
-   * das, was auch der Doppelklick tut.
+   * Pen button on the hovered marker. Element markers open their popup (values
+   * *and* note); every other marking the note editor — exactly what the
+   * double-click does too.
    */
   const editShapeById = (id: string) => {
     const shape = hoverableRef.current.find((s) => s.id === id);
     if (!shape) return;
     actionHoverRef.current = false;
     setHoverElemId(null);
-    // Element nicht mehr auffindbar (Seite umgebaut) — dann wenigstens die Notiz.
+    // Element no longer findable (the page was rebuilt) — then at least the note.
     if (shape.tool === 'element' && onUpdateShape && reopenShape(shape)) return;
     const at = actionAnchor(shape);
     const value = editableTextOf(shape);
     setNoteDraft({ shapeId: shape.id, x: at.x, y: at.y, value, initial: value });
   };
 
-  /** Das fixierte Element als Feedback-Markierung uebernehmen — inkl. Aenderungen und Notiz. */
+  /** Take the pinned element on as a feedback marking — changes and note included. */
   const commitSelectedAsMarker = () => {
     if (!selected) return;
     const { x, y, w, h, label, selector } = selected;
@@ -1582,17 +1887,19 @@ export function AnnotationOverlay({
     const note = popupNote.trim();
     const classSel = classSelectorOf(selected.el);
     const styleScope: 'class' | 'element' = scope === 'class' && classSel ? 'class' : 'element';
-    const styleFields =
-      changes.length > 0
-        ? {
-            styleChanges: changes,
-            styleScope,
-            styleTarget: styleScope === 'class' ? classSel! : label,
-          }
+    // The scope hangs off the marker as soon as *anything* was changed — a pure
+    // text change included. Otherwise the feedback would say "this element
+    // only" while the text reads differently in twelve elements.
+    const scopeFields =
+      changes.length > 0 || textChange
+        ? { styleScope, styleTarget: styleScope === 'class' ? classSel! : label }
         : {};
-    const textFields = textChange ? { textChange } : {};
+    const styleFields = changes.length > 0 ? { styleChanges: changes } : {};
+    // Text carries its own scope: old markers have none and therefore still
+    // mean their own element alone.
+    const textFields = textChange ? { textChange, textScope: styleScope } : {};
     if (editingId && onUpdateShape) {
-      // Wieder geoeffneter Marker: Werte am bestehenden Eintrag aktualisieren.
+      // A marker opened again: update the values on the existing entry.
       onUpdateShape(editingId, {
         x,
         y,
@@ -1603,6 +1910,8 @@ export function AnnotationOverlay({
         styleTarget: undefined,
         styleScope: undefined,
         textChange: undefined,
+        textScope: undefined,
+        ...scopeFields,
         ...styleFields,
         ...textFields,
       });
@@ -1618,19 +1927,25 @@ export function AnnotationOverlay({
         label,
         selector,
         ...(note ? { note } : {}),
+        ...scopeFields,
         ...styleFields,
         ...textFields,
       });
     }
-    closeInspect();
+    // If the "My edits" switch is on, the fresh marker takes over the values
+    // already standing on the page — they stay put and are reconciled by the
+    // store effect straight after. If it is off, the page belongs to the
+    // original again; the marker holds the values but does not show them.
+    if (stylesApplied) resetInspectState();
+    else closeInspect();
     setPicked(null);
   };
 
   /**
-   * Popup-Position in Viewport-Pixeln: standardmaessig neben dem Element,
-   * vom Nutzer per Drag frei platzierbar — immer an den Viewport geklemmt,
-   * damit nichts unter der schwebenden Werkzeugleiste o. Ae. verschwindet.
-   * Geklemmt wird gegen die gemessene Panel-Groesse, nicht gegen Schaetzwerte.
+   * Popup position in viewport pixels: by default next to the element, freely
+   * placeable by the user by dragging — always clamped to the viewport, so that
+   * nothing disappears under the floating tool bar or the like. The clamping
+   * goes against the measured panel size, not against estimates.
    */
   const popupPlacement = (sel: SelectedTarget) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -1644,7 +1959,7 @@ export function AnnotationOverlay({
     };
   };
 
-  /** Kopfzeile ist der Drag-Griff — Buttons darin bleiben klickbar. */
+  /** The header is the drag grip — buttons inside it stay clickable. */
   const popupHeadProps = {
     onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
@@ -1655,7 +1970,7 @@ export function AnnotationOverlay({
         pointerId: e.pointerId,
       };
       e.currentTarget.setPointerCapture(e.pointerId);
-      e.preventDefault(); // keine Textauswahl waehrend des Ziehens
+      e.preventDefault(); // no text selection while dragging
       setPopupDragging(true);
     },
     onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -1673,7 +1988,7 @@ export function AnnotationOverlay({
     },
   };
 
-  /** Wie viele Elemente der Klassen-Scope tatsaechlich trifft. */
+  /** How many elements the class scope actually hits. */
   const classMatchCount = (classSel: string | null) => {
     const doc = frameEl?.contentWindow?.document;
     if (!classSel || !doc) return 0;
@@ -1685,8 +2000,8 @@ export function AnnotationOverlay({
   };
 
   /**
-   * DOM-Bezug fuer eine Markierung an Dokument-Koordinaten — macht Exporte
-   * (Text-Export) im Quellcode verortbar.
+   * A DOM reference for a marking at document coordinates — makes exports (the
+   * text export) locatable in the source.
    */
   const anchorAt = (x: number, y: number): ElementRef => {
     const win = frameEl?.contentWindow;
@@ -1698,12 +2013,12 @@ export function AnnotationOverlay({
       return {
         anchor: shadowPath(el).join(' >>> '),
         anchorLabel: elementLabel(el),
-        // Ur-Position fuer die Reposition nach Layout-Aenderungen (Reload).
+        // Original position for repositioning after layout changes (reload).
         anchorX: r.left + win.scrollX,
         anchorY: r.top + win.scrollY,
       };
     } catch {
-      return {}; // Frame nicht lesbar
+      return {}; // frame not readable
     }
   };
 
@@ -1730,27 +2045,27 @@ export function AnnotationOverlay({
     if (!current) return;
     setNoteDraft(null);
     const value = current.value.trim();
-    // Nur echte Aenderungen speichern — beim Bearbeiten (initial gesetzt)
-    // darf der Text auch geleert werden, beim Anlegen ist leer = keine Notiz.
+    // Save real changes only — while editing (initially set) the text may also
+    // be emptied, whereas when creating, empty = no note.
     if (value !== (current.initial ?? '')) onSetNote(current.shapeId, value);
   };
 
   const handleDown = (e: ReactPointerEvent) => {
     if (e.button !== 0) return;
 
-    // Verhindert die Default-Fokusaenderung des nachfolgenden mousedown —
-    // die wuerde das frisch geoeffnete Notiz-Feld sofort wieder blurren
-    // (und damit schliessen), bevor es sichtbar wird.
+    // Prevents the default focus change of the mousedown that follows — that
+    // would immediately blur the freshly opened note field (and thereby close
+    // it) before it becomes visible.
     e.preventDefault();
 
-    // Offene Editoren zuerst bestaetigen (Notiz ist optional — leer = ohne).
+    // Commit open editors first (the note is optional — empty = without).
     commitText();
     commitNote();
 
     const p = toDoc(e);
 
-    // Griff einer eigenen Box angefasst? Dann Groesse aendern — vor dem
-    // Verschieben geprueft, denn die Griffe sitzen auf der Kontur.
+    // Grabbed the handle of one of your own boxes? Then resize — checked before
+    // moving, because the handles sit on the outline.
     if (onResizeShape) {
       const grabbedHandle = [...displayShapes]
         .reverse()
@@ -1768,8 +2083,8 @@ export function AnnotationOverlay({
       }
     }
 
-    // Kontur einer eigenen Markierung angefasst? Dann wird verschoben statt
-    // gezeichnet — hinterste zuerst, die liegen im Overlay obenauf.
+    // Grabbed the outline of one of your own markings? Then move rather than
+    // draw — rearmost first, those lie on top in the overlay.
     if (onMoveShape) {
       const grabbed = [...displayShapes]
         .reverse()
@@ -1782,49 +2097,15 @@ export function AnnotationOverlay({
       }
     }
 
-    // Ab hier wird gezeichnet — das gibt es nur im Korrekturmodus. Der Klick
-    // gehoert sonst der Seite (das Overlay faengt ihn dort gar nicht erst ab).
+    // From here on we draw — which only exists in correction mode. Otherwise the
+    // click belongs to the page (the overlay does not even catch it there).
     if (!active) return;
 
     if (tool === 'element') {
-      // Klick fixiert das Element und oeffnet das Bearbeiten-Popup (Margin/
-      // Padding, bei Text auch Font). Erneuter Klick auf dasselbe Element
-      // schliesst es. Als Markierung uebernehmen erfolgt aus dem Popup heraus.
-      const target = selectAt(e);
-      setPicked(null);
-      if (target && selected?.el === target.el) {
-        closeInspect(); // Toggle: erneut geklickt -> schliessen
-      } else if (target) {
-        // Traegt genau dieses Element schon einen Marker? Dann dessen Werte
-        // wieder zum Bearbeiten oeffnen statt einen zweiten Marker anzulegen.
-        const existing = onUpdateShape
-          ? [...displayShapes]
-              .reverse()
-              .find(
-                (s): s is ElementShape =>
-                  s.tool === 'element' && !lockedIds?.has(s.id) && s.selector === target.selector,
-              )
-          : undefined;
-        if (existing) {
-          openForShape(existing, target);
-          return;
-        }
-        // Ausgangswerte merken, um spaeter die Aenderungen fuers Feedback zu diffen.
-        originalRef.current = {
-          margin: { ...target.margin },
-          padding: { ...target.padding },
-          fontWeight: target.fontWeight,
-          fontSize: target.fontSize,
-          maxWidth: target.maxWidth,
-          text: target.text,
-        };
-        setSelected(target);
-        setEditingId(null);
-        setPopupNote(''); // Notiz gehoert zum jeweils fixierten Element
-        setTextEdit(target.hasText ? target.text : null);
-      } else {
-        closeInspect();
-      }
+      // The click pins the element and opens the edit popup (margin/padding,
+      // and for text the font too). Taking it over as a marking happens from
+      // inside the popup.
+      pickTarget(selectAt(e));
       return;
     }
 
@@ -1834,7 +2115,7 @@ export function AnnotationOverlay({
     }
 
     if (tool === 'pin') {
-      // Pin sofort speichern, dann Freitext (optional) dazu erfassen.
+      // Save the pin immediately, then capture the (optional) free text.
       const id = shapeId();
       onAdd({ id, tool: 'pin', color, x: p.x, y: p.y, text: '', ...anchorAt(p.x, p.y) });
       setNoteDraft({ shapeId: id, x: p.x, y: p.y, value: '' });
@@ -1845,7 +2126,7 @@ export function AnnotationOverlay({
     if (tool === 'pen') {
       setDraft({ id: shapeId(), tool: 'pen', color, strokes: [[p]] });
     } else if (tool === 'hline' || tool === 'vline') {
-      // Hilfslinie: beim Druecken schon sichtbar, Ziehen schiebt sie noch.
+      // Guide line: visible on press already, dragging still moves it.
       setDraft({ id: shapeId(), tool, color, x: p.x, y: p.y });
     } else {
       setDraft({ id: shapeId(), tool, color, x1: p.x, y1: p.y, x2: p.x, y2: p.y });
@@ -1866,18 +2147,18 @@ export function AnnotationOverlay({
       setMovingShape({ ...movingShape, dx: p.x - movingShape.from.x, dy: p.y - movingShape.from.y });
       return;
     }
-    // Auch im Zeichenmodus: Notiz beim Ueberfahren eines Markers zeigen.
+    // In draw mode too: show the note on hovering a marker.
     if (!draft) {
       const p = toDoc(e);
       updateHover(p.x, p.y);
-      // Hinterste zuerst — die liegen im Overlay obenauf, wie beim Anfassen.
+      // Rearmost first — those lie on top in the overlay, as when grabbing.
       const grabbed =
         onMoveShape
           ? [...displayShapes].reverse().find((s) => mine(s) && hitsShape(s, p, 8 / zoom))
           : undefined;
       setGrabId(grabbed?.id ?? null);
-      // Griff schlaegt Kontur: sitzt der Cursor auf einer Ecke/Kante, meint
-      // der Zug die Groesse, nicht die Position.
+      // A handle beats the outline: if the cursor sits on a corner or edge, the
+      // drag means the size, not the position.
       const overHandle =
         onResizeShape
           ? [...displayShapes]
@@ -1890,11 +2171,11 @@ export function AnnotationOverlay({
         overHandle?.handle ? { id: overHandle.id, handle: overHandle.handle } : null,
       );
     }
-    // Linien-Werkzeuge: Vorschau der Linie unterm Cursor.
+    // Line tools: a preview of the line under the cursor.
     if (active && (tool === 'hline' || tool === 'vline') && !draft) {
       setLineGhost(toDoc(e));
     }
-    // Element-Picker: Live-Highlight des Elements unterm Cursor.
+    // Element picker: live highlight of the element under the cursor.
     if (active && tool === 'element' && !draft) {
       setPicked(pickAt(e));
       return;
@@ -1909,9 +2190,9 @@ export function AnnotationOverlay({
     } else if (draft.tool === 'rect' || draft.tool === 'ellipse' || draft.tool === 'arrow') {
       setDraft({ ...draft, x2: p.x, y2: p.y });
     } else if (draft.tool === 'hline' || draft.tool === 'vline') {
-      // Erste Linie bleibt am Startpunkt; das Ziehen spannt die zweite auf
-      // und misst damit den Abstand. Unterhalb der Mindeststrecke bleibt es
-      // eine einzelne Linie, die dem Cursor folgt.
+      // The first line stays at the starting point; dragging spans the second
+      // and thereby measures the gap. Below the minimum distance it remains a
+      // single line following the cursor.
       const axis = draft.tool === 'hline' ? p.y : p.x;
       const start = draft.tool === 'hline' ? draft.y : draft.x;
       const spread = Math.abs(axis - start) >= MIN_DRAG / zoom;
@@ -1920,9 +2201,9 @@ export function AnnotationOverlay({
   };
 
   /**
-   * DOM-Bezug eines Freihand-Strichs: entlang des Zugs sampeln und die
-   * tatsaechlich gekreuzten Elemente zaehlen — body/html sind nur der
-   * Notnagel, wenn nichts Konkreteres getroffen wurde.
+   * DOM reference of a freehand stroke: sample along the drag and count the
+   * elements actually crossed — body/html are only the last resort when nothing
+   * more concrete was hit.
    */
   const penAnchors = (points: Point[]): ElementRef => {
     const step = Math.max(1, Math.floor(points.length / 12));
@@ -1952,16 +2233,16 @@ export function AnnotationOverlay({
     };
   };
 
-  // Freihand speichert ohne Notiz-Editor; Rechteck/Ellipse/Pfeil oeffnen wie
-  // Pin und Element-Picker direkt das Notizfeld (optional, leer = ohne).
-  // Als DOM-Bezug dienen die gekreuzten Elemente, beim Pfeil das Element
-  // unter der Spitze.
+  // Freehand saves without the note editor; rectangle/ellipse/arrow open the
+  // note field directly, like the pin and the element picker (optional, empty =
+  // without). The DOM reference is the crossed elements, and for the arrow the
+  // element under its tip.
   const handleUp = () => {
     if (resizing) {
       const { id, box } = resizing;
       setResizing(null);
-      // Zusammengeschobene Boxen nicht speichern — sonst bliebe ein
-      // unsichtbarer Marker zurueck.
+      // Do not save boxes pushed together — that would leave an invisible marker
+      // behind.
       if (Math.abs(box.x2 - box.x1) >= MIN_DRAG / zoom && Math.abs(box.y2 - box.y1) >= MIN_DRAG / zoom) {
         onResizeShape?.(id, box);
       }
@@ -1991,7 +2272,7 @@ export function AnnotationOverlay({
         setNoteDraft({ shapeId: draft.id, x: draft.x2, y: draft.y2, value: '' });
       }
     } else if (draft.tool === 'hline' || draft.tool === 'vline') {
-      // Ohne Mindeststrecke — ein Klick setzt die Linie bereits.
+      // Without a minimum distance — a click already places the line.
       onAdd({ ...draft, ...anchorAt(draft.x, draft.y) });
       setNoteDraft({ shapeId: draft.id, x: draft.x, y: draft.y, value: '' });
     }
@@ -2001,33 +2282,33 @@ export function AnnotationOverlay({
   const fontSize = 15 / zoom;
   const numbers = pinNumbers(shapes);
 
-  /** Flash-Rahmen um den per Panel angesprungenen Marker (an verschobener Position). */
+  /** Flash frame around the marker jumped to from the panel (at its moved position). */
   const flashShape = flashShapeId ? displayShapes.find((s) => s.id === flashShapeId) : null;
   const flashBox = flashShape ? shapeBounds(flashShape) : null;
 
-  /** Ruhige Hervorhebung, solange der Panel-Eintrag gehovert wird. */
+  /** A quiet highlight while the panel entry is hovered. */
   const hoverShape = hoverShapeId ? displayShapes.find((s) => s.id === hoverShapeId) : null;
   const hoverBox = hoverShape ? shapeBounds(hoverShape) : null;
 
-  /** Markierung unterm Cursor — traegt die Aktions-Knoepfe. */
+  /** The marking under the cursor — it carries the action buttons. */
   const markHoverShape =
     hoverElemId && !movingShape && !resizing
       ? (hoverableShapes.find((s) => s.id === hoverElemId) ?? null)
       : null;
   /**
-   * Element-Marker im Element-Werkzeug: kraeftiger Rahmen als Hinweis auf das
-   * Popup. Ausserhalb davon traegt der gezeichnete Rahmen den Hover selbst.
+   * Element markers in the element tool: a heavier frame as a hint at the popup.
+   * Outside it, the drawn frame carries the hover itself.
    */
   const hoverElemShape =
     markHoverShape?.tool === 'element' && active ? markHoverShape : null;
 
   /**
-   * Mitte der gehoverten Markierung in Bildschirm-Pixeln — dort sitzt die
-   * Aktions-Leiste (per CSS um ihren eigenen Mittelpunkt versetzt).
+   * Centre of the hovered marking in screen pixels — that is where the action
+   * bar sits (offset by CSS around its own centre point).
    *
-   * Liegt die Mitte ausserhalb des sichtbaren Frame-Ausschnitts, gibt es
-   * keine Leiste: an den Rand geklemmte Knoepfe haetten keinen erkennbaren
-   * Bezug mehr zu ihrer Markierung.
+   * If the centre lies outside the visible frame crop, there is no bar: buttons
+   * clamped to the edge would no longer have a recognisable relation to their
+   * marking.
    */
   const actAt = (() => {
     if (!markHoverShape) return null;
@@ -2035,8 +2316,8 @@ export function AnnotationOverlay({
     const left = (p.x - scroll.x) * zoom;
     let top = (p.y - scroll.y) * zoom;
     if (left < 0 || top < 0 || left > width * zoom || top > height * zoom) return null;
-    // Passt die Kapsel nicht in die Markierung (Pin, Text, Hilfslinie), wuerde
-    // sie diese komplett verdecken — dann sitzt sie knapp darueber.
+    // If the capsule does not fit inside the marking (pin, text, guide line) it
+    // would cover it completely — then it sits just above it.
     const b = shapeBounds(markHoverShape);
     if (b && (b.w * zoom < 78 || b.h * zoom < 42)) {
       top = (b.y - scroll.y) * zoom - 22;
@@ -2048,9 +2329,9 @@ export function AnnotationOverlay({
   })();
 
   /**
-   * Grosse Knoepfe im Viereck des Element-Markers — dort ist Platz und der
-   * Rahmen umschliesst sie sichtbar. Fuer kleine Markierungen bleibt es bei
-   * der kompakten Kapsel, sonst quillt sie ueber die Markierung hinaus.
+   * Large buttons inside the element marker's rectangle — there is room there
+   * and the frame visibly encloses them. For small markings the compact capsule
+   * remains, or it would spill out past the marking.
    */
   const actLarge =
     markHoverShape?.tool === 'element' &&
@@ -2058,50 +2339,50 @@ export function AnnotationOverlay({
     markHoverShape.h * zoom >= 64;
 
   /**
-   * Steht die Leiste ueberhaupt? Verschwindet sie, waehrend der Zeiger auf
-   * ihr sitzt (Popup geht auf, Markierung faellt weg), bekaeme sie nie ein
-   * `pointerleave` — `actionHoverRef` bliebe auf `true` haengen und
-   * `updateHover` wuerde ab da jeden Hover verschlucken.
+   * Is the bar standing at all? If it disappears while the pointer sits on it
+   * (a popup opens, the marking falls away), it would never get a
+   * `pointerleave` — `actionHoverRef` would stay stuck on `true` and
+   * `updateHover` would swallow every hover from then on.
    *
-   * Der Abgleich laeuft bewusst ohne Effekt: oben steht ein `return null`
-   * fuer leere Overlays, ein Hook an dieser Stelle liefe also nicht in jedem
-   * Render (React-Fehler #310). Die Zuweisung ist idempotent und leitet sich
-   * allein aus diesem Render ab — ein Effekt braucht es dafuer nicht.
+   * The reconciliation deliberately runs without an effect: there is a `return
+   * null` above for empty overlays, so a hook at this point would not run in
+   * every render (React error #310). The assignment is idempotent and derives
+   * solely from this render — no effect is needed for it.
    */
   const actsOpen = !!markHoverShape && !!actAt && !selected && !noteDraft;
   if (!actsOpen) actionHoverRef.current = false;
 
   /**
-   * Verschieben sichtbar machen: der Marker unterm Cursor bekommt einen
-   * Greif-Rahmen, der gezogene einen kraeftigeren an seiner neuen Position.
+   * Make moving visible: the marker under the cursor gets a grab frame, the one
+   * being dragged a heavier one at its new position.
    */
   const grabShape = grabId && !movingShape ? displayShapes.find((s) => s.id === grabId) : null;
   const dragShape = movingShape ? displayShapes.find((s) => s.id === movingShape.id) : null;
-  // Box-Markierungen zeigen Hover und Ziehen im gezeichneten Rahmen selbst —
-  // ein zweiter blauer Kasten darum waere doppelt gemoppelt.
-  const grabBox = grabShape && !isSketchShape(grabShape) ? shapeBounds(grabShape) : null;
+  // Box markings show hover and dragging in the drawn frame itself — a second
+  // blue box around it would be belt and braces.
+  const grabBox = grabShape && !drawsOwnEmphasis(grabShape) ? shapeBounds(grabShape) : null;
   const dragBox =
-    dragShape && !isSketchShape(dragShape)
+    dragShape && !drawsOwnEmphasis(dragShape)
       ? shapeBounds(translateShape(dragShape, movingShape!.dx, movingShape!.dy))
       : null;
 
-  /** Markierung mit Griffen: die unterm Cursor bzw. die gerade gezogene. */
+  /** The marking with handles: the one under the cursor, or the one being dragged. */
   const handleShape = (() => {
-    // Auch beim Hover im Panel — so sind die Griffe auffindbar, ohne die
-    // Kontur genau zu treffen.
+    // On a panel hover too — that way the handles can be found without hitting
+    // the outline exactly.
     const id = resizing?.id ?? hoverHandle?.id ?? grabId ?? hoverShapeId;
     const shape = id ? displayShapes.find((s) => s.id === id) : null;
-    // Nur wo der Zug auch etwas bewirkt.
+    // Only where the drag actually does something.
     if (!onResizeShape || movingShape) return null;
     if (!shape || !isResizable(shape) || !mine(shape)) return null;
     return resizing ? { ...shape, ...resizing.box } : shape;
   })();
   const handleBounds = handleShape ? shapeBounds(handleShape) : null;
 
-  /** Sichtbarer Ausschnitt im Dokumentraum — Beschriftungen bleiben darin. */
+  /** The visible section in document space — labels stay inside it. */
   const view: View = { x: scroll.x, y: scroll.y, w: width, h: height };
 
-  /** Editor-Position in Overlay-Pixeln, an den Raendern eingeklemmt. */
+  /** Editor position in overlay pixels, clamped at the edges. */
   const clampEditor = (x: number, y: number, w: number, h: number) => ({
     left: Math.max(4, Math.min((x - scroll.x) * zoom + 14, width * zoom - w - 4)),
     top: Math.max(4, Math.min((y - scroll.y) * zoom + 10, height * zoom - h - 4)),
@@ -2127,6 +2408,14 @@ export function AnnotationOverlay({
         viewBox={`0 0 ${width} ${height}`}
         onDoubleClick={handleDoubleClick}
         onPointerDown={handleDown}
+        onContextMenu={(e) => {
+          // A right-click picks the element under the cursor directly — in
+          // correction mode the overlay catches the click, otherwise the frame
+          // (see pickRequest). Do not pass it on to the grid palette.
+          e.preventDefault();
+          e.stopPropagation();
+          pickTarget(selectAt(e));
+        }}
         onPointerMove={handleMove}
         onPointerUp={handleUp}
         onPointerCancel={() => {
@@ -2135,23 +2424,23 @@ export function AnnotationOverlay({
           setResizing(null);
         }}
         onWheel={(e) => {
-          // Die Trefferflaechen liegen ueber dem Frame — eine Hilfslinie
-          // spannt sogar ueber die volle Breite. Ohne Weiterreichen liesse
-          // sich die Seite ueber ihr nicht mehr scrollen.
+          // The hit areas lie over the frame — a guide line even spans the full
+          // width. Without forwarding, the page could no longer be scrolled
+          // over it.
           if (active) return;
           const win = frameEl?.contentWindow;
           if (!win) return;
-          // deltaMode 1 = Zeilen, 2 = Seiten.
+          // deltaMode 1 = lines, 2 = pages.
           const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? height : 1;
           try {
             win.scrollBy(e.deltaX * unit, e.deltaY * unit);
           } catch {
-            /* Frame nicht lesbar */
+            /* frame not readable */
           }
         }}
         onPointerOut={() => {
-          // Ausserhalb des Korrekturmodus kommen Events nur von den Konturen:
-          // verlaesst der Zeiger sie, bleibt sonst der Greif-Rahmen kleben.
+          // Outside correction mode, events come only from the outlines: if the
+          // pointer leaves them, the grab frame would otherwise stay stuck.
           if (active || movingShape || resizing) return;
           setGrabId(null);
           setHoverHandle(null);
@@ -2168,9 +2457,9 @@ export function AnnotationOverlay({
         }}
       >
         <defs>
-          {/* Weicher Schatten fuer Notiz-Sprechblasen; Werte /zoom, damit die
-              Bildschirmgroesse konstant bleibt. Gleiche Definition in jedem
-              Overlay — url(#…) greift die erste im Shadow-Root. */}
+          {/* A soft shadow for note bubbles; values /zoom, so that the screen
+              size stays constant. The same definition in every overlay —
+              url(#…) picks up the first one in the shadow root. */}
           <filter id="ink-note-shadow" x="-40%" y="-40%" width="180%" height="200%">
             <feDropShadow
               dx="0"
@@ -2196,8 +2485,8 @@ export function AnnotationOverlay({
                 </g>
               );
             }
-            // Frisch gezeichnet, waehrend die Marker aus sind: kurz stehen
-            // lassen, dann weich ausblenden.
+            // Freshly drawn while the markers are off: let it stand briefly,
+            // then fade out softly.
             if (s.id === fadingShapeId) {
               return (
                 <g key={`fade-${s.id}`} className="anno__fade" pointerEvents="none">
@@ -2205,8 +2494,8 @@ export function AnnotationOverlay({
                 </g>
               );
             }
-            // Der gezogene Marker hebt sich sichtbar ab, solange er an der
-            // Maus haengt.
+            // The dragged marker visibly stands out for as long as it hangs off
+            // the mouse.
             if (movingShape?.id === s.id) {
               return (
                 <g key={`drag-${s.id}`} className="anno__moving">
@@ -2214,16 +2503,16 @@ export function AnnotationOverlay({
                 </g>
               );
             }
-            // Zeiger auf der Markierung: der Rahmen wird nachgezogen (siehe
-            // renderSketchBox). Der Panel-Hover bleibt beim blauen Kasten —
-            // er soll die Markierung auf der Seite *auffindbar* machen, dafuer
-            // ist ein zarter Doppelstrich zu leise.
+            // Pointer on the marking: the frame is retraced (see
+            // renderSketchBox). The panel hover keeps the blue box — it is meant
+            // to make the marking *findable* on the page, and a delicate double
+            // stroke is too quiet for that.
             const emphasis: Emphasis =
               grabId === s.id || markHoverShape?.id === s.id ? 'hover' : 'none';
             return renderShape(s, strokeWidth, fontSize, zoom, numbers.get(s.id), view, emphasis);
           })}
-          {/* Trefferflaechen der eigenen Markierungen — ausserhalb des
-              Korrekturmodus der einzige Weg, sie noch anfassen zu koennen. */}
+          {/* Hit areas of your own markings — outside correction mode the only
+              way still to be able to grab them. */}
           {!active && !showNotes && (onMoveShape || onResizeShape) && (
             <g className="anno__hits">
               {displayShapes
@@ -2238,19 +2527,22 @@ export function AnnotationOverlay({
                 .map((s) => renderHitShape(s, 8 / zoom))}
             </g>
           )}
-          {/* Screenshot: alle Erlaeuterungen sammeln sich am rechten Rand,
-              statt den Inhalt zu verdecken, um den es geht. */}
+          {/* Screenshot: every explanation collects at the right edge, rather
+              than covering the content it is about. */}
           {showNotes &&
             renderExportCards(
               displayShapes.filter((s) => !dimmed?.has(s.id)),
               zoom,
               width,
             )}
-          {/* Notizen stehen dauerhaft am Marker — gekuerzt, damit sie den
-              Inhalt nicht zudecken; der Hover zeigt den vollen Text. */}
+          {/* Notes stand permanently at the marker — shortened, so that they do
+              not cover the content; the hover shows the full text. Element
+              markers excepted: they carry their note in the flag above the frame
+              (see `renderElementTag`) and would otherwise need two boxes for one
+              statement. */}
           {!showNotes &&
             notedShapes
-              .filter((s) => s.id !== hoverNote?.id)
+              .filter((s) => s.tool !== 'element' && s.id !== hoverNote?.id)
               .map((s) =>
                 movingShape?.id === s.id
                   ? translateShape(s, movingShape.dx, movingShape.dy)
@@ -2272,8 +2564,8 @@ export function AnnotationOverlay({
             (() => {
               const shape = notedShapes.find((s) => s.id === hoverNote.id);
               if (!shape) return null;
-              // Direkt neben dem Cursor, eingeklemmt in den sichtbaren
-              // Frame-Ausschnitt (Dokumentraum: scroll..scroll+viewport).
+              // Right next to the cursor, clamped into the visible frame crop
+              // (document space: scroll..scroll+viewport).
               return renderNoteBubble(shape, zoom, {
                 at: { x: hoverNote.x + 14 / zoom, y: hoverNote.y + 18 / zoom },
                 view,
@@ -2292,8 +2584,8 @@ export function AnnotationOverlay({
             </g>
           )}
           {draft && renderShape(draft, strokeWidth, fontSize, zoom, undefined, view)}
-          {/* Greifbar: heller Rahmen mit dunkler Kontur darunter, damit er auf
-              jedem Seitenhintergrund steht. */}
+          {/* Grabbable: a light frame with a dark outline beneath it, so that it
+              stands on any page background. */}
           {grabBox && (
             <g className="anno__mark-grab" pointerEvents="none">
               <rect
@@ -2343,7 +2635,7 @@ export function AnnotationOverlay({
               />
             </g>
           )}
-          {/* Griffe an Ecken und Kantenmitten — hier aendert der Zug die Groesse. */}
+          {/* Handles at the corners and edge midpoints — here the drag changes the size. */}
           {handleBounds && (
             <g className="anno__handles">
               {HANDLE_IDS.map((id) => {
@@ -2438,7 +2730,11 @@ export function AnnotationOverlay({
                 )}
               </g>
             )}
-          {active && tool === 'element' && selected && (
+          {/* Not tied to mode and tool: a right-click lets the popup be opened
+              from interaction mode too. Without the frame it then stood over the
+              page without showing what it referred to — you were dialling values
+              without seeing the target. */}
+          {selected && (
             <g pointerEvents="none">
               {renderBoxModel(selected, zoom, view)}
               <rect
@@ -2472,8 +2768,8 @@ export function AnnotationOverlay({
           aria-label="Text annotation"
           onChange={(e) => setTextDraft({ ...textDraft, value: e.target.value })}
           onKeyDown={(e) => {
-            // stopPropagation: Esc/Enter sollen nur den Draft betreffen,
-            // nicht die globalen Shortcuts (Modus beenden etc.).
+            // stopPropagation: Esc/Enter should only affect the draft, not the
+            // global shortcuts (ending the mode and so on).
             if (e.key === 'Enter') {
               e.stopPropagation();
               commitText();
@@ -2494,8 +2790,8 @@ export function AnnotationOverlay({
           style={clampEditor(noteDraft.x, noteDraft.y, 230, 92)}
         >
           {(() => {
-            // Bei Hilfslinien laesst sich der Abstand hier auch tippen —
-            // gezogene Werte sind selten exakt, ein Sollwert („24 px") schon.
+            // For guide lines the gap can also be typed here — dragged values
+            // are rarely exact, whereas a target value ("24 px") is.
             const shape = shapes.find((s) => s.id === noteDraft.shapeId);
             if (!shape || (shape.tool !== 'hline' && shape.tool !== 'vline')) return null;
             if (!onSetLineGap) return null;
@@ -2518,7 +2814,7 @@ export function AnnotationOverlay({
                     );
                   }}
                   onKeyDown={(e) => {
-                    // Wie im Notizfeld: die Tasten gehoeren dem Editor.
+                    // As in the note field: the keys belong to the editor.
                     e.stopPropagation();
                     if (e.key === 'Enter') commitNote();
                   }}
@@ -2549,12 +2845,12 @@ export function AnnotationOverlay({
               }
               if (e.key === 'Escape') {
                 e.stopPropagation();
-                setNoteDraft(null); // Marker bleibt, Notiz verworfen
+                setNoteDraft(null); // The marker stays, the note is dropped
               }
             }}
             onBlur={(e) => {
-              // Sprung ins Abstandsfeld daneben ist kein Verlassen des
-              // Editors — sonst schliesst er sich beim ersten Klick dorthin.
+              // Jumping into the gap field next to it is not leaving the editor —
+              // otherwise it would close on the first click there.
               if (noteBoxRef.current?.contains(e.relatedTarget as Node | null)) return;
               commitNote();
             }}
@@ -2563,10 +2859,10 @@ export function AnnotationOverlay({
         </div>
       )}
 
-      {/* Aktions-Knoepfe an der gehoverten Markierung — gleich welcher Art:
-          Bearbeiten (Stift) und Loeschen (X, mit Rueckfrage). Machen sichtbar,
-          dass sich Markierungen bearbeiten lassen — Doppelklick allein ist
-          nicht auffindbar. Nicht, solange Popup oder Notiz-Editor offen sind. */}
+      {/* Action buttons on the hovered marking — whatever kind it is: edit (pen)
+          and delete (X, with a prompt). They make it visible that markings can
+          be edited — a double-click alone is not discoverable. Not while the
+          popup or the note editor is open. */}
       {actsOpen && markHoverShape && actAt && (
         <div
           className={`anno__acts${actLarge ? ' anno__acts--lg' : ''}`}
@@ -2576,10 +2872,10 @@ export function AnnotationOverlay({
             window.clearTimeout(hoverClearTimer.current);
           }}
           onPointerLeave={() => {
-            // Nicht sofort schliessen: die Leiste sitzt *in* der Markierung,
-            // der Zeiger steht beim Verlassen also meist noch auf ihr. Ein
-            // hartes Ausblenden liesse die Knoepfe flackern, weil die
-            // Mausbewegung im Frame sie sofort wieder einblendet.
+            // Do not close immediately: the bar sits *inside* the marking, so on
+            // leaving, the pointer is usually still on it. Hiding it hard would
+            // make the buttons flicker, because the mouse movement in the frame
+            // shows them again straight away.
             actionHoverRef.current = false;
             clearHoverSoon();
           }}
@@ -2614,9 +2910,9 @@ export function AnnotationOverlay({
 
       {selected &&
         (() => {
-          // Ins App-Root portalen: dort liegt das Popup ueber der schwebenden
-          // Werkzeugleiste und wird nicht vom Device-Container eingefangen
-          // (dessen container-type wuerde position:fixed abklemmen).
+          // Portal into the app root: there the popup lies above the floating
+          // tool bar and is not caught by the device container (whose
+          // container-type would cut off position:fixed).
           const host = svgRef.current?.closest('.root');
           const classSel = classSelectorOf(selected.el);
           const popup = (
@@ -2636,7 +2932,7 @@ export function AnnotationOverlay({
               isEditing={editingId != null}
               panelRef={measurePopup}
               headProps={popupHeadProps}
-              onScope={setScope}
+              onScope={changeScope}
               onToggleLink={(kind) => setLinked((v) => ({ ...v, [kind]: !v[kind] }))}
               onSpacing={editSpacing}
               onStyle={setStyle}
@@ -2655,12 +2951,12 @@ export function AnnotationOverlay({
   );
 }
 
-/** Text auf `max` Zeichen kuerzen — SVG-<text> kennt kein Ellipsieren. */
+/** Shorten text to `max` characters — SVG <text> knows no ellipsis. */
 function ellipsisAt(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, Math.max(1, max - 1))}…`;
 }
 
-/** Zeilenumbruch fuer Notiz-Sprechblasen — SVG-<text> bricht nicht selbst um. */
+/** Line wrapping for note bubbles — SVG <text> does not wrap by itself. */
 function wrapNote(text: string, maxChars: number, maxLines: number): string[] {
   const words = text.trim().split(/\s+/);
   const lines: string[] = [];
@@ -2681,13 +2977,13 @@ function wrapNote(text: string, maxChars: number, maxLines: number): string[] {
   return lines;
 }
 
-/** Editierbarer Inhalt einer Markierung: Pins/Texte tragen ihn in `text`, alle anderen in `note`. */
+/** Editable content of a marking: pins and texts carry it in `text`, everything else in `note`. */
 function editableTextOf(shape: Shape): string {
   if (shape.tool === 'pin' || shape.tool === 'text') return shape.text;
   return shape.note ?? '';
 }
 
-/** Notiztext und Ankerpunkt (Dokumentraum) einer Markierung — null ohne Notiz. */
+/** Note text and anchor point (document space) of a marking — null without a note. */
 function noteOf(shape: Shape): { text: string; x: number; y: number } | null {
   switch (shape.tool) {
     case 'pin':
@@ -2711,24 +3007,24 @@ function noteOf(shape: Shape): { text: string; x: number; y: number } | null {
       return b ? { text: shape.note, x: b.x, y: b.y + b.h + 6 } : null;
     }
     default:
-      return null; // Text rendert sich selbst
+      return null; // text renders itself
   }
 }
 
 /**
- * Notiz als Sprechblase — dauerhaft am Marker (gekuerzt), beim Hover in
- * voller Laenge direkt neben dem Cursor (`at`). Konstante Bildschirmgroesse,
- * deshalb /zoom.
+ * The note as a speech bubble — permanently at the marker (shortened), and on
+ * hover at full length right next to the cursor (`at`). A constant screen size,
+ * hence /zoom.
  */
 interface NoteBubbleOptions {
-  /** Abweichender Ankerpunkt (Hover: Mausposition). */
+  /** A different anchor point (on hover: the mouse position). */
   at?: Point;
-  /** Sichtbarer Ausschnitt — die Blase bleibt vollstaendig darin. */
+  /** The visible crop — the bubble stays entirely inside it. */
   view?: View;
-  /** Nur-horizontales Einklemmen (Screenshot): Blase nicht ueber den rechten
-   *  Frame-Rand hinaus rendern, sonst schneidet der Capture sie ab. */
+  /** Horizontal-only clamping (screenshot): do not render the bubble past the
+   *  right frame edge, or the capture cuts it off. */
   clampWidth?: number;
-  /** Dauerhafte Blase am Marker: kurz halten, langer Text wird abgeschnitten. */
+  /** Permanent bubble at the marker: keep it short, long text is cut off. */
   compact?: boolean;
 }
 
@@ -2741,8 +3037,8 @@ function renderNoteBubble(shape: Shape, zoom: number, opts: NoteBubbleOptions = 
   const lineH = size * 1.45;
   const padY = 9 / zoom;
   const padRight = 12 / zoom;
-  // Farbiger Akzentbalken links statt vollfarbigem Rahmen — der Text rueckt
-  // entsprechend ein.
+  // A coloured accent bar on the left rather than a fully coloured frame — the
+  // text is indented accordingly.
   const barX = 8 / zoom;
   const barW = 3 / zoom;
   const textX = barX + barW + 9 / zoom;
@@ -2754,13 +3050,14 @@ function renderNoteBubble(shape: Shape, zoom: number, opts: NoteBubbleOptions = 
   const note = { ...source, ...(at ?? {}) };
   const edge = 4 / zoom;
   if (view) {
-    // Die Notiz gehoert zum Marker und muss lesbar bleiben: in den sichtbaren
-    // Frame-Ausschnitt einklemmen statt am Rand abzuschneiden.
+    // The note belongs to the marker and has to stay readable: clamp it into the
+    // visible frame crop rather than cutting it off at the edge.
     note.x = Math.max(view.x + edge, Math.min(note.x, view.x + view.w - w - edge));
     note.y = Math.max(view.y + edge, Math.min(note.y, view.y + view.h - h - edge));
   } else if (clampWidth != null) {
-    // Screenshot: nur horizontal einklemmen (Dokument scrollt vertikal weiter,
-    // horizontal ist die Frame-Breite fest) — verhindert den rechten Abschnitt.
+    // Screenshot: clamp horizontally only (the document keeps scrolling
+    // vertically, horizontally the frame width is fixed) — this prevents the cut
+    // on the right.
     note.x = Math.max(edge, Math.min(note.x, clampWidth - w - edge));
     note.y = Math.max(edge, note.y);
   }
@@ -2802,19 +3099,44 @@ function renderNoteBubble(shape: Shape, zoom: number, opts: NoteBubbleOptions = 
   );
 }
 
-/** Eine Zeile einer Export-Karte. */
+/**
+ * What was changed on an element marker, in words: "padding changed", "text +
+ * padding changed". `null` when nothing was changed.
+ *
+ * The pill at the marker used to hold the selector — that is, exactly the piece
+ * of information the panel gives anyway and the one you need least when looking
+ * at the page. On the page what counts is *what* happened here; where exactly is
+ * shown by the frame beneath it.
+ */
+function changeSummary(shape: ElementShape): string | null {
+  const props: string[] = [];
+  const add = (name: string) => {
+    if (!props.includes(name)) props.push(name);
+  };
+  if (shape.textChange) add('text');
+  // The shorthand rather than the edge: "padding" is enough, "padding-top, padding-left" is not.
+  for (const c of shape.styleChanges ?? []) add(c.prop.split('-')[0]!);
+  if (props.length === 0) return null;
+  // Three names are the limit of readability — beyond that all that counts is
+  // that there are more.
+  const head = props.slice(0, 3).join(', ');
+  const rest = props.length - 3;
+  return `${head}${rest > 0 ? ` +${rest}` : ''} changed`;
+}
+
+/** One line of an export card. */
 interface CardRow {
   text: string;
-  /** Monospace (Selektoren, CSS-Werte) statt Fliesstext. */
+  /** Monospace (selectors, CSS values) rather than running text. */
   mono?: boolean;
-  /** Zurueckgenommen (Kontext statt Aussage). */
+  /** Held back (context rather than statement). */
   dim?: boolean;
 }
 
 /**
- * Inhalt der Karte zu einer Markierung: Kopfzeile und Detailzeilen.
- * Element-Marker tragen Geltungsbereich und jede einzelne Aenderung, alles
- * andere nur seine Notiz. `null`, wenn es nichts zu berichten gibt.
+ * Content of the card for a marking: a header line and detail lines. Element
+ * markers carry the scope and every individual change, everything else only its
+ * note. `null` when there is nothing to report.
  */
 function cardContentOf(shape: Shape): { title: string; rows: CardRow[] } | null {
   const rows: CardRow[] = [];
@@ -2845,17 +3167,17 @@ function cardContentOf(shape: Shape): { title: string; rows: CardRow[] } | null 
   return { title: TOOL_LABELS[shape.tool], rows };
 }
 
-/** Breite der Export-Karten in Bildschirm-Pixeln. */
+/** Width of the export cards in screen pixels. */
 const CARD_W = 232;
 
 /**
- * Karten-Spalte am rechten Seitenrand fuer den Screenshot-Export.
+ * Column of cards at the right edge of the page for the screenshot export.
  *
- * Frueher stand jede Karte direkt an ihrer Markierung und deckte damit genau
- * den Inhalt zu, um den es ging. Jetzt sammeln sich alle Karten am Rand,
- * jeweils auf Hoehe ihrer Markierung und ohne einander zu ueberlappen; eine
- * duenne Linie mit Punkt am Ziel zeigt, wozu sie gehoert, und eine Ziffer
- * verbindet Karte und Markierung auch dann, wenn die Linie lang wird.
+ * Each card used to stand right at its marking and therefore covered exactly
+ * the content it was about. Now all the cards collect at the edge, each at the
+ * height of its marking and without overlapping one another; a thin line with a
+ * dot at the target shows what it belongs to, and a number connects card and
+ * marking even when the line gets long.
  */
 function renderExportCards(shapes: Shape[], zoom: number, frameWidth: number) {
   const entries = shapes
@@ -2868,8 +3190,8 @@ function renderExportCards(shapes: Shape[], zoom: number, frameWidth: number) {
   if (entries.length === 0) return null;
 
   const margin = 12 / zoom;
-  // Nie breiter als der Frame: bei kleinem Zoom waere 232 Bildschirm-Pixel
-  // mehr als die ganze Seitenbreite, und die Karte liefe rechts heraus.
+  // Never wider than the frame: at low zoom, 232 screen pixels would be more
+  // than the whole page width and the card would run off to the right.
   const cardW = Math.min(CARD_W / zoom, frameWidth - margin * 2);
   const pad = 9 / zoom;
   const titleSize = 11 / zoom;
@@ -2880,13 +3202,13 @@ function renderExportCards(shapes: Shape[], zoom: number, frameWidth: number) {
   const x = Math.max(margin, frameWidth - cardW - margin);
 
   /**
-   * Zeichenbudget je Zeile aus der *tatsaechlichen* Kartenbreite. Ein fester
-   * Wert reichte nicht: auf schmalen Frames stand die Haelfte ausserhalb.
-   * Monospace baut breiter als Fliesstext, deshalb zwei Budgets.
+   * Character budget per line, from the *actual* card width. A fixed value was
+   * not enough: on narrow frames half of it stood outside. Monospace builds
+   * wider than running text, hence two budgets.
    */
   const inner = cardW - (pad + 6 / zoom) - pad;
   const fit = (mono: boolean) => Math.max(8, Math.floor(inner / (rowSize * (mono ? 0.62 : 0.55))));
-  /** Zeilen auf die Kartenbreite umbrechen — lange Werte bleiben lesbar. */
+  /** Wrap lines to the card width — long values stay readable. */
   const wrapped = (rows: CardRow[]): CardRow[] =>
     rows.flatMap((r) =>
       wrapNote(r.text, fit(r.mono === true), 4).map((text) => ({ ...r, text })),
@@ -2899,19 +3221,19 @@ function renderExportCards(shapes: Shape[], zoom: number, frameWidth: number) {
         const { shape, content, bounds } = entry;
         const rows = wrapped(content.rows);
         const h = pad * 2 + titleSize * 1.5 + rows.length * lineH;
-        // Auf Hoehe der Markierung, aber nie in die vorige Karte hinein.
+        // At the height of the marking, but never into the previous card.
         const y = Math.max(cursor, bounds.y);
         cursor = y + h + gap;
         const n = i + 1;
 
-        // Ziel der Linie: die dem Kartenrand naechste Kante der Markierung.
+        // Target of the line: the marking's edge nearest the card edge.
         const toX = Math.min(bounds.x + bounds.w, x - 6 / zoom);
         const toY = bounds.y + Math.min(bounds.h / 2, 40 / zoom);
         const fromY = y + h / 2;
 
         return (
           <g key={`card-${shape.id}`}>
-            {/* Fuehrungslinie: waagerecht am Kartenrand, dann zum Ziel. */}
+            {/* Leader line: horizontal at the card edge, then to the target. */}
             <path
               d={`M${x},${fromY} L${toX + 10 / zoom},${fromY} L${toX},${toY}`}
               fill="none"
@@ -2922,8 +3244,8 @@ function renderExportCards(shapes: Shape[], zoom: number, frameWidth: number) {
             />
             <circle cx={toX} cy={toY} r={2.6 / zoom} fill={shape.color} />
 
-            {/* Ziffer an der Markierung — bleibt zuordenbar, auch wenn die
-                Linie ueber halbe Seiten laeuft. */}
+            {/* A number at the marking — it stays assignable even when the line
+                runs across half a page. */}
             <circle
               cx={bounds.x + badge / 2}
               cy={bounds.y + badge / 2}
@@ -2998,20 +3320,104 @@ function renderExportCards(shapes: Shape[], zoom: number, frameWidth: number) {
 }
 
 /**
- * Beschriftungs-Pill: dunkle Kapsel mit farbigem Rand und weissem Text —
- * ersetzt den frueheren Text mit Kontur-Stroke, der auf bunten Seiten
- * unruhig wirkte. Konstante Bildschirmgroesse, deshalb /zoom.
+ * Label pill: a dark capsule with a coloured border and white text — replaces
+ * the earlier text with an outline stroke, which looked restless on colourful
+ * pages. A constant screen size, hence /zoom.
  *
- * Sitzt fest oberhalb ihrer Markierung (am Dokumentanfang darunter) und wird
- * *nicht* in den sichtbaren Ausschnitt geklemmt: sonst klebte sie am oberen
- * Frame-Rand und wanderte beim Scrollen endlos mit, obwohl die Markierung
- * laengst weg ist — und im Screenshot tauchte sie an jeder Slice-Kante erneut auf.
+ * It sits fixed above its marking (below it at the start of the document) and is
+ * *not* clamped into the visible crop: otherwise it would cling to the top frame
+ * edge and travel along endlessly while scrolling, long after the marking is
+ * gone — and in the screenshot it would reappear at every slice edge.
  */
-function renderLabelPill(x: number, y: number, text: string, color: string, zoom: number) {
+/**
+ * Flag above the element marking: what was changed, and below it the note.
+ *
+ * The two used to belong to different edges — the change as a pill on top, the
+ * note as a speech bubble under the element. Two boxes around the same element
+ * that had to be read separately and reassembled in your head; with several
+ * markers side by side it was moreover impossible to tell which bubble belonged
+ * to which frame. Now everything hangs off one edge. The full note text still
+ * comes on hover.
+ */
+function renderElementTag(shape: ElementShape, zoom: number) {
+  const summary = changeSummary(shape);
+  // Header line: what happened — and if nothing happened, who it is.
+  const head = summary ?? shape.label;
+  const headMono = summary == null;
+  const noteLines = shape.note ? wrapNote(shape.note, 30, 2) : [];
+
+  const size = 11 / zoom;
+  const lineH = size * 1.4;
+  const padX = 6 / zoom;
+  const padY = 4 / zoom;
+  // A typewriter face runs wider than running text — otherwise the box sits
+  // either too tight around the selector or too wide around the note.
+  const widthOf = (text: string, mono: boolean) => text.length * size * (mono ? 0.62 : 0.55);
+  const w =
+    Math.max(widthOf(head, headMono), ...noteLines.map((l) => widthOf(l, false))) + padX * 2;
+  const h = (1 + noteLines.length) * lineH + padY * 2;
+  // If it does not fit above, it goes *below* the element — not on it. The
+  // single-line pill used to be allowed to lie against the top edge; with a note
+  // the flag is three times as tall and would cover exactly the content it is
+  // about.
+  const above = shape.y - h - 4 / zoom;
+  const box = { x: shape.x, y: above >= 0 ? above : shape.y + shape.h + 4 / zoom };
+  const sans = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  return (
+    <g pointerEvents="none">
+      <rect
+        x={box.x}
+        y={box.y}
+        width={w}
+        height={h}
+        rx={Math.min(h / 2, 9 / zoom)}
+        fill="rgba(14, 16, 20, 0.92)"
+        stroke={shape.color}
+        strokeWidth={1 / zoom}
+        strokeOpacity={0.6}
+      />
+      <text
+        x={box.x + padX}
+        y={box.y + padY + size * 0.82}
+        fill="#fff"
+        fontSize={size}
+        fontWeight={headMono ? 400 : 600}
+        fontFamily={headMono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : sans}
+      >
+        {head}
+      </text>
+      {/* The note is the sentence about it, not the heading — a shade quieter,
+          so that the header line stays the header line. */}
+      {noteLines.map((line, i) => (
+        <text
+          key={i}
+          x={box.x + padX}
+          y={box.y + padY + size * 0.82 + lineH * (i + 1)}
+          fill="rgba(255, 255, 255, 0.82)"
+          fontSize={size}
+          fontFamily={sans}
+        >
+          {line}
+        </text>
+      ))}
+    </g>
+  );
+}
+
+function renderLabelPill(
+  x: number,
+  y: number,
+  text: string,
+  color: string,
+  zoom: number,
+  /** Selectors are code, a summary is language. */
+  mono = true,
+) {
   const size = 11 / zoom;
   const padX = 6 / zoom;
   const padY = 3.5 / zoom;
-  const w = text.length * size * 0.62 + padX * 2;
+  const w = text.length * size * (mono ? 0.62 : 0.55) + padX * 2;
   const h = size + padY * 2;
   const above = y - h - 4 / zoom;
   const box = { x, y: above >= 0 ? above : y + 4 / zoom };
@@ -3033,7 +3439,12 @@ function renderLabelPill(x: number, y: number, text: string, color: string, zoom
         y={box.y + padY + size * 0.82}
         fill="#fff"
         fontSize={size}
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+        fontWeight={mono ? 400 : 600}
+        fontFamily={
+          mono
+            ? 'ui-monospace, SFMono-Regular, Menlo, monospace'
+            : 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
+        }
       >
         {text}
       </text>
@@ -3041,20 +3452,20 @@ function renderLabelPill(x: number, y: number, text: string, color: string, zoom
   );
 }
 
-/** Kachelgroesse und Strichstaerke der Abstands-Schraffur (Bildschirm-Pixel). */
+/** Tile size and stroke width of the spacing hatching (screen pixels). */
 const HATCH_TILE = 8;
 const HATCH_STROKE = 1.7;
 /**
- * Zwei Striche je Kachel: einer kraeftig gesaettigt, einer fast weiss. Ein
- * einzelner Ton geht je nach Untergrund unter — ein blasses Gruen auf einem
- * gelben Button ist praktisch unsichtbar, ein helles auf weissem Grund auch.
- * So traegt immer mindestens einer der beiden Striche.
+ * Two strokes per tile: one strongly saturated, one almost white. A single tone
+ * is lost depending on the ground — a pale green on a yellow button is
+ * practically invisible, and a light one on a white ground too. That way at
+ * least one of the two strokes always carries.
  */
 const HATCH_MARGIN = {
   fill: 'rgba(246, 178, 107, .16)',
   stripe: 'rgba(214, 122, 24, .8)',
-  // Margin liegt fast immer auf ruhigem Seitenhintergrund und braucht den
-  // Gegenstrich kaum — er bleibt schwach, damit er das Padding nicht uebertoent.
+  // Margin almost always lies on a quiet page background and hardly needs the
+  // counter-stroke — it stays faint, so that it does not drown out the padding.
   stripeAlt: 'rgba(255, 246, 232, .28)',
 };
 const HATCH_PADDING = {
@@ -3062,14 +3473,13 @@ const HATCH_PADDING = {
   stripe: 'rgba(46, 142, 52, .92)',
   stripeAlt: 'rgba(238, 255, 238, .6)',
 };
-/** Kante des Content-Bereichs — begrenzt die Padding-Flaeche nach innen. */
+/** Edge of the content area — bounds the padding area on the inside. */
 const PADDING_EDGE = 'rgba(56, 152, 62, .95)';
 
 /**
- * Box-Model-Visualisierung fuer den Element-Picker (Figma-Dev-Mode-Metapher):
- * Margin-Flaechen orange schraffiert, Padding-Flaechen gruen, Werte als
- * Mini-Pills, wenn der Streifen genug Platz bietet. Negative Margins werden
- * nicht gezeichnet.
+ * Box model visualisation for the element picker (the Figma dev-mode metaphor):
+ * margin areas hatched in orange, padding areas in green, values as mini pills
+ * when the strip offers enough room. Negative margins are not drawn.
  */
 function renderBoxModel(t: ElementTarget, zoom: number, view?: View) {
   const { margin: m, padding: p } = t;
@@ -3088,12 +3498,13 @@ function renderBoxModel(t: ElementTarget, zoom: number, view?: View) {
   if (p.r > 0) strips.push({ x: t.x + t.w - p.r, y: t.y + p.t, w: p.r, h: t.h - p.t - p.b, v: p.r, kind: 'p' });
 
   const labelSize = 9.5 / zoom;
-  // Schraffur statt Flaeche: auf bunten Seiten verschwindet ein flacher Ton,
-  // die Streifen bleiben auf jedem Hintergrund als "hier ist Abstand" lesbar.
-  // Margin und Padding laufen gegenlaeufig — auch ohne Farbe unterscheidbar.
+  // Hatching rather than a solid area: on colourful pages a flat tone
+  // disappears, whereas the stripes stay readable as "there is spacing here" on
+  // any background. Margin and padding run in opposite directions — telling them
+  // apart works even without colour.
   const tile = HATCH_TILE / zoom;
-  // Die Id muss den Zoom tragen: mehrere Frames teilen sich einen Shadow Tree,
-  // gleiche Id wuerde das Muster des ersten Frames auf alle anderen ziehen.
+  // The id has to carry the zoom: several frames share one shadow tree, and the
+  // same id would pull the first frame's pattern onto all the others.
   const patternId = (kind: 'm' | 'p') => `ink-hatch-${kind}-${Math.round(zoom * 1000)}`;
   return (
     <g pointerEvents="none">
@@ -3140,8 +3551,8 @@ function renderBoxModel(t: ElementTarget, zoom: number, view?: View) {
           fill={`url(#${patternId(s.kind)})`}
         />
       ))}
-      {/* Innenkante des Paddings: die Schraffur allein geht auf einem hellen
-          Element unter, die Linie zeigt zuverlaessig, wo der Inhalt beginnt. */}
+      {/* Inner edge of the padding: the hatching alone is lost on a light
+          element, whereas the line reliably shows where the content begins. */}
       {(p.t > 0 || p.r > 0 || p.b > 0 || p.l > 0) && (
         <rect
           x={t.x + p.l}
@@ -3160,8 +3571,8 @@ function renderBoxModel(t: ElementTarget, zoom: number, view?: View) {
           const label = String(Math.round(s.v));
           const w = label.length * labelSize * 0.65 + 8 / zoom;
           const h = labelSize + 5 / zoom;
-          // Mitte des sichtbaren Streifenteils — bei teils ausgescrolltem
-          // Element bleibt die Pille am Streifen statt aus dem Bild zu laufen.
+          // Centre of the visible part of the strip — with a partly scrolled-out
+          // element the pill stays on the strip instead of running out of view.
           const vis = view
             ? {
                 x0: Math.max(s.x, view.x),
@@ -3195,9 +3606,9 @@ function renderBoxModel(t: ElementTarget, zoom: number, view?: View) {
 }
 
 /**
- * Massband zwischen den beiden Linien eines Paars: eine Strecke mit Endkappen
- * quer zu den Linien, daneben der Abstand in Dokument-Pixeln. Konstante
- * Bildschirmgroesse, deshalb /zoom.
+ * Measuring tape between the two lines of a pair: a run with end caps across
+ * the lines, and beside it the gap in document pixels. A constant screen size,
+ * hence /zoom.
  */
 function renderLineGap(
   shape: Shape & { tool: 'hline' | 'vline' },
@@ -3214,16 +3625,16 @@ function renderLineGap(
   const size = 11 / zoom;
   const label = `${Math.round(gap)} px`;
   const mid = (from + to) / 2;
-  // Waagerechtes Paar: Beschriftung rechts neben dem Massband, senkrechtes
-  // Paar: darueber — so verdeckt sie die gemessene Strecke nie.
+  // Horizontal pair: the label to the right of the tape; vertical pair: above
+  // it — that way it never covers the distance being measured.
   const labelX = horizontal ? cross + 9 / zoom : mid;
   const labelY = horizontal ? mid : cross - 14 / zoom;
   const padX = 5 / zoom;
   const padY = 3 / zoom;
   const boxW = label.length * size * 0.62 + padX * 2;
   const boxH = size + padY * 2;
-  // Am Rand gezogene Linien: die Beschriftung rutscht in den sichtbaren
-  // Ausschnitt, statt neben dem Frame zu verschwinden.
+  // Lines drawn at the edge: the label slides into the visible crop rather than
+  // disappearing beside the frame.
   const box = clampLabel(
     horizontal ? labelX - padX : labelX - boxW / 2,
     labelY - boxH / 2,
@@ -3275,12 +3686,55 @@ function renderLineGap(
 }
 
 /**
- * Handgezeichneter Rahmen um eine Box — die gemeinsame Darstellung von
- * Rechteck- und Element-Markierung.
+ * A plain frame on the measured edges — the element marking.
  *
- * Hover zieht die Kontur ein zweites Mal nach (wie mit dem Stift
- * nachgefahren) und nimmt die Staerke hoch; beim Ziehen hebt sich die
- * Markierung zusaetzlich leicht an und wirft einen Schatten.
+ * Deliberately different from the freehand rectangle marking: this one does not
+ * sit where somebody dragged, but exactly on the frame of a real DOM element.
+ * A skew and a retraced outline would blur precisely the statement it is about
+ * — *this* element, *this* extent. Anyone reading the value in the panel has to
+ * find it again on the frame.
+ *
+ * Highlighting therefore runs over stroke weight and area, never over the shape:
+ * on hover the edges lie in the same place as at rest.
+ */
+function renderElementBox(
+  shape: Shape,
+  box: { x: number; y: number; w: number; h: number },
+  strokeWidth: number,
+  fillOpacity: number,
+  zoom: number,
+  emphasis: Emphasis,
+) {
+  const active = emphasis !== 'none';
+  // Radius in screen pixels, but never more than half the edge — otherwise the
+  // marking around a flat element turns into a capsule.
+  const r = Math.min(CORNER_PX / zoom, box.w / 2, box.h / 2);
+  return (
+    <rect
+      key={shape.id}
+      x={box.x}
+      y={box.y}
+      width={box.w}
+      height={box.h}
+      rx={r}
+      ry={r}
+      fill={shape.color}
+      fillOpacity={active ? fillOpacity * 1.6 : fillOpacity}
+      stroke={shape.color}
+      strokeWidth={active ? strokeWidth * 1.25 : strokeWidth}
+      strokeOpacity={active ? 1 : 0.8}
+      filter={emphasis === 'drag' ? 'url(#ink-note-shadow)' : undefined}
+    />
+  );
+}
+
+/**
+ * A hand-drawn frame around a box — the rectangle marking. Here the handwriting
+ * is right: the frame was drawn by hand and looks the part.
+ *
+ * Hover retraces the outline a second time (as if gone over with the pen) and
+ * raises the weight; while dragging, the marking additionally lifts slightly and
+ * casts a shadow.
  */
 function renderSketchBox(
   shape: Shape,
@@ -3294,8 +3748,8 @@ function renderSketchBox(
   const cx = box.x + box.w / 2;
   const cy = box.y + box.h / 2;
   const active = emphasis !== 'none';
-  // Zweite Kontur beim Hover: andere Variante, leicht verdreht — der Rahmen
-  // sieht aus, als waere er ein zweites Mal nachgezogen worden.
+  // A second outline on hover: a different variant, slightly rotated — the frame
+  // looks as though it had been gone over a second time.
   const retrace = active
     ? sketchRect(box.x, box.y, box.w, box.h, SKETCH_VARIANTS[
         (SKETCH_VARIANTS.indexOf(variant) + 1) % SKETCH_VARIANTS.length
@@ -3331,7 +3785,7 @@ function renderSketchBox(
         strokeWidth={active ? strokeWidth * 1.25 : strokeWidth}
         strokeOpacity={active ? 1 : 0.8}
       />
-      {/* Kraeftigere Seiten — gibt dem Strich die Pinsel-Anmutung. */}
+      {/* Heavier sides — gives the stroke its brush-like feel. */}
       <path
         d={heavy}
         fill="none"
@@ -3358,12 +3812,12 @@ function renderShape(
     case 'element':
       return (
         <g key={shape.id}>
-          {renderSketchBox(shape, shape, strokeWidth, 0.08, emphasis)}
-          {renderLabelPill(shape.x, shape.y, shape.label, shape.color, zoom)}
+          {renderElementBox(shape, shape, strokeWidth, 0.08, zoom, emphasis)}
+          {renderElementTag(shape, zoom)}
         </g>
       );
     case 'pin': {
-      // Pins behalten konstante Bildschirmgroesse, deshalb /zoom.
+      // Pins keep a constant screen size, hence /zoom.
       const r = 11 / zoom;
       return (
         <g key={shape.id}>
@@ -3444,8 +3898,8 @@ function renderShape(
     }
     case 'hline':
     case 'vline': {
-      // Ueber den Frame hinaus verlaengert — der Viewport schneidet ab, die
-      // Linie spannt so in jeder Scroll-Position ueber die volle Breite/Hoehe.
+      // Extended past the frame — the viewport clips it, so the line spans the
+      // full width/height at any scroll position.
       const horizontal = shape.tool === 'hline';
       const lineAt = (v: number) =>
         horizontal
@@ -3453,8 +3907,8 @@ function renderShape(
           : `M${v},${shape.y - LINE_REACH} L${v},${shape.y + LINE_REACH}`;
       const start = horizontal ? shape.y : shape.x;
       const gap = lineGap(shape);
-      // Der gemessene Streifen bekommt ein Rautenmuster — dezent genug, um
-      // den Inhalt darunter lesbar zu lassen, aber deutlich als Flaeche.
+      // The measured strip gets a diamond pattern — discreet enough to leave the
+      // content underneath readable, but clearly an area.
       const patternId = `ink-diamonds-${shape.id}`;
       const cell = 9 / zoom;
       return (
@@ -3496,7 +3950,7 @@ function renderShape(
       );
     }
     case 'text': {
-      // Dunkle Kapsel mit farbigem Rand statt Text mit Kontur-Stroke.
+      // A dark capsule with a coloured border rather than text with an outline stroke.
       const padX = 7 / zoom;
       const padY = 4 / zoom;
       const w = shape.text.length * fontSize * 0.58 + padX * 2;

@@ -1,17 +1,17 @@
 /**
- * CSS-:hover-Simulation fuer die Ziel-Frames des Hover-Syncs.
+ * CSS :hover simulation for the target frames of the hover sync.
  *
- * Synthetische Maus-Events aendern den :hover-Zustand des Browsers nicht.
- * Stattdessen werden alle :hover-Regeln der Seite dupliziert, wobei ':hover'
- * durch eine Marker-Klasse ersetzt wird (gleiche Spezifitaet: Pseudoklasse und
- * Klasse zaehlen identisch). Die Klasse wird dann — wie echtes Hover — auf das
- * Element und alle Vorfahren gesetzt.
+ * Synthetic mouse events do not change the browser's own :hover state.
+ * Instead every :hover rule of the page is duplicated with ':hover' replaced
+ * by a marker class (same specificity: a pseudo-class and a class count the
+ * same). That class is then set — just like real hover — on the element and
+ * all of its ancestors.
  */
 
 const HOVER_CLASS = '__dv-hover__';
 const STYLE_ID = '__dv-hover-style__';
 
-/** styleSheets.length beim letzten Scan — erkennt nachgeladene Styles (SPA). */
+/** styleSheets.length at the last scan — detects styles loaded later (SPA). */
 const scanned = new WeakMap<Document, number>();
 
 function collectHoverRules(rules: CSSRuleList, out: string[]): void {
@@ -22,7 +22,7 @@ function collectHoverRules(rules: CSSRuleList, out: string[]): void {
       cssRules?: CSSRuleList;
     };
 
-    // Duck-Typing statt instanceof: die Regeln stammen aus einem anderen Realm.
+    // Duck typing instead of instanceof: the rules come from another realm.
     if (typeof rule.selectorText === 'string') {
       const selector = rule.selectorText;
       if (!selector.includes(':hover')) continue;
@@ -51,14 +51,14 @@ function collectHoverRules(rules: CSSRuleList, out: string[]): void {
       } else if (cssText.startsWith('@supports') && rule.conditionText != null) {
         out.push(`@supports ${rule.conditionText} { ${inner.join('\n')} }`);
       } else {
-        // @layer u. ae. — vereinfachend ohne Wrapper uebernehmen.
+        // @layer and friends — taken over without their wrapper, simplifying.
         out.push(...inner);
       }
     }
   }
 }
 
-/** Erzeugt/aktualisiert das Regel-Duplikat im Frame. Idempotent und billig. */
+/** Creates or refreshes the rule duplicate in the frame. Idempotent and cheap. */
 function ensureHoverRules(doc: Document): void {
   if (scanned.get(doc) === doc.styleSheets.length) return;
 
@@ -66,12 +66,12 @@ function ensureHoverRules(doc: Document): void {
   for (let i = 0; i < doc.styleSheets.length; i++) {
     const sheet = doc.styleSheets[i];
     if (!sheet) continue;
-    // Duck-Typing statt instanceof (fremder Realm): unser eigenes Sheet auslassen.
+    // Duck typing instead of instanceof (foreign realm): skip our own sheet.
     if ((sheet.ownerNode as Element | null)?.id === STYLE_ID) continue;
     try {
       collectHoverRules(sheet.cssRules, out);
     } catch {
-      // Cross-Origin-Sheet ohne CORS — nicht lesbar, ueberspringen.
+      // Cross-origin sheet without CORS — not readable, skip it.
     }
   }
 
@@ -83,17 +83,17 @@ function ensureHoverRules(doc: Document): void {
   }
   style.textContent = out.join('\n');
 
-  // Nach dem Anhaengen zaehlen — unser eigenes Sheet ist Teil der Laenge.
+  // Count after appending — our own sheet is part of the length.
   scanned.set(doc, doc.styleSheets.length);
 }
 
-/** Zuletzt markierte Hover-Kette pro Frame — querySelectorAll saehe Shadow-DOM-Elemente nicht. */
+/** Last marked hover chain per frame — querySelectorAll would miss shadow DOM elements. */
 const lastChain = new WeakMap<Document, Element[]>();
 
 /**
- * Setzt die simulierte Hover-Kette auf `el` (Element + Vorfahren, ueber
- * Shadow-Grenzen hinweg — wie echtes :hover) und entfernt die vorherige.
- * `null` loescht nur.
+ * Sets the simulated hover chain on `el` (the element and its ancestors,
+ * across shadow boundaries — like real :hover) and removes the previous one.
+ * `null` only clears.
  */
 export function applyHoverSim(doc: Document, el: Element | null): void {
   ensureHoverRules(doc);

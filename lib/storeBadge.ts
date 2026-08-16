@@ -1,10 +1,11 @@
 /**
- * Offizielles „Available in the Chrome Web Store"-Badge, als Data-URI im
- * Bundle. Nachladen ueber das Netz scheidet aus: das Content-Script laeuft
- * unter der CSP der Seite, und ein fremd geladenes Bild wuerde das Canvas
- * „tainten" — der Export bliebe dann an der Bild-Ausgabe haengen.
+ * The official "Available in the Chrome Web Store" badge, as a data URI in
+ * the bundle. Fetching it over the network is out of the question: the
+ * content script runs under the page's CSP, and an image loaded from
+ * elsewhere would taint the canvas — the export would then fail at the point
+ * where it writes the image out.
  *
- * Quelle: https://developer.chrome.com/docs/webstore/branding
+ * Source: https://developer.chrome.com/docs/webstore/branding
  */
 export const CHROME_STORE_BADGE =
   'data:image/png;base64,' +

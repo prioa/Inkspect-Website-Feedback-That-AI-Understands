@@ -1,98 +1,160 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import type { DeviceInstance, DevicePreset } from '@/lib/devices';
 import type { Shape } from '@/lib/annotations';
-import { pinNumbers, shapeSize, TOOL_LABELS } from '@/lib/annotations';
+import { pinNumbers, shapeReveal, shapeSize, TOOL_LABELS } from '@/lib/annotations';
 import type { FeedbackItem } from '@/lib/feedbackStore';
 import { feedbackToMarkdown } from '@/lib/exportMarkdown';
 import { encodeShare, SHARE_PARAM } from '@/lib/share';
+import { useFireHint } from '@/lib/hints';
+import { motionOk } from '@/lib/motion';
+import { useHideTip, useTip } from './Tooltip';
 import {
   IconCheck,
   IconClose,
   IconCopy,
   IconDots,
+  IconGrip,
   IconDownload,
   IconEditPen,
-  IconEye,
-  IconLayers,
-  IconEyeOff,
   IconLink,
   IconPlus,
   IconTrash,
+  IconReveal,
 } from './icons';
 
+/**
+ * Exit of a deleted entry — must match the duration of `ink-item-remove` in
+ * styles.ts. Change one of the two numbers and you have to change the other,
+ * or the list jumps at the end of the movement. The app waits the same time
+ * before really taking the entry out of state.
+ */
+export const FEEDBACK_REMOVE_MS = 280;
+
+/**
+ * How long a delete button stays armed. Long enough to reach it a second time
+ * without hurrying, short enough that an armed button you have forgotten about
+ * cannot go off on the next visit to the row.
+ */
+const ARM_MS = 2600;
+
+/**
+ * This many changes an entry shows straight away; the rest waits behind
+ * "n more". Three because that is what the element popup shows too
+ * (`CHANGES_PREVIEW` in InspectPanel) — the same marker should not be two
+ * different lengths depending on where you look at it.
+ *
+ * A cap is needed at all because one element can carry a dozen: padding on four
+ * edges, margin on four, font, weight, colour. Unfolded, a single entry filled
+ * the panel and the list underneath it was gone.
+ */
+const CHANGES_PREVIEW = 3;
+
 interface Props {
-  /** Gesamtes Feedback, seitenuebergreifend — das Panel gruppiert nach Seite. */
+  /** All feedback, across pages — the panel groups it by page itself. */
   items: FeedbackItem[];
-  /** Feedback fremder Domains (gerade nicht geoeffnet) — eigener Bereich. */
+  /** Feedback from other domains (not currently open) — its own section. */
   otherItems: FeedbackItem[];
-  /** Aktuell geladene Seite (normalisiert). */
+  /** Currently loaded page (normalised). */
   url: string;
-  /** Eingebaute + eigene Presets — bestimmt die Gruppierung. */
+  /** Built-in plus custom presets — determines the grouping. */
   presets: readonly DevicePreset[];
   devices: DeviceInstance[];
   /**
-   * Preset-Ids der gerade sichtbaren Viewports (Grid-Devices bzw. im
-   * Vollbild nur der Vollbild-Frame). Alles andere betrifft eine Seite oder
-   * Groesse, die gerade nicht auf dem Schirm ist, und wird gedimmt.
+   * Preset ids of the viewports currently visible (grid devices, or in full
+   * window mode only the full-window frame). Everything else concerns a page or
+   * size that is not on screen right now, and is dimmed.
    */
   activePresetIds: ReadonlySet<string>;
-  /** Marker auf der Seite ein-/ausblenden (globaler Schalter im Panel-Kopf). */
-  markersVisible: boolean;
-  onToggleMarkers: () => void;
-  /**
-   * Zaehler: hochgezaehlt, nachdem eine frisch gezeichnete Markierung bei
-   * ausgeblendeten Markern weggeblendet ist — der Schalter pulst dann kurz
-   * und zeigt so, wo sie wieder auftaucht.
-   */
-  markersHint?: number;
-  /** Vom Device-Badge angestossen: Gruppe hervorheben und hinscrollen. */
+  /** Set off by the device badge: highlight the group and scroll to it. */
   highlight: { deviceId: string; nonce: number } | null;
+  /** Entries the user has not yet seen open — they slide in. */
+  freshIds?: readonly string[];
+  /**
+   * The entry the "Your first note is saved" hint is currently talking about.
+   *
+   * The hint veils the rest of the card and cuts a hole over this row (see
+   * `veilWithin` on `first-marker` in hints.ts) — but a hole is only an absence
+   * of blur, and next to nine sharp rows the ring would have to do all the work
+   * on its own. The wash makes the row the brightest thing inside the card, so
+   * that "everything you mark collects here" has something to point at.
+   *
+   * Deliberately not `freshIds`: that one is gone after 1.2 s, while the hint
+   * stands for ten seconds.
+   */
+  explainId?: string | null;
+  /**
+   * Entries whose deletion is confirmed and which are currently showing their
+   * exit. They are still in `items` — the app only takes them out of state
+   * after the movement.
+   */
+  removingIds?: readonly string[];
+  /** The header as a grip: in full window mode the card can be moved. */
+  onHeadPointerDown?: (e: ReactPointerEvent<HTMLElement>) => void;
+  dragging?: boolean;
   onJump: (deviceId: string) => void;
-  /** Klick auf einen Eintrag: zum Marker scrollen und ihn aufblitzen lassen. */
+  /** Click on an entry: scroll to the marker and let it flash. */
   onJumpItem: (item: FeedbackItem) => void;
-  /** Hover ueber einen Eintrag: Markierung im Viewport hervorheben. */
+  /** Hover over an entry: highlight the marking in the viewport. */
   onPreviewItem: (item: FeedbackItem | null) => void;
-  /** Zeiger betritt/verlaesst das Panel — blendet im Dev-Modus die Marker ein. */
+  /** The pointer enters or leaves the panel — shows the markers in dev mode. */
   onPanelHover?: (hovering: boolean) => void;
-  /** Gespeicherte CSS-Aenderungen sind auf die Seite angewendet (Dev-Modus). */
-  effectsApplied?: boolean;
-  /** Anwenden der CSS-Aenderungen umschalten — Vergleich mit dem Original. */
-  onToggleEffects?: () => void;
-  /** Notiz/Text eines Eintrags aendern oder ergaenzen. */
+  /** Change or add an entry's note/text. */
   onEditItem: (itemId: string, text: string) => void;
-  /** Element-Marker: Bearbeiten-Popup am Device wieder oeffnen (Werte + Notiz). */
+  /** Element marker: reopen the edit popup on the device (values + note). */
   onEditElement?: (item: FeedbackItem) => void;
-  /** Wechselt die Previews auf eine andere Seite (Feedback-Herkunft). */
+  /** Switches the previews to another page (where the feedback came from). */
   onNavigate: (url: string) => void;
   onDelete: (itemId: string) => void;
-  /** Erledigt-Status eines Eintrags umschalten. */
+  /** Toggle an entry's done state. */
   onToggleDone: (itemId: string) => void;
   onClearAll: () => void;
-  /** Baut die Share-URL (Feedback deflate+base64url im Hash). */
-  onBuildShareLink: () => Promise<string>;
   /**
-   * Laedt annotierte Full-Page-Screenshots aller Seiten mit offenem Feedback
-   * herunter (inkl. Notizen an den Markern); liefert die Anzahl der Bilder.
-   * `onProgress` meldet erledigte/gesamte Captures fuer die Anzeige.
+   * Builds the share URL (feedback deflate+base64url in the hash).
+   * `extraPages` includes those pages' feedback in addition to the current
+   * page — the same selection as the screenshot export.
+   */
+  onBuildShareLink: (extraPages?: string[]) => Promise<string>;
+  /**
+   * Downloads annotated full-page screenshots of every page with open feedback
+   * (notes at the markers included); returns the number of images.
+   * `onProgress` reports captures done/total for the display.
    */
   onExportScreenshots: (
     onProgress?: (done: number, total: number) => void,
-    /** Zusaetzlich zu fotografierende Seiten (ohne die aktuelle). */
+    /** Additional pages to photograph (not counting the current one). */
     extraPages?: string[],
   ) => Promise<number>;
-  /** Oeffnet das Shortcuts-/Hilfe-Overlay (aus dem leeren Zustand heraus). */
+  /** Opens the shortcuts/help overlay (out of the empty state). */
   onShowShortcuts: () => void;
-  /** Panel-Breite (ziehbar) in Shell-Pixeln. */
+  /** Panel width (draggable) in shell pixels. */
   width: number;
   /**
-   * Vollbild: Position der schwebenden Karte, wenn der Feedback-Knopf
-   * verschoben wurde. Ohne das bleibt die feste Ecke aus `styles.ts`.
+   * Full window: position of the floating card when the feedback button has
+   * been moved. Without it, the fixed corner from `styles.ts` stands.
    */
   anchor?: CSSProperties;
   onClose: () => void;
 }
 
-/** Anzeigetext eines Eintrags: Notiz/Text wenn vorhanden, sonst Element/Werkzeug-Label. */
+/**
+ * From this link length (characters) on, we warn. The browser itself could
+ * take considerably more — Chrome handles URLs in the megabyte range, and the
+ * hash never goes to a server anyway. The limit is drawn by the *transport*:
+ * Slack, Jira and mail clients shorten or break longer links. Up to here,
+ * about 180 markings without freehand fit, or about 40 with.
+ */
+const SHARE_URL_WARN = 8000;
+
+/** Display text of an entry: note/text if there is one, otherwise the element/tool label. */
 function shapeLabel(shape: Shape): string {
   if (shape.tool === 'pin' || shape.tool === 'text') return shape.text || TOOL_LABELS[shape.tool];
   if (shape.tool === 'element') return shape.note ? `${shape.label} — ${shape.note}` : shape.label;
@@ -100,13 +162,13 @@ function shapeLabel(shape: Shape): string {
   return TOOL_LABELS[shape.tool];
 }
 
-/** Editierbarer Freitext eines Eintrags. */
+/** An entry's editable free text. */
 function textOf(shape: Shape): string | null {
   if (shape.tool === 'pin' || shape.tool === 'text') return shape.text;
   return shape.note ?? '';
 }
 
-/** Hauptzeile: Freitext, sonst Element-Selektor bzw. Werkzeugname. */
+/** Main line: free text, otherwise the element selector or the tool name. */
 function primaryOf(shape: Shape): { text: string; empty: boolean } {
   const value = textOf(shape);
   if (value) return { text: value, empty: false };
@@ -114,16 +176,16 @@ function primaryOf(shape: Shape): { text: string; empty: boolean } {
   return { text: 'Add note…', empty: true };
 }
 
-/** Kontextzeile unter der Hauptzeile: Werkzeug, beim Element der Selektor. */
+/** Context line under the main line: the tool, and for elements the selector. */
 function metaOf(shape: Shape): string | null {
   if (shape.tool === 'element') return shape.note ? shape.label : TOOL_LABELS.element;
   return TOOL_LABELS[shape.tool];
 }
 
 /**
- * Pfad samt Query-Parametern, fuer die Anzeige lesbar gemacht: aus
- * `%C3%BC` wird wieder `ü`. Schlaegt das Dekodieren fehl (kaputte
- * Prozent-Sequenz), bleibt die rohe Form stehen.
+ * The path including query parameters, made readable for display: `%C3%BC`
+ * becomes `ü` again. If decoding fails (a broken percent sequence), the raw
+ * form stands.
  */
 function pathOf(url: string): string {
   try {
@@ -139,19 +201,34 @@ function pathOf(url: string): string {
   }
 }
 
-/** Anzeige-Reihenfolge der Liste: das Neueste zuerst. */
+/** Display order of the list: newest first. */
 function newestFirst(a: FeedbackItem, b: FeedbackItem): number {
   return b.createdAt - a.createdAt;
 }
 
-/** Zeitstempel des juengsten Eintrags einer Gruppe (0 wenn leer). */
+/** Timestamp of a group's newest entry (0 when empty). */
 function newestOf(list: readonly FeedbackItem[]): number {
   let newest = 0;
   for (const item of list) if (item.createdAt > newest) newest = item.createdAt;
   return newest;
 }
 
-/** „vor 3 Tagen" statt eines Datums — die Reihenfolge soll sofort sitzen. */
+/**
+ * Like `ago`, but written out. There is room in the page picker, and there the
+ * figure should be readable without deciphering — it helps decide whether a
+ * page goes into the link.
+ */
+function agoLong(ts: number): string {
+  const mins = Math.max(0, Math.round((Date.now() - ts) / 60_000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+/** "3 days ago" rather than a date — the order should land immediately. */
 function ago(ts: number): string {
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60_000));
   if (mins < 60) return `${Math.max(1, mins)}m`;
@@ -175,16 +252,16 @@ export function FeedbackPanel({
   presets,
   devices,
   activePresetIds,
-  markersVisible,
-  onToggleMarkers,
-  markersHint = 0,
   highlight,
+  freshIds,
+  explainId,
+  removingIds,
+  onHeadPointerDown,
+  dragging = false,
   onJump,
   onJumpItem,
   onPreviewItem,
   onPanelHover,
-  effectsApplied = true,
-  onToggleEffects,
   onEditItem,
   onEditElement,
   onNavigate,
@@ -201,13 +278,58 @@ export function FeedbackPanel({
   const [menuOpen, setMenuOpen] = useState(false);
   const [hideDone, setHideDone] = useState(false);
   const [mdCopied, setMdCopied] = useState(false);
-  /** Bereich mit Feedback fremder Domains ein-/ausklappen. */
+  /** Fold the section with other domains' feedback open or shut. */
   const [showOther, setShowOther] = useState(false);
 
-  // Hover haengt bewusst an React-State statt an CSS :hover — Chrome laesst
-  // :hover stehen, wenn der Eintrag unter dem Zeiger verschwindet/verrutscht
-  // oder der Zeiger in den Device-iframe wechselt; die Aktionsknoepfe blieben
-  // dann sichtbar. Der Effekt unten raeumt solche Faelle nach.
+  /**
+   * The entry whose delete button is armed.
+   *
+   * Deleting asks twice rather than through a dialog: the first click turns the
+   * button red and puts a bin in it, the second removes the entry. A modal for
+   * a single line was heavier than the action it guarded — it covered the very
+   * list you were working in, and the answer lay a mouse journey away from the
+   * button you had just hit. Here the question stands where the answer is
+   * given. It expires on its own, so that no armed button lies in wait.
+   */
+  /**
+   * Entries whose change list is unfolded. A set rather than a single id:
+   * comparing two markers means having both open, and closing one to open the
+   * other turns a comparison into a memory game.
+   */
+  const [openChanges, setOpenChanges] = useState<ReadonlySet<string>>(new Set());
+  const toggleChanges = useCallback((id: string) => {
+    setOpenChanges((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
+
+  const [armedId, setArmedId] = useState<string | null>(null);
+  const armTimer = useRef(0);
+  /**
+   * The same value as a ref, and the one the button actually decides on: two
+   * clicks in quick succession are one React batch, and the handler would then
+   * read on the second click the state from before the first — a real double
+   * click would only ever arm, never fire.
+   */
+  const armedRef = useRef<string | null>(null);
+  const arm = useCallback((id: string | null) => {
+    window.clearTimeout(armTimer.current);
+    armedRef.current = id;
+    setArmedId(id);
+    if (id)
+      armTimer.current = window.setTimeout(() => {
+        armedRef.current = null;
+        setArmedId(null);
+      }, ARM_MS);
+  }, []);
+  useEffect(() => () => window.clearTimeout(armTimer.current), []);
+
+  // Hover deliberately hangs off React state rather than CSS :hover — Chrome
+  // leaves :hover in place when the entry under the pointer disappears or
+  // shifts, or when the pointer moves into the device iframe; the action
+  // buttons would then stay visible. The effect below cleans such cases up.
   const [hoverId, setHoverId] = useState<string | null>(null);
   const hoverElRef = useRef<HTMLElement | null>(null);
   const enterItem = (el: HTMLElement, item: FeedbackItem, preview: boolean) => {
@@ -218,6 +340,9 @@ export function FeedbackPanel({
   const leaveItem = (item: FeedbackItem, preview: boolean) => {
     hoverElRef.current = null;
     setHoverId((id) => (id === item.id ? null : id));
+    // The action buttons go with the hover — an armed delete would come back
+    // armed the next time you brush the row, and go off on the first click.
+    arm(null);
     if (preview) onPreviewItem(null);
   };
 
@@ -226,24 +351,25 @@ export function FeedbackPanel({
     const clear = () => {
       hoverElRef.current = null;
       setHoverId(null);
+      arm(null);
       onPreviewItem(null);
     };
-    // Jede Zeigerbewegung ausserhalb des gemerkten Eintrags beendet den
-    // Hover — auch wenn dessen mouseleave nie ankam.
+    // Every pointer movement outside the remembered entry ends the hover — even
+    // when its mouseleave never arrived.
     //
-    // Geprueft wird ueber `composedPath()`, nicht ueber `e.target`: der
-    // Listener haengt am Dokument, das Panel lebt aber im Shadow Root. Dort
-    // entstandene Events werden auf den Host *retargetiert* — `e.target` waere
-    // also nie der gehoverte Eintrag, und schon die erste Zeigerbewegung
-    // raeumte den Hover ab. Die Aktionsknoepfe verschwanden dadurch, bevor man
-    // sie erreichen konnte. Der Composed Path enthaelt die echten Elemente.
+    // The check runs over `composedPath()`, not over `e.target`: the listener
+    // hangs off the document, but the panel lives in the shadow root. Events
+    // originating there are *retargeted* onto the host — so `e.target` would
+    // never be the hovered entry, and the very first pointer movement would
+    // clear the hover. The action buttons therefore disappeared before you
+    // could reach them. The composed path contains the real elements.
     const check = (e: Event) => {
       const el = hoverElRef.current;
       if (!el || !e.composedPath().includes(el)) clear();
     };
     document.addEventListener('pointerover', check, true);
     document.addEventListener('pointermove', check, true);
-    // Zeiger verlaesst das Fenster bzw. Fokus wandert in den iframe.
+    // The pointer leaves the window, or focus moves into the iframe.
     document.addEventListener('mouseleave', clear);
     window.addEventListener('blur', clear);
     return () => {
@@ -252,11 +378,11 @@ export function FeedbackPanel({
       document.removeEventListener('mouseleave', clear);
       window.removeEventListener('blur', clear);
     };
-    // onPreviewItem ist eine stabile Callback-Prop des Panels.
+    // onPreviewItem is a stable callback prop of the panel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hoverId]);
 
-  // Inline-Editor fuer Notiz/Text eines Eintrags.
+  // Inline editor for an entry's note/text.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const startEdit = (item: FeedbackItem) => {
@@ -264,8 +390,8 @@ export function FeedbackPanel({
     setEditDraft(textOf(item.shape) ?? '');
   };
   const commitEdit = (item: FeedbackItem) => {
-    // Escape hat den Editor bereits geschlossen — das folgende blur darf
-    // dann nicht doch noch speichern.
+    // Escape has already closed the editor — the blur that follows must not
+    // save after all.
     if (editingId !== item.id) return;
     setEditingId(null);
     const before = (textOf(item.shape) ?? '').trim();
@@ -275,28 +401,82 @@ export function FeedbackPanel({
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareError, setShareError] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  /** How many pages are in the link last built (for the hint text). */
+  const [sharePages, setSharePages] = useState(1);
 
   /**
-   * Seitenauswahl vor dem Export. Sie faehrt aus dem Screenshot-Knopf heraus,
-   * und derselbe Knopf loest danach aus — so muss die Maus nicht zwischen
-   * Liste und Bestaetigen hin und her.
+   * Page selection before triggering — for the link *and* the screenshot. It
+   * slides out of whichever button it belongs to, and that same button then
+   * triggers: so the mouse does not have to travel between list and confirm.
+   * `pickFor` says who opened it; only ever one is open.
    */
-  const [pickOpen, setPickOpen] = useState(false);
+  const [pickFor, setPickFor] = useState<'share' | 'shots' | null>(null);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
 
-  // Klick ausserhalb schliesst die Seitenauswahl. Geprueft ueber den
-  // Composed Path: das Panel lebt im Shadow Root, `e.target` waere am
-  // Dokument auf den Host retargetiert.
+  const fire = useFireHint();
+  const tip = useTip();
+  const hideTip = useHideTip();
+
+  /**
+   * The two-click delete button — the same one in both lists.
+   *
+   * Armed, it does not merely change colour: the question slides in beside it.
+   * A 26 px square that has quietly turned red asks nothing — you have to
+   * already know that a second click kills. The words say it.
+   *
+   * The question lies *over* the row rather than in it — a little sheet like a
+   * tooltip, anchored to the button. In the flow it took its own width, and
+   * every entry re-wrapped its text the moment you armed the button: the row
+   * you were about to delete rearranged itself under your cursor. Taken out of
+   * the flow it costs no width at all.
+   *
+   * The red belongs to the answer, not the question: filled, the words read as
+   * a second button and the eye had two things to hit instead of one.
+   */
+  const deleteButton = (itemId: string) => {
+    const armed = armedId === itemId;
+    return (
+      <span className="fb-del-wrap">
+        {armed && <span className="fb-item__confirm">Sure, delete?</span>}
+        <button
+          className={`icon-btn icon-btn--small icon-btn--danger fb-del${
+            armed ? ' icon-btn--armed' : ''
+          }`}
+          {...tip(armed ? 'Click again to delete' : 'Delete entry')}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (armedRef.current !== itemId) {
+              arm(itemId);
+              return;
+            }
+            arm(null);
+            // The bubble labelled the button in its previous state — after the
+            // click it would be lying, and the row is gone underneath it anyway.
+            hideTip();
+            onDelete(itemId);
+          }}
+        >
+          {armed ? <IconTrash size={12} /> : <IconClose size={12} />}
+        </button>
+      </span>
+    );
+  };
+
+  // A click outside closes the page selection. Checked via the composed path:
+  // the panel lives in the shadow root, so `e.target` at the document would be
+  // retargeted onto the host. The ref hangs off the *row* with the triggering
+  // button — otherwise a click on it would close the list and the second click
+  // would merely reopen it instead of triggering.
   const pickRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (!pickOpen) return;
+    if (!pickFor) return;
     const close = (e: Event) => {
       const el = pickRef.current;
-      if (el && !e.composedPath().includes(el)) setPickOpen(false);
+      if (el && !e.composedPath().includes(el)) setPickFor(null);
     };
     document.addEventListener('pointerdown', close, true);
     return () => document.removeEventListener('pointerdown', close, true);
-  }, [pickOpen]);
+  }, [pickFor]);
 
   const [shotsPending, setShotsPending] = useState(false);
   const [shotsCount, setShotsCount] = useState<number | null>(null);
@@ -305,8 +485,8 @@ export function FeedbackPanel({
     total: number;
   } | null>(null);
 
-  // Beim Seitenwechsel innerhalb der (stabilen) Liste zur aktuellen Seite
-  // scrollen — die Reihenfolge selbst bleibt unveraendert.
+  // On a page change within the (stable) list, scroll to the current page —
+  // the order itself stays unchanged.
   const currentPageRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     currentPageRef.current?.scrollIntoView({
@@ -315,7 +495,142 @@ export function FeedbackPanel({
     });
   }, [url]);
 
-  // Device-Badge geklickt: betroffene Gruppe hinscrollen und kurz aufflashen.
+  const fresh = useMemo(() => new Set(freshIds ?? []), [freshIds]);
+
+  /**
+   * Entries on their way out. This is set off not by the delete button but by
+   * the app, when the deletion really happens — the safety prompt sits in
+   * between, and an entry that collapsed on the click and unfolded again on
+   * cancel would simply be lying.
+   *
+   * The layout effect measures the height on the row while it still stands and
+   * writes it to the element as --fb-h: entries with a note and a value list are
+   * several times the height of a bare row, and a fixed value would make some
+   * jerk and others lag. Directly on the element rather than through state, so
+   * that the number is there before the animation's first frame.
+   */
+  const rootRef = useRef<HTMLElement | null>(null);
+  const removing = useMemo(() => new Set(removingIds ?? []), [removingIds]);
+  useLayoutEffect(() => {
+    removing.forEach((id) => {
+      const row = rootRef.current?.querySelector<HTMLElement>(
+        `.fb-item[data-item-id="${CSS.escape(id)}"]`,
+      );
+      if (row && !row.style.getPropertyValue('--fb-h')) {
+        // Layout height, for the same reason as below: while the card is still
+        // scaling in, a bounding box would measure the scale as well.
+        row.style.setProperty('--fb-h', `${row.offsetHeight}px`);
+      }
+    });
+  }, [removing]);
+  /**
+   * Smooth out the card's own resizing — full window mode only, where it floats
+   * above its button rather than standing as a column of fixed height.
+   *
+   * The row itself glides out, but a few of the steps around it are not gradual
+   * at all. The last entry of a device group takes the group heading with it,
+   * the last one on a page takes the page block *and* the share row, and in
+   * their place the empty state unfolds — which is taller than what just left.
+   * The card then grew by some eighty pixels in a single frame, and because it
+   * hangs above its button it grows upwards: the whole thing leapt while your
+   * eye was still on the row that disappeared.
+   *
+   * So: remember the height, and on the next render animate the box from the
+   * old value to the new one. The content is already laid out at its new size,
+   * only the frame catches up — which is exactly what makes it read as one
+   * movement. Floating UI measures the card every frame anyway, so the card's
+   * resting place follows along by itself.
+   */
+  const lastH = useRef(0);
+  const resizeAnim = useRef<Animation | null>(null);
+  /** Last resting height with entries in it — the fallback for `heldH`. */
+  const fullH = useRef(0);
+  /**
+   * Deleting the last entry: the card keeps the height it just had.
+   *
+   * Otherwise it collapses under the very hand that deleted — and since it
+   * hangs above its button, it does so upwards: the list one was working in
+   * jumps away, and the empty state arrives somewhere the eye no longer is.
+   * The height is held only for as long as the card stays empty and open;
+   * opened afresh, or as soon as something is marked again, it comes up at its
+   * own size.
+   *
+   * The height is nailed down the moment the last row *starts* leaving, not
+   * once it is gone. Waiting produced the very jitter this is meant to
+   * prevent: for the length of the row's exit the card shrank with it, and
+   * when the list then ran empty the held height pulled it back up again —
+   * smaller, taller, and only then still. Now the frame stands from the first
+   * frame of the deletion; the row collapses inside it, and the empty state
+   * takes the place that has become free.
+   *
+   * Derived during the render rather than in an effect: the height has to be
+   * in place for the first layout after the deletion, or the resize animation
+   * below would measure the collapse and smooth out a step that is not
+   * supposed to happen at all.
+   */
+  const [heldH, setHeldH] = useState<number | null>(null);
+  const emptying = items.length === 0 || items.every((item) => removing.has(item.id));
+  const wasEmptying = useRef(emptying);
+  if (emptying !== wasEmptying.current) {
+    wasEmptying.current = emptying;
+    // Only the floating card has a height of its own; on the grid the panel is
+    // a full-height column, and a fixed height would cut it short.
+    setHeldH(emptying && anchor ? fullH.current || null : null);
+  }
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    /*
+     * While our own animation runs, keep hands off.
+     *
+     * Floating UI remeasures the card every frame and moves it after — so an
+     * animated height produces a render on every one of those frames, this
+     * effect runs again, measures the box mid-flight and takes that for the new
+     * resting height. The card then chased its own tail: it flickered between
+     * two heights, thirty pixels apart, for as long as the animation lasted.
+     * `lastH` already holds the target, so there is nothing to catch up on.
+     */
+    if (resizeAnim.current?.playState === 'running') return;
+    /*
+     * `offsetHeight`, not the bounding box: the card comes in scaled up from
+     * .82 (`fs-sheet-in`), and a bounding box measures that scale along with
+     * it. The height noted during the entrance was therefore only four fifths
+     * of the real one — and the moment the scaling finished, the difference
+     * looked like a step of a hundred pixels that had to be smoothed out. The
+     * card thus grew a second time after opening, upwards, for another fifth
+     * of a second. The layout height knows nothing of transforms and stays the
+     * same throughout the entrance.
+     */
+    const next = el.offsetHeight;
+    const prev = lastH.current;
+    lastH.current = next;
+    // The height to fall back on when the list runs empty — see `heldH`. Only
+    // noted while the list is at rest: during a removal the row is already
+    // collapsing, and a card measured mid-flight would hand on a height that
+    // was never a resting state.
+    if (items.length > 0 && removing.size === 0) fullH.current = next;
+    // `anchor` only exists for the floating card; on the grid the panel is a
+    // full-height column and never resizes with its content.
+    if (!anchor || !prev || !motionOk()) return;
+    // Anything under a few pixels is the list breathing, not a step — animating
+    // it would only put a lag between typing and seeing.
+    if (Math.abs(next - prev) < 12) return;
+    resizeAnim.current = el.animate(
+      [{ height: `${prev}px` }, { height: `${next}px` }],
+      { duration: 220, easing: 'cubic-bezier(.33, 0, .2, 1)' },
+    );
+  });
+
+  /**
+   * A newly slid-in entry moves into view — otherwise the animation plays
+   * outside the visible area and is never seen. A callback ref, so that it
+   * fires exactly once on appearing.
+   */
+  const scrollFresh = useCallback((node: HTMLLIElement | null) => {
+    node?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, []);
+
+  // Device badge clicked: scroll to the group concerned and flash it briefly.
   const [flashDevice, setFlashDevice] = useState<string | null>(null);
   const groupRefs = useRef(new Map<string, HTMLElement>());
   useEffect(() => {
@@ -340,13 +655,12 @@ export function FeedbackPanel({
     return () => clearTimeout(timer);
   }, [mdCopied]);
 
-  // Gesamtes Domain-Feedback als Markdown-Checkliste in die Zwischenablage —
-  // zum Weiterreichen in ein Ticket-/Doku-Tool.
+  // The whole domain's feedback as a Markdown checklist on the clipboard — to
+  // hand on into a ticket or documentation tool.
   const copyMarkdown = () => {
     if (items.length === 0) return;
-    // Der Payload haengt hinten dran, damit sich der Stand aus dem Text
-    // heraus wiederherstellen laesst — scheitert das Codieren, geht die
-    // Liste trotzdem raus.
+    // The payload is appended at the end, so that the state can be restored out
+    // of the text — if encoding fails, the list still goes out.
     void encodeShare(items)
       .catch(() => undefined)
       .then((payload) => {
@@ -356,36 +670,69 @@ export function FeedbackPanel({
           payload && `#${SHARE_PARAM}=${payload}`,
         );
         if (!md) return;
-        return navigator.clipboard.writeText(md).then(() => setMdCopied(true));
+        return navigator.clipboard.writeText(md).then(() => {
+          setMdCopied(true);
+          // Copying is invisible — and where the result went, even more so.
+          fire('first-markdown');
+        });
       })
       .catch(() => {
-        /* Clipboard verweigert — kein Fallback, Screenshot/Link bleiben */
+        /* clipboard refused — no fallback, screenshot/link remain */
       });
   };
 
-  // Der Link codiert den Feedback-Stand — bei Aenderungen veraltet er.
+  /**
+   * Fingerprint of the feedback state — not the array's identity.
+   *
+   * `items` is filtered in the app from `feedback` *and* the current page. Every
+   * navigation therefore yields a fresh array, even when nothing changed in
+   * substance (the filter goes by origin, not by page). The screenshot export
+   * navigates the previews through every selected page and back — hanging off
+   * the identity, that cleared the success message away again within the same
+   * run: the PDFs were in the downloads folder and the interface said not a
+   * word about it.
+   */
+  const itemsFingerprint = useMemo(() => JSON.stringify(items), [items]);
+
+  // The link encodes the feedback state — on real changes it goes stale.
   useEffect(() => {
     setShareUrl(null);
     setShareError(false);
     setShotsCount(null);
-  }, [items]);
+  }, [itemsFingerprint]);
 
-  // Link bauen UND direkt in die Zwischenablage legen — die Box darunter
-  // bleibt als Fallback zum manuellen Kopieren sichtbar.
-  const createShareLink = () => {
+  // Build the link AND put it straight on the clipboard — the box below stays
+  // visible as a fallback for copying by hand.
+  const runShare = (extra: string[]) => {
+    setPickFor(null);
     setShareError(false);
     setShotsCount(null);
-    onBuildShareLink()
+    setSharePages(extra.length + 1);
+    onBuildShareLink(extra)
       .then(async (link) => {
         setShareUrl(link);
         try {
           await navigator.clipboard.writeText(link);
           setShareCopied(true);
         } catch {
-          /* Clipboard verweigert — Box mit Copy-Button bleibt als Fallback */
+          /* clipboard refused — the box with the copy button remains as a fallback */
         }
       })
       .catch(() => setShareError(true));
+  };
+
+  const createShareLink = () => {
+    // Without other pages there is nothing to choose — off we go.
+    if (otherPages.length === 0) return runShare([]);
+    // The first click opens the list, the second triggers.
+    if (pickFor !== 'share') {
+      setPicked(new Set());
+      setPickFor('share');
+      // The intermediate step looks like a click with no effect.
+      fire('first-share-armed');
+      return;
+    }
+    runShare([...picked]);
   };
 
   const copyShareLink = () => {
@@ -394,28 +741,62 @@ export function FeedbackPanel({
   };
 
   /**
-   * Andere Seiten derselben Domain mit offenem Feedback — zuletzt bearbeitete
-   * zuerst. Nur wenn es welche gibt, ist ueberhaupt etwas zu waehlen.
+   * Per-page figures for the selection list: open markings in total, broken
+   * down by device, and when the last one was added. Completed ones do not
+   * count — the list is meant to show what is still open.
    */
-  const otherPages = (() => {
-    const map = new Map<string, { count: number; updatedAt: number }>();
+  interface PageStats {
+    count: number;
+    updatedAt: number;
+    /** deviceId → count, unordered; `deviceSummary` sorts it for display. */
+    devices: Map<string, number>;
+  }
+  const pageStats = (() => {
+    const map = new Map<string, PageStats>();
     for (const item of items) {
-      if (item.url === url || item.done) continue;
-      const seen = map.get(item.url);
-      if (seen) {
-        seen.count += 1;
-        seen.updatedAt = Math.max(seen.updatedAt, item.createdAt);
-      } else {
-        map.set(item.url, { count: 1, updatedAt: item.createdAt });
+      if (item.done) continue;
+      let entry = map.get(item.url);
+      if (!entry) {
+        entry = { count: 0, updatedAt: 0, devices: new Map() };
+        map.set(item.url, entry);
       }
+      entry.count += 1;
+      entry.updatedAt = Math.max(entry.updatedAt, item.createdAt);
+      entry.devices.set(item.deviceId, (entry.devices.get(item.deviceId) ?? 0) + 1);
     }
-    return [...map.entries()]
-      .map(([pageUrl, v]) => ({ url: pageUrl, ...v }))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    return map;
   })();
 
+  /** Deleted custom presets no longer have a name — then the raw id. */
+  const deviceName = (id: string) => presets.find((p) => p.id === id)?.name ?? id;
+
+  /**
+   * "iPhone SE 2 · Desktop HD 1". Sorted by preset order, not by count: that
+   * way every row of the selection lists the same devices in the same order and
+   * the numbers can be compared down the column.
+   */
+  const deviceSummary = (devices: Map<string, number>): string => {
+    const rank = (id: string) => {
+      const i = presets.findIndex((p) => p.id === id);
+      return i === -1 ? presets.length : i;
+    };
+    return [...devices]
+      .sort(([idA], [idB]) => rank(idA) - rank(idB) || idA.localeCompare(idB))
+      .map(([id, n]) => `${deviceName(id)} ${n}`)
+      .join(' · ');
+  };
+
+  /**
+   * Other pages of the same domain with open feedback — most recently edited
+   * first. Only when there are some is there anything to choose at all.
+   */
+  const otherPages = [...pageStats.entries()]
+    .filter(([pageUrl]) => pageUrl !== url)
+    .map(([pageUrl, stats]) => ({ url: pageUrl, ...stats }))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
   const runShots = (extra: string[]) => {
-    setPickOpen(false);
+    setPickFor(null);
     setShareUrl(null);
     setShareError(false);
     setShotsCount(null);
@@ -431,22 +812,105 @@ export function FeedbackPanel({
 
   const exportShots = () => {
     if (shotsPending) return;
-    // Ohne andere Seiten gibt es nichts zu waehlen — direkt los.
+    // Without other pages there is nothing to choose — off we go.
     if (otherPages.length === 0) return runShots([]);
-    // Erster Klick oeffnet die Liste, der zweite loest aus.
-    if (!pickOpen) {
+    // The first click opens the list, the second triggers.
+    if (pickFor !== 'shots') {
       setPicked(new Set());
-      setPickOpen(true);
+      setPickFor('shots');
+      fire('first-share-armed');
       return;
     }
     runShots([...picked]);
   };
 
-  // Nach Seite gruppiert, innerhalb nach Device-Preset. Die Seite mit dem
-  // juengsten Eintrag steht oben — das frisch Markierte soll man nicht suchen
-  // muessen. Bewusst *nicht* "aktuelle Seite zuerst": die Reihenfolge darf
-  // beim blossen Seitenwechsel nicht springen (die aktuelle Seite markiert
-  // das Badge), und ohne neues Feedback aendert sich hier nichts.
+  const currentStats = pageStats.get(url);
+
+  /**
+   * Figures under the path: the total carries the decision and therefore stands
+   * at the top and bold; devices and age explain it below. Staggered rather than
+   * on one line — the numbers should not hide from each other in running text.
+   */
+  const pickRowStats = (stats: PageStats | undefined) => {
+    if (!stats) return <span className="shotpick__meta">nothing open</span>;
+    return (
+      <>
+        <span className="shotpick__count">
+          {stats.count} change{stats.count === 1 ? '' : 's'}
+        </span>
+        <span className="shotpick__meta">{deviceSummary(stats.devices)}</span>
+        <span className="shotpick__meta">{agoLong(stats.updatedAt)}</span>
+      </>
+    );
+  };
+
+  /**
+   * The page selection. It sits in the row of the button that opened it and
+   * slides upwards out of it — which is why it is built here and hung into
+   * exactly one of the two rows below.
+   */
+  const pagePicker = (
+    <div className="shotpick" role="group" aria-label="Pages to include">
+      <div className="shotpick__head">
+        {pickFor === 'share' ? 'Also share…' : 'Also capture…'}
+        <button
+          type="button"
+          className="icon-btn icon-btn--small"
+          aria-label="Close"
+          onClick={() => setPickFor(null)}
+        >
+          <IconClose size={13} />
+        </button>
+      </div>
+      <div className="shotpick__list">
+        <label className="shotpick__row shotpick__row--fixed">
+          <span className="shotpick__box is-on">
+            <IconCheck size={11} />
+          </span>
+          <span className="shotpick__info">
+            <span className="shotpick__top">
+              <span className="shotpick__path">{pathOf(url) || '/'}</span>
+              <span className="shotpick__tag">this page</span>
+            </span>
+            {pickRowStats(currentStats)}
+          </span>
+        </label>
+        {otherPages.map((page) => (
+          <label key={page.url} className="shotpick__row">
+            <span className={`shotpick__box${picked.has(page.url) ? ' is-on' : ''}`}>
+              {picked.has(page.url) && <IconCheck size={11} />}
+            </span>
+            <input
+              type="checkbox"
+              className="shotpick__input"
+              checked={picked.has(page.url)}
+              onChange={() =>
+                setPicked((set) => {
+                  const next = new Set(set);
+                  if (!next.delete(page.url)) next.add(page.url);
+                  return next;
+                })
+              }
+            />
+            <span className="shotpick__info">
+              <span className="shotpick__top">
+                <span className="shotpick__path" title={page.url}>
+                  {pathOf(page.url) || '/'}
+                </span>
+              </span>
+              {pickRowStats(page)}
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Grouped by page, and within that by device preset. The page with the newest
+  // entry stands at the top — you should not have to hunt for what you just
+  // marked. Deliberately *not* "current page first": the order must not jump on
+  // a mere page change (the badge marks the current page), and without new
+  // feedback nothing changes here.
   const byUrl = new Map<string, FeedbackItem[]>();
   for (const item of items) {
     const list = byUrl.get(item.url);
@@ -462,13 +926,32 @@ export function FeedbackPanel({
 
   return (
     <aside
-      className="panel panel--right"
+      ref={rootRef}
+      className={`panel panel--right${dragging ? ' panel--dragging' : ''}`}
       aria-label="Feedback"
-      style={{ width, ...anchor }}
+      style={{ width, ...anchor, ...(anchor && heldH ? { height: heldH } : null) }}
       onMouseEnter={() => onPanelHover?.(true)}
       onMouseLeave={() => onPanelHover?.(false)}
     >
-      <div className="panel__head">
+      <div
+        className={`panel__head${onHeadPointerDown ? ' panel__head--grab' : ''}`}
+        {...(onHeadPointerDown ? tip('Drag to move — snaps above the button or to an edge') : {})}
+        // Explicitly *after* the tooltip props, and therefore in place of their
+        // own `onPointerDown`: without hiding the bubble by hand it would hang
+        // where the header used to be for the whole drag — the card travels
+        // with the pointer, the label stays put, and it reads as if the cursor
+        // had got caught on something. `pointerleave` does not help here, the
+        // header holds the pointer capture.
+        onPointerDown={(e) => {
+          hideTip();
+          onHeadPointerDown?.(e);
+        }}
+      >
+        {onHeadPointerDown && (
+          <span className="panel__grip" aria-hidden="true">
+            <IconGrip size={13} />
+          </span>
+        )}
         <span className="panel__title">Feedback</span>
         {openCount > 0 && <span className="panel__count">{openCount}</span>}
         <span className="panel__spacer" />
@@ -476,7 +959,7 @@ export function FeedbackPanel({
         <span className="panel__menu">
           <button
             className={`icon-btn icon-btn--small${menuOpen ? ' icon-btn--active' : ''}`}
-            title="Manage"
+            {...tip('Manage feedback')}
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((v) => !v)}
           >
@@ -520,50 +1003,15 @@ export function FeedbackPanel({
           )}
         </span>
 
-        <button className="icon-btn icon-btn--small" title="Close panel" onClick={onClose}>
+        <button className="icon-btn icon-btn--small" {...tip('Close panel')} onClick={onClose}>
           <IconClose size={14} />
         </button>
       </div>
 
-      {/* Steuerleiste mit klaren Beschriftungen: die Wirkung der Aenderungen
-          und die Sichtbarkeit der roten Markierungen getrennt schalten. */}
-      <div className="panel__devbar">
-        {onToggleEffects && (
-          <button
-            className={`devtoggle${effectsApplied ? ' is-on' : ''}`}
-            aria-pressed={effectsApplied}
-            title={
-              effectsApplied
-                ? 'The saved changes are applied to the page — click to see the original'
-                : 'Showing the original page — click to apply the saved changes'
-            }
-            onClick={onToggleEffects}
-          >
-            <IconLayers size={13} />
-            <span>Apply changes</span>
-            <span className="devtoggle__state">{effectsApplied ? 'On' : 'Off'}</span>
-          </button>
-        )}
-        <button
-          // Der Zaehler als key startet die Hinweis-Animation auch dann neu,
-          // wenn sie noch laeuft.
-          key={markersHint}
-          className={`devtoggle${markersVisible ? ' is-on' : ''}${
-            markersHint > 0 ? ' devtoggle--hint' : ''
-          }`}
-          aria-pressed={markersVisible}
-          title={
-            markersVisible
-              ? 'Red markings always visible — click to hide them (hover the panel to peek)'
-              : 'Red markings hidden — hover the panel to peek, click to keep them on'
-          }
-          onClick={onToggleMarkers}
-        >
-          {markersVisible ? <IconEye size={13} /> : <IconEyeOff size={13} />}
-          <span>Show markings</span>
-          <span className="devtoggle__state">{markersVisible ? 'On' : 'Off'}</span>
-        </button>
-      </div>
+      {/* The view switch ("My edits") used to sit here. It acts globally and
+          therefore lives in the bar (toolbar or fsbar) — in the panel it was
+          hidden behind something collapsible, and the hints could no longer
+          find their anchor once it was shut. */}
 
       <div className="panel__url" title={url}>
         {pathOf(url)}
@@ -612,8 +1060,10 @@ export function FeedbackPanel({
           <p>
             <strong>No feedback yet.</strong>
             <br />
-            Right-click a preview — or pick a tool from the bar below — to mark elements, drop
-            pins or draw on a device.
+            {/* Deliberately without a reference to the bar: in full window mode
+                it only carries the two modes, pin and drawing live in the
+                right-click menu. */}
+            Right-click anywhere on the page to grab an element or pick up a pen.
           </p>
           <p className="panel__empty-tip">
             <button className="link-btn" onClick={onShowShortcuts}>
@@ -626,15 +1076,15 @@ export function FeedbackPanel({
       <div className="panel__scroll">
         {pages.map(([pageUrl, pageItems]) => {
           const isCurrent = pageUrl === url;
-          // Unbekannte deviceIds (geloeschtes Custom-Preset) bekommen eine
-          // eigene Gruppe statt stillschweigend zu verschwinden.
+          // Unknown deviceIds (a deleted custom preset) get a group of their own
+          // rather than quietly disappearing.
           const known = new Set(presets.map((p) => p.id));
           const unknown = [...new Set(pageItems.map((i) => i.deviceId))]
             .filter((id) => !known.has(id))
             .map((id): DevicePreset => ({ id, name: id, width: 0, height: 0 }));
-          // `items` bleibt vollstaendig *und* in Zeichen-Reihenfolge (die
-          // Pin-Nummern muessen zu denen auf den Frames passen); `visible` ist
-          // die Anzeige: ggf. um Erledigtes reduziert und neueste zuerst.
+          // `items` stays complete *and* in drawing order (the pin numbers have
+          // to match those on the frames); `visible` is the display: reduced by
+          // completed ones where applicable, and newest first.
           const groups = [...presets, ...unknown]
             .map((preset) => {
               const groupItems = pageItems.filter((item) => item.deviceId === preset.id);
@@ -647,8 +1097,8 @@ export function FeedbackPanel({
               };
             })
             .filter((g) => g.visible.length > 0)
-            // Auch die Device-Gruppen richten sich nach ihrem juengsten
-            // Eintrag — sonst landet das frisch Markierte mitten im Panel.
+            // The device groups also go by their newest entry — otherwise what
+            // was just marked lands in the middle of the panel.
             .sort((a, b) => newestOf(b.visible) - newestOf(a.visible));
           if (groups.length === 0) return null;
 
@@ -661,7 +1111,7 @@ export function FeedbackPanel({
               {(pages.length > 1 || !isCurrent) && (
                 <button
                   className="fb-page__head"
-                  title={isCurrent ? 'Current page' : 'Switch the previews to this page'}
+                  {...tip(isCurrent ? 'Current page' : 'Switch the previews to this page')}
                   disabled={isCurrent}
                   onClick={() => onNavigate(pageUrl)}
                 >
@@ -672,9 +1122,9 @@ export function FeedbackPanel({
 
               {groups.map(({ preset, items: groupItems, visible }) => {
                 const inGrid = devices.some((d) => d.id === preset.id);
-                // Andere Seite oder ein Viewport, der gerade nicht offen ist:
-                // gedimmt, damit auf einen Blick klar ist, was zum aktuellen
-                // Bild gehoert und was nicht.
+                // Another page, or a viewport that is not open right now: dimmed,
+                // so that it is clear at a glance what belongs to the current
+                // picture and what does not.
                 const offContext = !isCurrent || !activePresetIds.has(preset.id);
                 const numbers = pinNumbers(groupItems.map((i) => i.shape));
                 return (
@@ -691,13 +1141,13 @@ export function FeedbackPanel({
                   >
                     <button
                       className="fb-group__head"
-                      title={
+                      {...tip(
                         isCurrent
                           ? inGrid
                             ? 'Jump to device'
                             : 'Add device to the grid'
-                          : 'Switch the previews to this page'
-                      }
+                          : 'Switch the previews to this page',
+                      )}
                       onClick={() => (isCurrent ? onJump(preset.id) : onNavigate(pageUrl))}
                     >
                       <span className="fb-group__name">{preset.name}</span>
@@ -722,7 +1172,9 @@ export function FeedbackPanel({
                         return (
                           <li
                             key={item.id}
-                            className={`fb-item${item.done ? ' fb-item--done' : ''}${editing ? ' fb-item--editing' : ''}${hoverId === item.id ? ' fb-item--hover' : ''}`}
+                            ref={fresh.has(item.id) ? scrollFresh : undefined}
+                            data-item-id={item.id}
+                            className={`fb-item${item.done ? ' fb-item--done' : ''}${editing ? ' fb-item--editing' : ''}${hoverId === item.id ? ' fb-item--hover' : ''}${fresh.has(item.id) ? ' fb-item--fresh' : ''}${explainId === item.id ? ' fb-item--explained' : ''}${removing.has(item.id) ? ' fb-item--removing' : ''}`}
                             title={
                               editing
                                 ? undefined
@@ -732,8 +1184,8 @@ export function FeedbackPanel({
                             }
                             onDoubleClick={() => {
                               if (editing) return;
-                              // Wie der Stift-Knopf: Element-Marker oeffnen ihr
-                              // Popup, alle anderen den Inline-Notiz-Editor.
+                              // Like the pen button: element markers open their
+                              // popup, everything else the inline note editor.
                               if (item.shape.tool === 'element' && onEditElement) {
                                 onEditElement(item);
                               } else {
@@ -748,7 +1200,7 @@ export function FeedbackPanel({
                           >
                             <button
                               className={`fb-check${item.done ? ' fb-check--done' : ''}`}
-                              title={item.done ? 'Mark as open' : 'Mark as done'}
+                              {...tip(item.done ? 'Mark as open' : 'Mark as done')}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onToggleDone(item.id);
@@ -808,54 +1260,120 @@ export function FeedbackPanel({
                                   <span className="fb-item__meta-row">
                                     {meta && <span className="fb-item__meta">{meta}</span>}
                                     {size && <span className="fb-item__size">{size}</span>}
+                                    {/* Says up front why the marker is nowhere to
+                                        be seen on the page right now. */}
+                                    {shapeReveal(item.shape) && (
+                                      <span
+                                        className="fb-item__reveal"
+                                        {...tip(
+                                          'Behind an interaction — clicking the entry unfolds it',
+                                        )}
+                                      >
+                                        <IconReveal size={11} />
+                                      </span>
+                                    )}
                                   </span>
                                   {item.shape.tool === 'element' &&
                                     ((item.shape.styleChanges?.length ?? 0) > 0 ||
-                                      item.shape.textChange) && (
-                                      <span className="fb-item__changes">
-                                        {item.shape.styleTarget && (
-                                          <span className="fb-chg-target">
-                                            {item.shape.styleTarget}
+                                      item.shape.textChange) &&
+                                    (() => {
+                                        // Text change first: it is the one you
+                                        // recognise the marker by, so it must
+                                        // never be the one that gets folded
+                                        // away.
+                                        const chips = [
+                                          ...(item.shape.textChange
+                                            ? [
+                                                {
+                                                  key: 'text',
+                                                  long: true,
+                                                  prop: 'text',
+                                                  from: item.shape.textChange.from,
+                                                  to: item.shape.textChange.to,
+                                                },
+                                              ]
+                                            : []),
+                                          ...(item.shape.styleChanges ?? []).map((c) => ({
+                                            key: c.prop,
+                                            long: false,
+                                            prop: c.prop,
+                                            from: c.from,
+                                            to: c.to,
+                                          })),
+                                        ];
+                                        const open = openChanges.has(item.id);
+                                        const hidden = chips.length - CHANGES_PREVIEW;
+                                        const shown = open
+                                          ? chips
+                                          : chips.slice(0, CHANGES_PREVIEW);
+                                        return (
+                                          <span className="fb-item__changes">
+                                            {/* Only where it says something the
+                                                line above does not: for an
+                                                element-scoped change the target
+                                                *is* the label, and the selector
+                                                stood there twice. A class scope
+                                                (".btn--primary") is the case
+                                                worth the line. */}
+                                            {item.shape.styleTarget &&
+                                              item.shape.styleTarget !== meta && (
+                                                <span className="fb-chg-target">
+                                                  {item.shape.styleTarget}
+                                                </span>
+                                              )}
+                                            {shown.map((c) => (
+                                              <span
+                                                className={`fb-chg${c.long ? ' fb-chg--text' : ''}`}
+                                                key={c.key}
+                                              >
+                                                <span className="fb-chg-prop">{c.prop}</span>
+                                                <span className="fb-chg-from">{c.from}</span>
+                                                <span className="fb-chg-arr">→</span>
+                                                <span className="fb-chg-to">{c.to}</span>
+                                              </span>
+                                            ))}
+                                            {hidden > 0 && (
+                                              <button
+                                                className="fb-chg-more"
+                                                aria-expanded={open}
+                                                // The row itself jumps to the
+                                                // marker — unfolding must not.
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  toggleChanges(item.id);
+                                                }}
+                                              >
+                                                {open ? '▾ Show less' : `▸ ${hidden} more`}
+                                              </button>
+                                            )}
                                           </span>
-                                        )}
-                                        {item.shape.textChange && (
-                                          <span className="fb-chg fb-chg--text">
-                                            <span className="fb-chg-prop">text</span>
-                                            <span className="fb-chg-from">
-                                              {item.shape.textChange.from}
-                                            </span>
-                                            <span className="fb-chg-arr">→</span>
-                                            <span className="fb-chg-to">
-                                              {item.shape.textChange.to}
-                                            </span>
-                                          </span>
-                                        )}
-                                        {(item.shape.styleChanges ?? []).map((c) => (
-                                          <span className="fb-chg" key={c.prop}>
-                                            <span className="fb-chg-prop">{c.prop}</span>
-                                            <span className="fb-chg-from">{c.from}</span>
-                                            <span className="fb-chg-arr">→</span>
-                                            <span className="fb-chg-to">{c.to}</span>
-                                          </span>
-                                        ))}
-                                      </span>
-                                    )}
+                                        );
+                                      })()}
                                 </>
                               )}
                             </div>
                             <div className="fb-item__actions">
+                              {/* Goes invisible while the delete button is
+                                  armed, but keeps its place: unmounted, the row
+                                  would gain its 26 px back and re-wrap its text
+                                  exactly as you take aim. Hidden rather than
+                                  merely transparent — it also has to stop
+                                  catching the click meant for the bin under the
+                                  question lying over it. */}
                               {textOf(item.shape) != null && !editing && (
                                 <button
-                                  className="icon-btn icon-btn--small"
-                                  title={
+                                  className={`icon-btn icon-btn--small${
+                                    armedId === item.id ? ' fb-item__edit-hidden' : ''
+                                  }`}
+                                  {...tip(
                                     item.shape.tool === 'element' && onEditElement
-                                      ? 'Edit marker (values + note)'
-                                      : 'Edit note'
-                                  }
+                                      ? 'Edit marker (values and note)'
+                                      : 'Edit note',
+                                  )}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    // Element-Marker: Popup am Device wieder
-                                    // oeffnen — dort sind auch die Werte dran.
+                                    // Element marker: reopen the popup on the
+                                    // device — the values are attached there too.
                                     if (item.shape.tool === 'element' && onEditElement) {
                                       onEditElement(item);
                                     } else {
@@ -866,16 +1384,7 @@ export function FeedbackPanel({
                                   <IconEditPen size={12} />
                                 </button>
                               )}
-                              <button
-                                className="icon-btn icon-btn--small icon-btn--danger"
-                                title="Delete entry"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onDelete(item.id);
-                                }}
-                              >
-                                <IconClose size={12} />
-                              </button>
+                              {deleteButton(item.id)}
                             </div>
                           </li>
                         );
@@ -890,9 +1399,9 @@ export function FeedbackPanel({
 
         {otherItems.length > 0 &&
           (() => {
-            // Fremde Domains: nach Host, darin nach Seite gruppiert. Nur
-            // Ansehen/Abhaken/Loeschen — zum Marker springen geht erst auf
-            // der Domain selbst (Cross-Origin ist in den Previews gesperrt).
+            // Other domains: grouped by host, and within that by page. Viewing,
+            // ticking off and deleting only — jumping to the marker requires
+            // being on that domain (cross-origin is blocked in the previews).
             const byDomain = new Map<string, FeedbackItem[]>();
             for (const item of otherItems) {
               const host = hostOf(item.url);
@@ -900,8 +1409,8 @@ export function FeedbackPanel({
               if (list) list.push(item);
               else byDomain.set(host, [item]);
             }
-            // Auch hier oben, was zuletzt entstanden ist — Hosts nach ihrem
-            // juengsten Eintrag, die Eintraege selbst absteigend.
+            // Here too, whatever is newest goes on top — hosts by their newest
+            // entry, the entries themselves descending.
             const domains = [...byDomain.entries()]
               .map(([host, list]): [string, FeedbackItem[]] => [
                 host,
@@ -915,7 +1424,7 @@ export function FeedbackPanel({
                 <button
                   className="fb-other__head"
                   aria-expanded={showOther}
-                  title="Feedback saved on other domains"
+                  {...tip('Feedback saved on other domains')}
                   onClick={() => setShowOther((v) => !v)}
                 >
                   <span className={`fb-other__chev${showOther ? ' fb-other__chev--open' : ''}`} />
@@ -934,14 +1443,15 @@ export function FeedbackPanel({
                         {domainItems.map((item) => (
                           <li
                             key={item.id}
-                            className={`fb-item fb-item--static${item.done ? ' fb-item--done' : ''}${hoverId === item.id ? ' fb-item--hover' : ''}`}
+                            data-item-id={item.id}
+                            className={`fb-item fb-item--static${item.done ? ' fb-item--done' : ''}${hoverId === item.id ? ' fb-item--hover' : ''}${removing.has(item.id) ? ' fb-item--removing' : ''}`}
                             title={`${shapeLabel(item.shape)} — on ${pathOf(item.url)}`}
                             onMouseEnter={(e) => enterItem(e.currentTarget, item, false)}
                             onMouseLeave={() => leaveItem(item, false)}
                           >
                             <button
                               className={`fb-check${item.done ? ' fb-check--done' : ''}`}
-                              title={item.done ? 'Mark as open' : 'Mark as done'}
+                              {...tip(item.done ? 'Mark as open' : 'Mark as done')}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onToggleDone(item.id);
@@ -954,18 +1464,7 @@ export function FeedbackPanel({
                               <span className="fb-item__label">{shapeLabel(item.shape)}</span>
                               <span className="fb-item__meta">{pathOf(item.url)}</span>
                             </div>
-                            <div className="fb-item__actions">
-                              <button
-                                className="icon-btn icon-btn--small icon-btn--danger"
-                                title="Delete entry"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onDelete(item.id);
-                                }}
-                              >
-                                <IconClose size={12} />
-                              </button>
-                            </div>
+                            <div className="fb-item__actions">{deleteButton(item.id)}</div>
                           </li>
                         ))}
                       </ul>
@@ -978,90 +1477,62 @@ export function FeedbackPanel({
 
       {items.length > 0 && (
         <div className="panel__share">
-          {/* Teilen steht allein in der ersten Zeile — es ist die Hauptaktion;
-              Screenshot und Markdown teilen sich die Zeile darunter. */}
-          <div className="share-row">
-            <button className="share-btn" onClick={createShareLink} disabled={pageCount === 0}>
+          {/* Sharing stands alone in the first row — it is the main action;
+              screenshot and Markdown share the row below. The page selection
+              hangs off the *row*, not the button: otherwise it would inherit its
+              half width and the paths would be cut off. */}
+          <div
+            className="share-row share-row--pick"
+            ref={pickFor === 'share' ? pickRef : undefined}
+          >
+            {pickFor === 'share' && pagePicker}
+            <button
+              className={`share-btn${pickFor === 'share' ? ' share-btn--armed' : ''}`}
+              onClick={createShareLink}
+              // Even without feedback on *this* page the button stays usable, as
+              // long as other pages have some — those can be selected.
+              disabled={pageCount === 0 && otherPages.length === 0}
+              {...tip(
+                pickFor === 'share'
+                  ? 'Create a link for the selected pages'
+                  : 'Copy a link that carries the markings of this page',
+              )}
+            >
               <IconLink size={14} />
-              Share as link
+              {pickFor === 'share'
+                ? `Share as link${picked.size > 0 ? ` (${picked.size + 1})` : ''}`
+                : 'Share as link'}
             </button>
           </div>
-          {/* Die Auswahl haengt an der *Zeile*, nicht am Knopf: sonst erbt sie
-              dessen halbe Breite und die Pfade waeren abgeschnitten. */}
-          <div className="share-row share-row--pick" ref={pickRef}>
-            {pickOpen && (
-              <div className="shotpick" role="group" aria-label="Pages to capture">
-                <div className="shotpick__head">
-                  Also capture…
-                  <button
-                    type="button"
-                    className="icon-btn icon-btn--small"
-                    aria-label="Close"
-                    onClick={() => setPickOpen(false)}
-                  >
-                    <IconClose size={13} />
-                  </button>
-                </div>
-                <div className="shotpick__list">
-                  <label className="shotpick__row shotpick__row--fixed">
-                    <span className="shotpick__box is-on">
-                      <IconCheck size={11} />
-                    </span>
-                    <span className="shotpick__path">{pathOf(url) || '/'}</span>
-                    <span className="shotpick__tag">this page</span>
-                  </label>
-                  {otherPages.map((page) => (
-                    <label key={page.url} className="shotpick__row">
-                      <span className={`shotpick__box${picked.has(page.url) ? ' is-on' : ''}`}>
-                        {picked.has(page.url) && <IconCheck size={11} />}
-                      </span>
-                      <input
-                        type="checkbox"
-                        className="shotpick__input"
-                        checked={picked.has(page.url)}
-                        onChange={() =>
-                          setPicked((set) => {
-                            const next = new Set(set);
-                            if (!next.delete(page.url)) next.add(page.url);
-                            return next;
-                          })
-                        }
-                      />
-                      <span className="shotpick__path" title={page.url}>
-                        {pathOf(page.url) || '/'}
-                      </span>
-                      <span className="shotpick__meta">
-                        {page.count} · {ago(page.updatedAt)}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
+          <div
+            className="share-row share-row--pick"
+            ref={pickFor === 'shots' ? pickRef : undefined}
+          >
+            {pickFor === 'shots' && pagePicker}
             <button
-              className={`share-btn share-btn--alt${pickOpen ? ' share-btn--armed' : ''}`}
+              className={`share-btn share-btn--alt${pickFor === 'shots' ? ' share-btn--armed' : ''}`}
               onClick={exportShots}
               disabled={shotsPending}
-              title={
-                pickOpen
+              {...tip(
+                pickFor === 'shots'
                   ? 'Capture the selected pages'
-                  : 'Download annotated PDFs of this page (notes and changes included)'
-              }
+                  : 'Download annotated PDFs of this page',
+              )}
             >
               <IconDownload size={14} />
               {shotsPending
                 ? shotsProgress && shotsProgress.total > 0
                   ? `Capturing ${Math.min(shotsProgress.done + 1, shotsProgress.total)}/${shotsProgress.total}…`
                   : 'Capturing…'
-                : pickOpen
+                : pickFor === 'shots'
                   ? `Screenshot${picked.size > 0 ? ` (${picked.size + 1})` : ''}`
-                  : 'Screenshots'}
+                  : 'PDFs'}
             </button>
             <button
               className="share-btn share-btn--alt"
               onClick={copyMarkdown}
               disabled={items.length === 0}
-              title="Copy all feedback of this domain as a Markdown checklist"
+              {...tip('Copy all feedback of this domain as a Markdown checklist')}
             >
               <IconCopy size={14} />
               Markdown
@@ -1080,7 +1551,7 @@ export function FeedbackPanel({
                 />
                 <button
                   className="icon-btn icon-btn--small"
-                  title={shareCopied ? 'Copied!' : 'Copy link'}
+                  {...tip(shareCopied ? 'Copied' : 'Copy link')}
                   onClick={copyShareLink}
                 >
                   {shareCopied ? <IconCheck size={14} /> : <IconCopy size={14} />}
@@ -1088,14 +1559,23 @@ export function FeedbackPanel({
               </div>
               <div className={`share-hint${shareCopied ? ' share-hint--ok' : ''}`}>
                 {shareCopied
-                  ? 'Link copied to your clipboard.'
-                  : 'All markings of this page are encoded in the link. Anyone opening it with the Inkspect extension sees them directly on the page.'}
+                  ? `Link copied to your clipboard — ${sharePages === 1 ? 'this page' : `${sharePages} pages`}.`
+                  : `The link carries every marking of ${sharePages === 1 ? 'this page' : `these ${sharePages} pages`}. Whoever opens it with Inkspect installed sees them right on the page.`}
               </div>
+              {/* The link itself works even when long — the limit is drawn by
+                  the transport. So we warn rather than block. */}
+              {shareUrl.length > SHARE_URL_WARN && (
+                <div className="share-hint share-hint--error">
+                  This link is {Math.round(shareUrl.length / 1024)} KB long. Chat and mail apps
+                  often cut links that long in half — pick fewer pages, or send the PDFs
+                  instead.
+                </div>
+              )}
             </>
           )}
 
-          {/* Negativ heisst: abgebrochen (Seitenauswahl weggeklickt) — dazu
-              gibt es nichts zu melden. */}
+          {/* Negative means: cancelled (the page selection was clicked away) —
+              there is nothing to report about that. */}
           {shotsCount !== null && shotsCount >= 0 && (
             <div className={`share-hint${shotsCount === 0 ? ' share-hint--error' : ''}`}>
               {shotsCount === 0

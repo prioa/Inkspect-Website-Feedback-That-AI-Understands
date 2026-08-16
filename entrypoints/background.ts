@@ -8,17 +8,30 @@ export default defineBackground(() => {
   const log = createLogger('bg');
   log.info('service worker start', new Date().toISOString());
 
-  /** tabId → id der aktiven Session-Rule. */
+  // GitHub Pages URLs do not follow repository renames — after a rename this
+  // URL has to be updated by hand. The page must be deployed before a version
+  // carrying this constant goes to the store.
+  const WELCOME_URL =
+    'https://prioa.github.io/Inkspect-Website-Feedback-That-AI-Understands/welcome.html';
+
+  browser.runtime.onInstalled.addListener(({ reason }) => {
+    if (reason !== 'install') return;
+    // wxt dev reinstalls the extension on every start — no tab spam.
+    if (import.meta.env.DEV) return;
+    void browser.tabs.create({ url: WELCOME_URL }).catch(() => undefined);
+  });
+
+  /** tabId → id of the active session rule. */
   const bypassRules = new Map<number, number>();
   let nextRuleId = 1;
 
   /**
-   * Entfernt fuer Sub-Frames dieses einen Tabs die Header, die das Framen
-   * verbieten. Session-Rule, weil nur die `tabIds` als Bedingung kennt.
+   * Removes the headers that forbid framing, for sub-frames of this one tab.
+   * A session rule, because only those take `tabIds` as a condition.
    *
-   * DNR kann Header nur komplett entfernen, nicht einzelne Direktiven — mit
-   * der CSP fallen also auch die XSS-Schutzmassnahmen innerhalb der Frames.
-   * Deshalb Opt-in, nur dieser Tab, nur sub_frame, Cleanup beim Schliessen.
+   * DNR can only remove headers wholesale, not individual directives — so the
+   * XSS protections inside the frames fall along with the CSP. Hence opt-in,
+   * this tab only, sub_frame only, cleaned up on close.
    */
   async function setBypass(tabId: number, enabled: boolean, host?: string): Promise<void> {
     const existing = bypassRules.get(tabId);
@@ -43,8 +56,8 @@ export default defineBackground(() => {
           condition: {
             tabIds: [tabId],
             resourceTypes: ['sub_frame'],
-            // Nur die Domain, die betrachtet wird — fremde iframes *innerhalb*
-            // der Vorschau (Werbung, OAuth, Payment) behalten ihre CSP.
+            // Only the domain being looked at — foreign iframes *inside* the
+            // preview (ads, OAuth, payment) keep their CSP.
             ...(host ? { requestDomains: [host] } : {}),
           },
           action: {
@@ -63,9 +76,9 @@ export default defineBackground(() => {
   }
 
   /**
-   * Der Service Worker schlaeft nach kurzer Untaetigkeit ein, die
-   * Session-Rules ueberleben ihn aber. Ohne diesen Abgleich waeren die Regeln
-   * nach dem Aufwachen unbekannt — und wuerden nie wieder aufgeraeumt.
+   * The service worker goes to sleep after a short idle, but the session rules
+   * outlive it. Without this reconciliation the rules would be unknown after
+   * waking up — and would never be cleaned up again.
    */
   const restored = (async () => {
     try {
@@ -76,13 +89,13 @@ export default defineBackground(() => {
         bypassRules.set(tabId, rule.id);
         nextRuleId = Math.max(nextRuleId, rule.id + 1);
       }
-      if (rules.length > 0) log.info('Session-Rules uebernommen', rules.length);
+      if (rules.length > 0) log.info('Session rules taken over', rules.length);
     } catch (e) {
-      log.warn('Session-Rules lesen fehlgeschlagen', e);
+      log.warn('Reading the session rules failed', e);
     }
   })();
 
-  /** Wartet, bis der Tab fertig geladen ist. */
+  /** Waits until the tab has finished loading. */
   function waitForComplete(tabId: number): Promise<void> {
     return new Promise((resolve) => {
       const listener = (id: number, info: { status?: string }) => {
@@ -100,27 +113,38 @@ export default defineBackground(() => {
     log.info('action.onClicked', { tabId, url: tab.url });
     if (tabId == null) return;
 
-    // Auf chrome://, about: und dem Add-on-Store laufen keine Content-Scripts.
+    // No content scripts run on chrome://, about: or the add-on store. Rather
+    // than a silent no-op (fatal right after installation, where the active tab
+    // is usually the store or a new tab), the click opens the welcome page —
+    // where Inkspect does work.
     if (!tab.url || !/^https?:\/\//.test(tab.url)) {
-      log.warn('action.onClicked: nicht injizierbare URL', tab.url);
+      log.warn('action.onClicked: URL cannot be injected — welcome page', tab.url);
+      void browser.tabs.create({ url: WELCOME_URL }).catch(() => undefined);
       return;
     }
 
     try {
       await browser.tabs.sendMessage(tabId, { type: 'ink:toggle' });
-      log.debug('toggle an vorhandenes Content-Script gesendet');
+      log.debug('toggle sent to the existing content script');
     } catch {
-      // Tab war vor Installation/Update offen — Content-Script fehlt noch.
-      log.debug('kein Content-Script — reload + toggle', tabId);
+      // Tab was open before install/update — the content script is not there yet.
+      log.debug('no content script — reload + toggle', tabId);
       await browser.tabs.reload(tabId);
       await waitForComplete(tabId);
-      await browser.tabs.sendMessage(tabId, { type: 'ink:toggle' });
+      try {
+        await browser.tabs.sendMessage(tabId, { type: 'ink:toggle' });
+      } catch {
+        // An https page where no script runs anyway (the Web Store, origins
+        // blocked by policy) — do not run into nothing here either.
+        log.warn('Content script still unreachable after the reload', tabId);
+        void browser.tabs.create({ url: WELCOME_URL }).catch(() => undefined);
+      }
     }
   });
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const request = message as BackgroundRequest;
-    log.debug('onMessage', request?.type, 'von Tab', sender.tab?.id);
+    log.debug('onMessage', request?.type, 'from tab', sender.tab?.id);
 
     if (request?.type === 'ink:fetch-css') {
       fetch(request.url)
@@ -134,7 +158,7 @@ export default defineBackground(() => {
           sendResponse({ ok: true, text });
         })
         .catch((e: unknown) => {
-          log.warn('fetch-css Fehler', request.url, e);
+          log.warn('fetch-css error', request.url, e);
           sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
         });
       return true; // Antwort kommt asynchron.
@@ -153,9 +177,9 @@ export default defineBackground(() => {
     }
 
     if (request?.type === 'ink:frame-check') {
-      // Vorab-Request nur wegen der Header — der Body interessiert nicht und
-      // wird sofort verworfen. Mit Cookies, weil manche Seiten die Header nur
-      // fuer eingeloggte Nutzer setzen.
+      // A pre-flight request purely for the headers — the body is of no
+      // interest and is discarded immediately. With cookies, because some sites
+      // only set the headers for signed-in users.
       const url = request.url;
       fetch(url, { method: 'GET', credentials: 'include', redirect: 'follow' })
         .then((res) => {
@@ -165,7 +189,7 @@ export default defineBackground(() => {
           sendResponse({ ok: true, blocked });
         })
         .catch((e: unknown) => {
-          // Im Zweifel laden lassen — die Erkennung nach dem Load faengt es ab.
+          // When in doubt, let it load — detection after the load catches it.
           log.warn('frame-check fehlgeschlagen', url, e);
           sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
         });
@@ -173,9 +197,9 @@ export default defineBackground(() => {
     }
 
     if (request?.type === 'ink:ui-state') {
-      // Sichtbarer Aktiv-Zustand am Toolbar-Icon: Badge, solange die UI in
-      // diesem Tab offen ist. Chrome raeumt Tab-Badges bei Navigation selbst
-      // auf; das Content-Script meldet sich nach einem Reload ohnehin neu.
+      // Visible active state on the toolbar icon: a badge for as long as the UI
+      // is open in this tab. Chrome clears tab badges on navigation itself, and
+      // the content script reports in again after a reload anyway.
       const tabId = sender.tab?.id;
       if (tabId != null) {
         void browser.action.setBadgeText({ tabId, text: request.open ? 'ON' : '' });
@@ -190,7 +214,7 @@ export default defineBackground(() => {
     if (request?.type === 'ink:frame-bypass') {
       const tabId = sender.tab?.id;
       if (tabId == null) {
-        sendResponse({ ok: false, error: 'Kein Tab-Kontext' });
+        sendResponse({ ok: false, error: 'No tab context' });
         return false;
       }
       restored
@@ -209,13 +233,13 @@ export default defineBackground(() => {
     void setBypass(tabId, false);
   });
 
-  // Beim Verlassen der Seite stirbt das Content-Script und damit die UI — der
-  // Eingriff darf sie nicht ueberleben. `status: 'loading'` deckt auch den
-  // Reload derselben URL ab (dabei ist changeInfo.url nicht gesetzt); das
-  // Neuladen der Preview-Frames loest kein tabs.onUpdated aus.
+  // Leaving the page kills the content script and with it the UI — the change
+  // must not outlive it. `status: 'loading'` also covers a reload of the same
+  // URL (where changeInfo.url is not set); reloading the preview frames does
+  // not trigger tabs.onUpdated.
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if ((changeInfo.url != null || changeInfo.status === 'loading') && bypassRules.has(tabId)) {
-      log.info('Top-Level-Navigation — Bypass aufgeraeumt', tabId);
+      log.info('Top-level navigation — bypass cleaned up', tabId);
       void setBypass(tabId, false);
     }
   });

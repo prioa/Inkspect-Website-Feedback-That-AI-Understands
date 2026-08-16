@@ -3,7 +3,7 @@ import { TOOL_LABELS, type Tool } from '@/lib/annotations';
 import { IconClose, IconPointer } from './icons';
 import { TOOL_ICONS } from './AnnotationPalette';
 
-/** Cmd auf dem Mac, sonst Ctrl — nur fuer die Anzeige der Shortcuts. */
+/** Cmd on a Mac, Ctrl everywhere else — only for displaying the shortcuts. */
 const MOD = navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl';
 
 
@@ -20,16 +20,16 @@ function Keys({ keys }: { keys: string[] }) {
 }
 
 /**
- * Modales Cheatsheet: alle Tastenkuerzel und die weniger offensichtlichen
- * Maus-Gesten (Rechtsklick oeffnet die Palette, Doppelklick editiert eine
- * Notiz, Titelleiste zieht die Karte um). Per `?` oder das Hilfe-Icon
- * geoeffnet, per Esc/Klick auf den Backdrop geschlossen.
+ * Modal cheat sheet: every keyboard shortcut and the less obvious mouse
+ * gestures (right-click opens the palette, double-click edits a note, the
+ * title bar drags the card around). Opened with `?` or the help icon, closed
+ * with Esc or a click on the backdrop.
  */
 export function ShortcutsOverlay({
   order,
   onClose,
 }: {
-  /** Werkzeug-Reihenfolge der Leiste — die Ziffern folgen ihr. */
+  /** Tool order of the bar — the digits follow it. */
   order: readonly Tool[];
   onClose: () => void;
 }) {
@@ -40,8 +40,8 @@ export function ShortcutsOverlay({
         onClose();
       }
     };
-    // Capture, damit Esc hier greift, bevor der globale Handler den
-    // Zeichenmodus/Vollbild verlaesst.
+    // Capture, so that Esc lands here before the global handler leaves draw
+    // mode or full window mode.
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [onClose]);
@@ -91,21 +91,21 @@ export function ShortcutsOverlay({
                 <Keys keys={['I']} />
               </div>
               <div className="sheet__row">
-                <span className="sheet__row-label">This help</span>
+                <span className="sheet__row-label">Show this help</span>
                 <Keys keys={['?']} />
               </div>
 
               <div className="sheet__section-title">Mouse</div>
               <div className="sheet__row">
-                <span className="sheet__row-label">Open the tool palette</span>
+                <span className="sheet__row-label">Grab the element under the cursor</span>
                 <Keys keys={['Right-click']} />
               </div>
               <div className="sheet__row">
-                <span className="sheet__row-label">Edit a marker's note</span>
+                <span className="sheet__row-label">Edit a marker’s note</span>
                 <Keys keys={['Double-click']} />
               </div>
               <div className="sheet__row">
-                <span className="sheet__row-label">Move your own marking</span>
+                <span className="sheet__row-label">Move a marking you drew</span>
                 <Keys keys={['Drag outline']} />
               </div>
               <div className="sheet__row">
@@ -113,7 +113,7 @@ export function ShortcutsOverlay({
                 <Keys keys={['Drag title']} />
               </div>
               <div className="sheet__row">
-                <span className="sheet__row-label">Move / reorder the tool bar</span>
+                <span className="sheet__row-label">Move or reorder the tool bar</span>
                 <Keys keys={['Drag grip']} />
               </div>
               <div className="sheet__row">

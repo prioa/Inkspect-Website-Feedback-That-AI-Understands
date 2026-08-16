@@ -2,9 +2,13 @@ import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { viewport, type DeviceInstance } from '@/lib/devices';
 import type { Shape, Tool } from '@/lib/annotations';
 import { attachTouchScroll } from '@/lib/touchScroll';
+import { motionOk } from '@/lib/motion';
+import { useFireHint } from '@/lib/hints';
+import { useTip } from './Tooltip';
 import {
   AnnotationOverlay,
   type ElementShapePatch,
+  type ElementPickRequest,
   type NoteEditRequest,
 } from './AnnotationOverlay';
 import { deviceIcon } from './Toolbar';
@@ -20,115 +24,143 @@ import {
   IconTouch,
 } from './icons';
 
-/** Ab dieser Preset-Breite gilt ein Device als Desktop — darunter Touch. */
+/** From this preset width up, a device counts as desktop — below it, touch. */
 const TOUCH_DEFAULT_MAX_WIDTH = 600;
-/** Stabile leere Liste — verhindert einen neuen Effekt-Lauf pro Render. */
+/** A stable empty list — stops a fresh effect run on every render. */
 const EMPTY_SHAPES: Shape[] = [];
 
-/** Karten-Chrom um den Viewport: 2×10px Padding + 2×1px Rahmen. */
+/** Id of the style inserted into the preview frames that cuts the scrollbars. */
+const HIDE_SCROLLBARS_ID = 'ink-hide-scrollbars';
+
+/** Card chrome around the viewport: 2×10px padding + 2×1px border. */
 const CARD_CHROME = 22;
 
 interface Props {
   device: DeviceInstance;
   src: string;
   zoom: number;
-  /** Aendert sich, wenn alle Frames neu geladen werden sollen. */
+  /** Changes when all frames should be reloaded. */
   reloadKey: number;
-  /** Globaler Zeichenmodus — die Overlays aller Frames sind scharf. */
+  /** Counts every unfold — the overlay then remeasures. */
+  revealNonce?: number;
+  /** Global draw mode — the overlays of all frames are armed. */
   annotating: boolean;
   /**
-   * Die Seite verbietet das Einbetten und der Nutzer arbeitet bewusst ohne
-   * Header-Eingriff weiter — statt eines leeren Rahmens steht dann ein
-   * Hinweis im Viewport.
+   * The page forbids embedding and the user deliberately carries on without
+   * the header change — instead of an empty frame, a notice then stands in the
+   * viewport.
    */
   previewBlocked?: boolean;
   shapes: Shape[];
-  /** Shape-Ids erledigter Eintraege — gedimmt gerendert. */
+  /** Shape ids of completed entries — rendered dimmed. */
   dimmedIds: Set<string>;
-  /** Fremde (importierte) Markierungen — nicht verschiebbar. */
+  /** Foreign (imported) markings — not movable. */
   lockedIds?: Set<string>;
   tool: Tool;
   color: string;
-  /** Notizen im Overlay einblenden (Screenshot-Export). */
+  /** Show notes in the overlay (screenshot export). */
   showNotes: boolean;
-  /** Globaler Marker-Schalter (Panel) — pro Device kommt ein eigener dazu. */
+  /** Global marker switch (panel) — each device adds one of its own. */
   markersVisible: boolean;
   /**
-   * Gerade fertiggestellte Markierung bei ausgeblendeten Markern: sie bleibt
-   * als einzige stehen und blendet weich aus, statt hart zu verschwinden.
+   * A marking just finished while markers are hidden: it alone stays and fades
+   * out softly, instead of vanishing abruptly.
    */
   fadingShapeId?: string | null;
   /**
-   * Dieser Frame wird gerade Slice fuer Slice fuer den Screenshot abgescannt:
-   * eine Ueberblendung deckt ihn ab, damit niemand mitten hinein scrollt. Sie
-   * weicht jeweils nur fuer den Moment der Aufnahme (siehe `veil` in screenshot.ts).
+   * This frame is currently being scanned slice by slice for the screenshot: an
+   * overlay covers it so nobody scrolls into the middle of it. It gives way
+   * only for the moment of each shot (see `veil` in screenshot.ts).
    */
   scanning?: boolean;
-  /** Marker, der per Panel-Klick angesprungen wurde (nur dieses Device). */
+  /**
+   * The frame is not yet standing at the position taken over from the page (see
+   * `watchSeed` in App.tsx) — it stays covered until it is. Without that, the
+   * user watches the page load at the top and then jump, which is exactly what
+   * the takeover is there to spare them.
+   */
+  settling?: boolean;
+  /** Marker jumped to from the panel (this device only). */
   flashShapeId: string | null;
   flashNonce: number;
-  /** Kurzer Rahmen-Puls des ganzen Devices — zeigt, welches Layout gemeint ist. */
+  /** A short frame pulse of the whole device — shows which layout is meant. */
   flashActive: boolean;
-  /** Marker, dessen Panel-Eintrag gehovert wird — ruhig hervorheben. */
+  /** Marker whose panel entry is hovered — highlight it quietly. */
   hoverShapeId: string | null;
-  /** Doppelklick auf einen Marker: Notiz-Editor mit dem Text oeffnen. */
+  /** Double-click on a marker: open the note editor with its text. */
   noteEdit: NoteEditRequest | null;
-  /** Dieses Device wird gerade per Drag verschoben. */
+  /** Right-click in the preview: pin the element under the cursor + popup. */
+  elementPick: ElementPickRequest | null;
+  /** This device is currently being dragged. */
   dragging: boolean;
   /**
-   * Vollbild-Darstellung: keine Titelleiste, kein Rahmen, kein Drag —
-   * nur Frame + Overlay in voller Groesse.
+   * Full-window rendering: no title bar, no frame, no dragging — just frame
+   * plus overlay at full size.
    */
   bare?: boolean;
   onLoad: (device: DeviceInstance, iframe: HTMLIFrameElement) => void;
   onAttach: (device: DeviceInstance, iframe: HTMLIFrameElement | null) => void;
-  /** Touch-Modus dieses Frames geaendert (fuer den Hover-Sync). */
+  /** This frame's touch mode changed (for the hover sync). */
   onTouchChange?: (uid: string, touch: boolean) => void;
   onRotate: (uid: string) => void;
   onRemove: (uid: string) => void;
   /**
-   * Fokus-Modus dieser Karte: sie steht dann als einzige — mittig — in der
-   * Reihe. Fehlt `onToggleFocus` (Vollbild), entfaellt der Knopf.
+   * Focus mode for this card: it then stands alone — centred — in the row. If
+   * `onToggleFocus` is missing (full window), the button is dropped.
    */
   focused?: boolean;
   onToggleFocus?: (uid: string) => void;
-  /** Klick auf den Feedback-Zaehler: Panel oeffnen und Gruppe hervorheben. */
+  /** Click on the feedback counter: open the panel and highlight the group. */
   onBadgeClick: (presetId: string) => void;
   onAddShape: (uid: string, shape: Shape) => void;
-  /** Element-Marker nach erneutem Oeffnen des Popups aktualisiert. */
+  /** Element marker updated after reopening the popup. */
   onUpdateShape?: (uid: string, shapeId: string, patch: ElementShapePatch) => void;
-  /** Markierung ueber den Loesch-Knopf am Marker entfernt (Bestaetigung in App). */
+  /** Marking removed via the delete button on the marker (confirmed in App). */
   onDeleteShape?: (shapeId: string) => void;
-  /** Gespeicherte CSS-Aenderungen auf die Seite anwenden (Panel-Schalter). */
+  /** Apply the saved CSS changes to the page (panel switch). */
   applyChanges?: boolean;
-  /** Markierung verschoben (Versatz im Dokumentraum). */
+  /** Marking moved (offset in document space). */
   onMoveShape?: (uid: string, shapeId: string, dx: number, dy: number) => void;
-  /** Box in der Groesse geaendert (neue Eckpunkte im Dokumentraum). */
+  /** Box resized (new corner points in document space). */
   onResizeShape?: (
     uid: string,
     shapeId: string,
     box: { x1: number; y1: number; x2: number; y2: number },
   ) => void;
-  /** Abstand eines Linienpaars gesetzt (nur UI-State). */
+  /** Distance of a line pair set (UI state only). */
   onSetLineGap?: (shapeId: string, gap: number | null) => void;
-  /** Stand einer Markierung speichern (nach dem Tippen/Ziehen). */
+  /** Save a marking's state (after typing or dragging). */
   onCommitShape?: (shapeId: string) => void;
   onSetShapeNote: (uid: string, shapeId: string, note: string) => void;
-  /** Drag&Drop-Sortierung: Start, Live-Umsortieren beim Drueberziehen, Ende. */
+  /** Drag-and-drop ordering: start, live reorder while dragging over, end. */
   onDragBegin: (uid: string) => void;
   /**
-   * `side` sagt, ob die gezogene Karte vor oder hinter dieser landen soll —
-   * entschieden an der Kartenmitte, damit die Sortierung nicht flackert.
+   * `side` says whether the dragged card should land before or after this one —
+   * decided at the card's centre, so the ordering does not flicker.
    */
   onDragHover: (uid: string, side: 'before' | 'after') => void;
   onDragEnd: () => void;
 }
+
+/**
+ * How long the cover takes to fade out — must match `.device__settle--gone` in
+ * styles.ts. Unhurried on purpose: the frame appearing is the moment the whole
+ * takeover is for, and a hard cut makes it look like a glitch.
+ */
+const SETTLE_FADE_MS = 420;
+/**
+ * How long the wait has to last before the cover says anything. On a page that
+ * is there in 150 ms the line would only flash past — an explanation nobody can
+ * read is worse than a sheet that is quietly gone again.
+ */
+const SETTLE_TEXT_MS = 350;
 
 export function DeviceFrame({
   device,
   src,
   zoom,
   reloadKey,
+  revealNonce = 0,
   annotating,
   previewBlocked = false,
   shapes,
@@ -140,11 +172,13 @@ export function DeviceFrame({
   markersVisible,
   fadingShapeId,
   scanning = false,
+  settling = false,
   flashShapeId,
   flashNonce,
   flashActive,
   hoverShapeId,
   noteEdit,
+  elementPick,
   dragging,
   bare = false,
   onLoad,
@@ -170,35 +204,66 @@ export function DeviceFrame({
 }: Props) {
   const { width, height } = viewport(device);
 
-  // Lokale Referenz + Load-Zaehler fuer das Annotations-Overlay (Scroll-Tracking).
+  // Local reference plus load counter for the annotation overlay (scroll tracking).
   const [frameEl, setFrameEl] = useState<HTMLIFrameElement | null>(null);
   const [loadCount, setLoadCount] = useState(0);
 
-  /** Marker nur auf diesem Device ausblenden (Auge in der Titelleiste). */
+  /**
+   * The cover over a frame that is still finding its position outlives the
+   * `settling` flag: it fades out rather than disappearing, and for that it has
+   * to stay in the tree for the length of the fade. Without motion it goes
+   * immediately — there is nothing to see there then anyway.
+   */
+  const [settleShown, setSettleShown] = useState(settling);
+  useEffect(() => {
+    if (settling) {
+      setSettleShown(true);
+      return;
+    }
+    if (!settleShown) return;
+    if (!motionOk()) {
+      setSettleShown(false);
+      return;
+    }
+    const t = window.setTimeout(() => setSettleShown(false), SETTLE_FADE_MS);
+    return () => window.clearTimeout(t);
+  }, [settling, settleShown]);
+
+  /** Says what it is waiting for — only once the wait is worth a word. */
+  const [settleWordy, setSettleWordy] = useState(false);
+  useEffect(() => {
+    if (!settling) return; // while fading out, the line stays as it is
+    setSettleWordy(false);
+    const t = window.setTimeout(() => setSettleWordy(true), SETTLE_TEXT_MS);
+    return () => window.clearTimeout(t);
+  }, [settling]);
+
+  /** Hide markers on this device only (the eye in the title bar). */
   const [hidden, setHidden] = useState(false);
-  /** Menue der Nebenaktionen (schmale Karten). */
+  /** Menu of the secondary actions (narrow cards). */
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Touch-Modus: Mobile-Viewports starten mit Touch (kein Hover, Ziehen
-  // scrollt) — per Button in der Titelleiste umschaltbar.
+  // Touch mode: mobile viewports start with touch (no hover, dragging scrolls)
+  // — switchable via the button in the title bar.
   const [touch, setTouch] = useState(!bare && device.width < TOUCH_DEFAULT_MAX_WIDTH);
+  const fire = useFireHint();
+  const tip = useTip();
 
   /**
-   * Full-Page-Modus: der Frame wird so hoch wie die Seite, statt in
-   * Device-Hoehe zu scrollen — die ganze Seite steht am Stueck im Bild.
+   * Full-page mode: the frame grows as tall as the page instead of scrolling at
+   * device height — the whole page stands in the picture in one piece.
    *
-   * Achtung, das ist keine reine Darstellungsfrage: mit dem Frame waechst
-   * auch `innerHeight` *in* der Seite. `100vh`-Bloecke, Sticky-Header und
-   * Lazy-Loading verhalten sich dann anders als auf dem echten Geraet. Genau
-   * darum zeichnet der Modus den Viewport ein, der wirklich greifen wuerde
-   * (siehe Falz-Markierung unten).
+   * Careful, this is not purely a display question: `innerHeight` *inside* the
+   * page grows with the frame. `100vh` blocks, sticky headers and lazy loading
+   * then behave differently from the real device. Which is exactly why the mode
+   * draws in the viewport that would really apply (see the fold marking below).
    */
   const [fullPage, setFullPage] = useState(false);
   /**
-   * Waehrend des Screenshots gilt wieder die Geraetehoehe: der Export
-   * fotografiert den sichtbaren Tab-Ausschnitt und scrollt dafuer *in* der
-   * Seite. Ein seitenhoher Frame passt nicht auf den Schirm — das Bild waere
-   * unten abgeschnitten. Der Knopf bleibt an, die Ansicht kommt danach zurueck.
+   * During the screenshot the device height applies again: the export
+   * photographs the visible part of the tab and scrolls *inside* the page for
+   * it. A page-tall frame does not fit on the screen — the image would be cut
+   * off at the bottom. The button stays on, the view comes back afterwards.
    */
   const fullPageNow = fullPage && !scanning;
   const [pageHeight, setPageHeight] = useState<number | null>(null);
@@ -213,18 +278,18 @@ export function DeviceFrame({
         const el = doc?.scrollingElement ?? doc?.documentElement;
         if (el) setPageHeight(Math.max(height, Math.ceil(el.scrollHeight)));
       } catch {
-        /* Frame nicht lesbar — dann bleibt es bei der Device-Hoehe */
+        /* frame not readable — the device height then stands */
       }
     };
     measure();
-    // Die Seite waechst und schrumpft im Betrieb (Bilder, Lazy-Load,
-    // aufgeklappte Bereiche) — sonst bliebe unten ein leerer Streifen oder
-    // die Seite waere abgeschnitten.
+    // The page grows and shrinks while running (images, lazy loading, unfolded
+    // sections) — otherwise an empty strip would be left at the bottom, or the
+    // page would be cut off.
     let observer: ResizeObserver | null = null;
     try {
       const doc = frameEl.contentDocument;
-      // Der ResizeObserver der Seite selbst, damit er im richtigen Realm
-      // haengt; ohne lesbaren Frame greift der eigene.
+      // The page's own ResizeObserver, so that it hangs in the right realm;
+      // without a readable frame, ours applies.
       const win = frameEl.contentWindow as (Window & typeof globalThis) | null;
       const Observer = win?.ResizeObserver ?? window.ResizeObserver;
       if (doc?.documentElement && Observer) {
@@ -234,16 +299,37 @@ export function DeviceFrame({
         observer = ro;
       }
     } catch {
-      /* Frame nicht lesbar */
+      /* frame not readable */
     }
     return () => observer?.disconnect();
   }, [fullPageNow, frameEl, loadCount, height]);
 
-  /** Hoehe des Frames: im Full-Page-Modus die der Seite, sonst die des Geraets. */
+  /** Height of the frame: the page's in full-page mode, otherwise the device's. */
   const frameHeight = fullPageNow && pageHeight ? pageHeight : height;
 
-  // Drag-Scroll an den Frame haengen; nach jedem Load haengt er am frischen
-  // Dokument neu. Der Hover-Sync erfaehrt den Modus ueber onTouchChange.
+  // The preview should show the page, not the iframe's scrollbars. Scaled down
+  // they are only noise, and inside the phone frame several of them stood on
+  // top of each other (the document plus the page's own scrolling areas).
+  // Scrolling still works — just invisibly, as on the device.
+  useEffect(() => {
+    if (!frameEl) return;
+    try {
+      const doc = frameEl.contentDocument;
+      const head = doc?.head;
+      if (!head || doc.getElementById(HIDE_SCROLLBARS_ID)) return;
+      const style = doc.createElement('style');
+      style.id = HIDE_SCROLLBARS_ID;
+      style.textContent =
+        '*{scrollbar-width:none!important}' +
+        '*::-webkit-scrollbar{width:0!important;height:0!important;display:none!important}';
+      head.append(style);
+    } catch {
+      /* frame not readable (foreign origin) */
+    }
+  }, [frameEl, loadCount]);
+
+  // Attach drag-scroll to the frame; after every load it reattaches to the
+  // fresh document. The hover sync learns the mode via onTouchChange.
   const onTouchChangeRef = useRef(onTouchChange);
   onTouchChangeRef.current = onTouchChange;
   useEffect(() => {
@@ -254,9 +340,9 @@ export function DeviceFrame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [touch, frameEl, loadCount, device.uid]);
 
-  // Drag&Drop nur ueber die Titelleiste: `draggable` wird erst scharf, wenn
-  // die Leiste (nicht ihre Buttons) gedrueckt ist — sonst wuerde jeder
-  // Zeichenstrich auf dem Overlay einen Karten-Drag starten.
+  // Drag and drop only via the title bar: `draggable` is only armed once the
+  // bar (not its buttons) is pressed — otherwise every pen stroke on the
+  // overlay would start a card drag.
   const [dragArmed, setDragArmed] = useState(false);
   useEffect(() => {
     if (!dragArmed) return;
@@ -269,22 +355,22 @@ export function DeviceFrame({
     };
   }, [dragArmed]);
 
-  // Beim Anspringen aus dem Panel Marker trotz Ausblendung zeigen — sonst
-  // pulst der Flash ins Leere.
+  // When jumping in from the panel, show markers despite them being hidden —
+  // otherwise the flash pulses into nothing.
   const markersOn = (markersVisible && !hidden) || flashShapeId != null;
-  // Bei ausgeblendeten Markern bleibt die frisch gezeichnete als einzige
-  // stehen, bis sie ausgeblendet ist. Das Auge dieser Karte hat Vorrang:
-  // wer sie hier stumm geschaltet hat, will auch das nicht sehen.
+  // While markers are hidden, the freshly drawn one alone stays until it has
+  // faded out. This card's eye takes precedence: whoever silenced it here does
+  // not want to see that either.
   const visibleShapes = markersOn
     ? shapes
     : hidden
       ? []
       : shapes.filter((s) => s.id === fadingShapeId);
 
-  // Der Ref-Callback MUSS eine stabile Identitaet haben: React ruft einen
-  // geaenderten Callback bei jedem Re-Render erst mit null, dann mit dem
-  // Element auf — der null-Aufruf haengt in App die Sync-Listener ab, ohne
-  // dass ein neues load-Event sie je wieder anhaengen wuerde.
+  // The ref callback MUST have a stable identity: React calls a changed
+  // callback on every re-render first with null and then with the element — and
+  // the null call detaches the sync listeners in App, without any new load
+  // event ever reattaching them.
   const deviceRef = useRef(device);
   deviceRef.current = device;
   const onAttachRef = useRef(onAttach);
@@ -295,10 +381,10 @@ export function DeviceFrame({
   }, []);
 
   /**
-   * Nebenaktionen der Titelleiste. Auf breiten Karten stehen sie als Icons in
-   * der Reihe; wird die Karte schmal (Handy-Viewports), wandern dieselben
-   * Aktionen hinter das Menue rechts. Vorher fielen sie bei zu wenig Platz
-   * einfach weg und waren gar nicht mehr erreichbar.
+   * Secondary actions of the title bar. On wide cards they stand as icons in
+   * the row; once the card gets narrow (phone viewports) the same actions move
+   * behind the menu on the right. Previously they simply fell away when space
+   * ran short and could not be reached at all.
    */
   const barActions: ReadonlyArray<{
     key: string;
@@ -306,7 +392,7 @@ export function DeviceFrame({
     on: boolean;
     icon: JSX.Element;
     label: string;
-    title: string;
+    tip: string;
     run: () => void;
   }> = [
     {
@@ -315,10 +401,15 @@ export function DeviceFrame({
       on: touch,
       icon: <IconTouch size={14} />,
       label: 'Touch mode',
-      title: touch
-        ? 'Touch mode on — drag scrolls, no hover. Click for mouse mode.'
-        : 'Mouse mode — click for touch mode (drag scrolls, no hover).',
-      run: () => setTouch((v) => !v),
+      tip: touch
+        ? 'Touch mode on — drag scrolls, no hover'
+        : 'Mouse mode — click for touch mode',
+      run: () => {
+        // That dragging now scrolls instead of hovering changes how the card is
+        // used from the ground up, without the card showing it.
+        if (!touch) fire('first-touch-device');
+        setTouch((v) => !v);
+      },
     },
     ...(shapes.length > 0 || hidden
       ? [
@@ -328,7 +419,9 @@ export function DeviceFrame({
             on: hidden,
             icon: hidden ? <IconEyeOff size={14} /> : <IconEye size={14} />,
             label: 'Hide markings',
-            title: hidden ? 'Show markings on this device' : 'Hide markings on this device',
+            tip: hidden
+              ? 'Show markings on this device'
+              : 'Hide markings on this device',
             run: () => setHidden((v) => !v),
           },
         ]
@@ -341,7 +434,7 @@ export function DeviceFrame({
             on: focused,
             icon: <IconFocus size={14} />,
             label: 'Focus',
-            title: focused
+            tip: focused
               ? 'Leave focus — show all devices again'
               : 'Focus — show only this device, centred',
             run: () => onToggleFocus(device.uid),
@@ -354,9 +447,9 @@ export function DeviceFrame({
       on: fullPage,
       icon: <IconFullPage size={14} />,
       label: 'Full page',
-      title: fullPage
-        ? 'Full page on — the frame is as tall as the page; the marked box is the real viewport'
-        : 'Full page — show the whole page at once, with the real viewport marked',
+      tip: fullPage
+        ? 'Full page on — the marked box is the real viewport'
+        : 'Full page — show the whole page at once',
       run: () => setFullPage((v) => !v),
     },
     {
@@ -365,7 +458,7 @@ export function DeviceFrame({
       on: false,
       icon: <IconRotateDevice size={14} />,
       label: 'Rotate',
-      title: 'Rotate orientation (portrait/landscape)',
+      tip: 'Rotate orientation (portrait/landscape)',
       run: () => onRotate(device.uid),
     },
   ];
@@ -374,13 +467,13 @@ export function DeviceFrame({
     <div
       className={`device${annotating ? ' device--annotating' : ''}${flashActive ? ' device--flash' : ''}${dragging ? ' device--dragging' : ''}${bare ? ' device--bare' : ''}${focused ? ' device--focused' : ''}`}
       data-uid={device.uid}
-      // Feste Kartenbreite aus dem Viewport: sonst wuerde eine breite
-      // Titelleiste (viele Buttons) die Karte aufblaehen und die vom
-      // zeilenfuellenden Layout gepackte Zeile doch umbrechen lassen.
+      // Fixed card width from the viewport: otherwise a wide title bar (many
+      // buttons) would inflate the card and make the row that the row-filling
+      // layout had packed wrap after all.
       style={bare ? undefined : { width: Math.round(width * zoom) + CARD_CHROME }}
       draggable={!bare && dragArmed}
       onDragStart={(e) => {
-        // Synthetische Events (Tests) haben kein dataTransfer.
+        // Synthetic events (tests) have no dataTransfer.
         if (e.dataTransfer) {
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('text/plain', device.uid);
@@ -394,16 +487,16 @@ export function DeviceFrame({
       onDragOver={(e) => {
         e.preventDefault();
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        // Vor oder hinter dieser Karte? An der Kartenmitte entschieden —
-        // stumpfes "an den Ziel-Index" wuerde an den Raendern hin- und
-        // herspringen (Karte weicht aus, Maus steht wieder ueber ihr, ...).
+        // Before or after this card? Decided at the card's centre — a blunt "to
+        // the target index" would jump back and forth at the edges (the card
+        // moves aside, the mouse is over it again, and so on).
         const rect = e.currentTarget.getBoundingClientRect();
         onDragHover(device.uid, e.clientX < rect.left + rect.width / 2 ? 'before' : 'after');
       }}
       onDrop={(e) => e.preventDefault()}
-      // Das Menue lebt in der Karte: verlaesst der Zeiger sie, ist es erledigt.
-      // Spart einen Klickfaenger, den die Container-Eindaemmung der Karte
-      // ohnehin auf ihre eigene Flaeche beschraenken wuerde.
+      // The menu lives in the card: once the pointer leaves it, it is done.
+      // Saves a click catcher that the card's containment would restrict to its
+      // own area anyway.
       onPointerLeave={() => setMenuOpen(false)}
     >
       {!bare && (
@@ -422,14 +515,14 @@ export function DeviceFrame({
         {shapes.length > 0 && (
           <button
             className="device__anno-count"
-            title="Show this device's feedback in the panel"
+            {...tip('Show this device’s feedback in the panel')}
             onClick={() => onBadgeClick(device.id)}
           >
             {shapes.length}
           </button>
         )}
         <span className="device__bar-spacer" />
-        {/* Breite Karten: die Nebenaktionen stehen in der Reihe. */}
+        {/* Wide cards: the secondary actions stand in the row. */}
         <span className="device__acts">
           {barActions.map((a) => (
             <button
@@ -437,34 +530,34 @@ export function DeviceFrame({
               className={`icon-btn icon-btn--small ${a.cls}${a.on ? ' icon-btn--active' : ''}`}
               onClick={a.run}
               aria-pressed={a.on}
-              title={a.title}
+              {...tip(a.tip)}
             >
               {a.icon}
             </button>
           ))}
         </span>
-        {/* Schmale Karten: dieselben Aktionen hinter einem Menue. */}
+        {/* Narrow cards: the same actions behind a menu. */}
         <button
           className={`icon-btn icon-btn--small device__more${menuOpen ? ' icon-btn--active' : ''}`}
           onClick={() => setMenuOpen((v) => !v)}
           aria-expanded={menuOpen}
           aria-haspopup="true"
-          title="More device options"
+          {...tip('More device options')}
         >
           <IconDots size={14} />
         </button>
         <button
           className="icon-btn icon-btn--small icon-btn--danger"
           onClick={() => onRemove(device.uid)}
-          title="Remove"
+          {...tip('Remove this viewport')}
         >
           <IconClose size={14} />
         </button>
       </div>
       )}
 
-      {/* Ausserhalb der Titelleiste: die haelt `overflow: hidden`, ein Menue
-          darin waere abgeschnitten. */}
+      {/* Outside the title bar: that keeps `overflow: hidden`, so a menu inside
+          it would be cut off. */}
       {!bare && menuOpen && (
         <div className="menu device__menu" role="menu">
           {barActions.map((a) => (
@@ -494,8 +587,8 @@ export function DeviceFrame({
         }}
       >
         <iframe
-          // Der key erzwingt beim Reload einen frischen Frame statt eines
-          // src-Wechsels — sonst bleibt eine blockierte Fehlerseite stehen.
+          // On reload the key forces a fresh frame rather than a src change —
+          // otherwise a blocked error page stays put.
           key={`${reloadKey}:${src}`}
           ref={attachRef}
           src={src}
@@ -508,9 +601,27 @@ export function DeviceFrame({
           }}
         />
 
-        {/* Falz-Markierung: der Kasten ist der Viewport, der auf dem echten
-            Geraet greifen wuerde; darunter beginnt below the fold. Rein
-            dekorativ — Klicks und Zeichnen gehen hindurch. */}
+        {/* Covers the frame until it stands at the position taken over from the
+            page, then fades away and lets it through. A quiet sheet with one
+            line rather than a spinner: what is happening is not a load anyone
+            has to watch, and the line says why the frame is not simply starting
+            at the top. Under a card width of ~190 px the line is dropped: it
+            does not scale with the frame, and in a narrow card it would break
+            into three lines instead of saying something. */}
+        {settleShown && (
+          <div
+            className={`device__settle${settling ? '' : ' device__settle--gone'}`}
+            aria-hidden="true"
+          >
+            {settleWordy && Math.round(width * zoom) >= 190 && (
+              <span>Picking up where you were…</span>
+            )}
+          </div>
+        )}
+
+        {/* Fold marking: the box is the viewport that would apply on the real
+            device; below it, below the fold begins. Purely decorative — clicks
+            and drawing pass straight through. */}
         {fullPageNow && (
           <>
             <div className="fold" style={{ height: Math.round(height * zoom) }}>
@@ -526,11 +637,11 @@ export function DeviceFrame({
         )}
 
         {/*
-          Im Vollbild fuellt der Frame das ganze Fenster — es gibt kein
-          „ausserhalb", in das die Anzeige ausweichen koennte. Nur dort liegt
-          sie im Bild und muss fuer jede Aufnahme weichen. In der Device-
-          Ansicht uebernimmt das die Abdunklung *um* die Karte herum
-          (`shot-spot` in App.tsx), die durchgehend stehen bleibt.
+          In full window mode the frame fills the whole window — there is no
+          "outside" for the indicator to move to. Only there does it sit in the
+          picture and have to give way for every shot. In the device view the
+          dimming *around* the card takes over (`shot-spot` in App.tsx), which
+          stays put throughout.
         */}
         {scanning && bare && (
           <div className="shot-badge shot-badge--inside">
@@ -555,10 +666,11 @@ export function DeviceFrame({
           zoom={zoom}
           active={annotating}
           shapes={visibleShapes}
-          // Volle Liste (auch bei ausgeblendeten Markern): die CSS-Aenderungen
-          // bleiben angewendet, nur die roten Rahmen verschwinden. Leer, wenn
-          // der Panel-Schalter die Auswirkungen abschaltet (Vergleich Original).
+          // The full list (even with markers hidden): the CSS changes stay
+          // applied, only the red frames disappear. Empty when the panel switch
+          // turns the effects off (comparing against the original).
           styleShapes={applyChanges ? shapes : EMPTY_SHAPES}
+          stylesApplied={applyChanges}
           dimmedIds={dimmedIds}
           lockedIds={lockedIds}
           tool={tool}
@@ -569,8 +681,10 @@ export function DeviceFrame({
           fadingShapeId={markersOn ? null : fadingShapeId}
           hoverShapeId={hoverShapeId}
           editRequest={noteEdit}
+          pickRequest={elementPick}
           frameEl={frameEl}
           loadCount={loadCount}
+          revealNonce={revealNonce}
           onAdd={(shape) => onAddShape(device.uid, shape)}
           onSetNote={(shapeId, note) => onSetShapeNote(device.uid, shapeId, note)}
           onUpdateShape={

@@ -1,6 +1,6 @@
 /**
- * Rendert die Chrome-Web-Store-Grafiken (store/src/*.svg) als JPEG nach
- * store/. Die Zielgroesse steckt im Dateinamen (…-1280x800.svg).
+ * Renders the Chrome Web Store graphics (store/src/*.svg) as JPEGs into
+ * store/. The target size is part of the file name (…-1280x800.svg).
  */
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import puppeteer from 'puppeteer-core';

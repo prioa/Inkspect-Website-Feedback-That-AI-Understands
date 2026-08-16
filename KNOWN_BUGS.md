@@ -77,6 +77,79 @@ stitcht die Streifen (`captureFullFrameShot` in `lib/screenshot.ts`):
 
 ---
 
+## Aufklappen versteckter Elemente greift nicht ueberall
+
+**Symptom** — eine Markierung sitzt auf einem Element, das nur nach einer
+Interaktion sichtbar ist (Slideout-Menue, Accordion, spaeterer
+Formular-Schritt). Beim Klick im Feedback-Panel bleibt das Element in manchen
+Faellen zu, und der Marker zeigt weiter ins Leere.
+
+**Ursache** — `revealShapeIn` (`lib/reveal.ts`) kennt zwei Wege, und beide
+haben eine Grenze:
+
+- **Der aufgezeichnete Klick-Pfad** (`shape.reveal`) entsteht erst beim
+  *Anlegen* der Markierung. Alt-Daten aus der Zeit davor und Feedback, das
+  ueber einen Share-Link hereinkommt, haben keinen — dort bleibt nur die
+  Heuristik.
+- **Die Heuristik** oeffnet, was ihr Markup verraet: `details`, Popover,
+  `aria-controls` mit `aria-expanded="false"` und `[hidden]`. Ein
+  selbstgebautes Slideout ohne all das — nur eine CSS-Klasse am `body`, wie
+  sie die Testseite in `scripts/e2e-sync.mjs` verwendet — ist damit nicht zu
+  oeffnen.
+
+**Behoben: das Zuklappen beim Wechsel** — bis 0.8.95 kannte der Panel-Klick
+nur den Hinweg. Wer von einem Eintrag im aufgeklappten Menue auf einen
+normalen wechselte, sass danach vor einem Seitenzustand, den er nie erzeugt
+hatte. `collapseShapeIn` (`lib/reveal.ts`) ist das Gegenstueck und laeuft nach
+derselben Regel wie der Hinweg, nur spiegelverkehrt: **nur solange das Ziel
+sichtbar ist**, Abbruch sobald es weg ist. `revealItemEverywhere`
+(`components/App.tsx`) fuehrt dazu pro Frame Buch (`openReveals`) und klappt
+erst zu, dann auf.
+
+Zwei Qualitaeten von Rueckschritt, unterschieden durch `RevealUndo.exact`:
+
+- **Exakt** — `details.open = false`, `hidePopover()`, `hidden` wieder dran.
+  Das ist der praezise Gegenzug, ohne Annahme.
+- **Geraten** — ein zweiter Klick auf denselben Oeffner. Fuer einen Toggle
+  (Burger, Accordion) stimmt das, fuer einen „Weiter"-Knopf im Formular nicht.
+  Deshalb wird nach *jedem* geratenen Schritt gemessen: klappt nichts zu,
+  bricht der Lauf ab statt blind weiterzuklicken. Ein solcher Knopf faengt
+  sich damit einen Klick ein, nicht das ganze Formular.
+
+**Was dabei offen bleibt**
+
+- Zurueckgenommen wird nur, was ein Panel-Klick geoeffnet hat, und erst beim
+  naechsten Panel-Klick. Schliesst der Nutzer stattdessen das Panel oder
+  arbeitet auf der Seite weiter, bleibt der letzte Eintrag aufgeklappt stehen.
+- Was der Nutzer selbst aufgeklappt hat, fasst niemand an — richtig so, aber
+  es heisst auch: die Buchfuehrung stimmt nur fuer den eigenen Anteil.
+
+**Beim Beheben beachten**
+
+- Ein generischer Sichtbar-Zwang per Inline-CSS (`display`, `visibility`,
+  `height`) waere der naechste Schritt, aber nur fuer die Screenshot-Aufnahme
+  vertretbar: dort wird ohnehin zurueckgesetzt. Beim Panel-Klick bliebe ein
+  halb aufgebauter Zustand stehen. Das Muster zum restaurierbaren Setzen steht
+  in `suppressFixedElements` (`lib/screenshot.ts`) — und der Rueckweg gehoert
+  dann als `RevealUndo` mit `exact: true` dazu.
+- Der Export klappt weiter per `reloadFrames` zu, nicht ueber `collapseShapeIn`
+  — ein Reload stellt den Anfangszustand zuverlaessig her, und nach dem Export
+  stoert er niemanden. Beim Panel-Klick waere er untragbar: Scrollstand und
+  Formulareingaben waeren bei jedem Sprung weg.
+- **Reine Hover-Menues** (CSS `:hover`, kein Klick) erfasst der Mitschnitt
+  gar nicht — er haengt am `click`-Listener. `applyHoverSim`
+  (`lib/hoverStyles.ts`) koennte das, kostet aber eine zweite Ereignisart in
+  Aufzeichnung *und* Replay.
+- `dialog` bleibt bewusst aussen vor: ob `show()` oder `showModal()` gemeint
+  ist, laesst sich nicht erraten, und ein falsch geoeffneter Dialog verdeckt
+  die halbe Seite.
+- Nachgespielt wird nur bei unsichtbarem Ziel, und der Replay bricht ab,
+  sobald das Ziel sichtbar ist. Diese beiden Abbruchbedingungen sind der
+  Grund, warum der Pfad ungefiltert mitgeschrieben werden darf — wer daran
+  etwas aendert, muss den Pfad vorher filtern.
+
+---
+
 ## Markdown-Export ist nicht konfigurierbar
 
 **Symptom** — `feedbackToMarkdown` (`lib/exportMarkdown.ts`) gibt genau ein

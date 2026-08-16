@@ -2,12 +2,12 @@ import type { FeedbackItem } from './feedbackStore';
 import { sanitizeItems } from './feedbackStore';
 
 /**
- * Teilen per URL: das Feedback der Seite wird deflate-komprimiert und
- * base64url-codiert in den Hash gehaengt (`#ink-feedback=…`).
+ * Sharing over the URL: a page's feedback is deflate-compressed, base64url-
+ * encoded and appended to the hash (`#ink-feedback=…`).
  *
- * Der Hash verlaesst den Browser nie (kein Server-Roundtrip). Oeffnet ein
- * Empfaenger mit installierter Extension den Link, importiert das
- * Content-Script die Eintraege automatisch und oeffnet Inkspect.
+ * The hash never leaves the browser (no server round-trip). When a recipient
+ * with the extension installed opens the link, the content script imports the
+ * entries automatically and opens Inkspect.
  */
 
 export const SHARE_PARAM = 'ink-feedback';
@@ -37,8 +37,8 @@ function fromBase64Url(encoded: string): Uint8Array {
 }
 
 /**
- * Nur der codierte Payload (deflate-raw + base64url) — Basis des Share-Links
- * und des Anhangs im Markdown-Export.
+ * The encoded payload on its own (deflate-raw + base64url) — the basis of the
+ * share link and of the attachment in the Markdown export.
  */
 export async function encodeShare(items: FeedbackItem[]): Promise<string> {
   const payload: SharePayload = { v: 1, items };
@@ -51,7 +51,7 @@ export async function buildShareUrl(url: string, items: FeedbackItem[]): Promise
   return `${url}#${SHARE_PARAM}=${await encodeShare(items)}`;
 }
 
-/** Liefert den codierten Payload aus einem Hash, oder null. */
+/** Returns the encoded payload from a hash, or null. */
 export function extractShareFromHash(hash: string): string | null {
   const match = new RegExp(`#${SHARE_PARAM}=([A-Za-z0-9_-]+)`).exec(hash);
   return match?.[1] ?? null;

@@ -11,11 +11,11 @@ interface Props {
   sheets: SheetSource[] | null;
   activeId: string | null;
   overrides: Record<string, string>;
-  /** Aendert sich bei Reset und zwingt den Editor auf den Originaltext zurueck. */
+  /** Changes on reset and forces the editor back to the original text. */
   nonce: number;
-  /** UI ist im Dunkel-Modus — dann die oneDark-CodeMirror-Theme verwenden. */
+  /** The UI is in dark mode — then use CodeMirror's oneDark theme. */
   dark: boolean;
-  /** Panel-Breite (ziehbar) in Shell-Pixeln. */
+  /** Panel width (draggable) in shell pixels. */
   width: number;
   onSelect: (id: string) => void;
   onChange: (id: string, css: string) => void;
@@ -37,7 +37,7 @@ export function CssEditor({
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
 
-  // Ohne Ref wuerde der updateListener die erste Closure festhalten.
+  // Without a ref the update listener would hold on to the first closure.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -48,8 +48,8 @@ export function CssEditor({
     const host = hostRef.current;
     if (!host) return;
 
-    // `root` ist hier zwingend: sonst legt CodeMirror seine StyleModule-Styles
-    // in den <head> des Dokuments, wo sie den Shadow Tree nicht erreichen.
+    // `root` is mandatory here: otherwise CodeMirror puts its StyleModule
+    // styles in the document <head>, where they never reach the shadow tree.
     const view = new EditorView({ parent: host, root: shadowRoot });
     viewRef.current = view;
 
@@ -59,8 +59,8 @@ export function CssEditor({
     };
   }, [shadowRoot]);
 
-  // Nur beim Wechsel des Sheets neu befuellen — nicht bei jedem Tastendruck,
-  // sonst springt der Cursor.
+  // Only refill when the sheet changes — not on every keystroke, or the cursor
+  // jumps.
   useEffect(() => {
     const view = viewRef.current;
     if (!view || !active || !active.readable) return;
@@ -74,7 +74,7 @@ export function CssEditor({
         extensions: [
           basicSetup,
           cssLanguage(),
-          // Im Light-Theme die helle CodeMirror-Standarddarstellung; sonst oneDark.
+          // In the light theme, CodeMirror's own light look; otherwise oneDark.
           ...(dark ? [oneDark] : []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onChangeRef.current(id, update.state.doc.toString());
@@ -83,9 +83,9 @@ export function CssEditor({
         ],
       }),
     );
-    // `overrides` absichtlich nicht in den Deps — sonst wuerde der Editor bei
-    // jedem Tastendruck neu aufgebaut und der Cursor springen. `dark` schon:
-    // ein Theme-Wechsel baut den Editor bewusst mit der aktuellen Farbe neu auf.
+    // `overrides` deliberately left out of the deps — otherwise the editor
+    // would be rebuilt on every keystroke and the cursor would jump. `dark` is
+    // in there on purpose: a theme change should rebuild it in the new colour.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id, active?.readable, active?.text, nonce, dark]);
 

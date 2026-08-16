@@ -1,7 +1,7 @@
 /**
- * Debug-Logging mit Prefix [Inkspect] fuer alle Kontexte (Seite,
- * Content-Script, Service Worker). Abschaltbar ohne Rebuild via
- * `globalThis.__INK_DEBUG__ = false` bzw. localStorage 'ink-debug' = '0'.
+ * Debug logging with an [Inkspect] prefix for every context (page, content
+ * script, service worker). Can be switched off without a rebuild via
+ * `globalThis.__INK_DEBUG__ = false` or localStorage 'ink-debug' = '0'.
  */
 
 const PREFIX = '[Inkspect]';
@@ -14,12 +14,12 @@ function enabled(): boolean {
       return false;
     }
   } catch {
-    // localStorage kann in manchen Kontexten werfen — dann default an.
+    // localStorage can throw in some contexts — default to on if it does.
   }
   return true;
 }
 
-/** Kontext-Tag, z. B. 'bg', 'content', 'app'. */
+/** Context tag, e.g. 'bg', 'content', 'app'. */
 export function createLogger(scope: string) {
   const tag = `${PREFIX}[${scope}]`;
   return {
@@ -35,7 +35,7 @@ export function createLogger(scope: string) {
     error: (...args: unknown[]) => {
       console.error(tag, ...args);
     },
-    /** Misst die Dauer einer Aktion und loggt sie. */
+    /** Measures how long an action takes and logs it. */
     time: async <T>(label: string, fn: () => T | Promise<T>): Promise<T> => {
       const start = performance.now();
       try {

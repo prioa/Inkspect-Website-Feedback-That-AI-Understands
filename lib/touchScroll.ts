@@ -1,10 +1,10 @@
 import { frameDocument } from './framing';
 
 /**
- * Touch-Modus fuer Mobile-Previews: Ziehen mit gedrueckter Maustaste scrollt
- * die Seite (wie ein Finger-Pan), statt Text zu selektieren. Ein Klick nach
- * einem Drag wird geschluckt — beim echten Touch loest ein Pan auch keinen
- * Tap aus.
+ * Touch mode for mobile previews: dragging with the mouse button held down
+ * scrolls the page (like a finger pan) instead of selecting text. A click
+ * that follows a drag is swallowed — on a real touchscreen a pan does not
+ * produce a tap either.
  */
 const DRAG_THRESHOLD = 5;
 
@@ -34,13 +34,13 @@ export function attachTouchScroll(iframe: HTMLIFrameElement): (() => void) | nul
     if (!dragged) {
       if (Math.hypot(e.clientX - startX, e.clientY - startY) < DRAG_THRESHOLD) return;
       dragged = true;
-      // Waehrend des Pans keine Text-Selektion aufziehen.
+      // No text selection while panning.
       previousUserSelect = doc.documentElement.style.userSelect;
       doc.documentElement.style.userSelect = 'none';
       win.getSelection?.()?.removeAllRanges();
     }
     e.preventDefault();
-    // Inhalt folgt dem Zeiger: Bewegung nach unten scrollt nach oben.
+    // The content follows the pointer: moving down scrolls up.
     const el = doc.scrollingElement;
     if (el) {
       el.scrollLeft -= e.clientX - lastX;
@@ -54,11 +54,11 @@ export function attachTouchScroll(iframe: HTMLIFrameElement): (() => void) | nul
     if (!panning) return;
     panning = false;
     if (dragged) doc.documentElement.style.userSelect = previousUserSelect;
-    // `dragged` bleibt bis zum click-Listener stehen — der raeumt es ab.
+    // `dragged` stays set until the click listener runs — that one clears it.
   };
 
-  // Nach einem Pan darf der abschliessende Klick nicht auf der Seite landen
-  // (und auch nicht im Interaction-Sync) — Capture-Listener schluckt ihn.
+  // After a pan the closing click must not reach the page (nor the interaction
+  // sync) — a capture listener swallows it.
   const onClick = (e: MouseEvent) => {
     if (!dragged) return;
     dragged = false;

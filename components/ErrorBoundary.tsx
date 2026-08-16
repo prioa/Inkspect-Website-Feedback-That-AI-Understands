@@ -9,8 +9,8 @@ interface State {
 }
 
 /**
- * Faengt Render-Fehler ab und zeigt sie im Overlay an, statt einen leeren
- * Shadow Tree zu hinterlassen. Beim Debuggen der schnellste Weg zur Ursache.
+ * Catches render errors and shows them in the overlay instead of leaving an
+ * empty shadow tree behind. When debugging, the fastest route to the cause.
  */
 export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
   state: State = { error: null, info: null };
@@ -20,7 +20,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    log.error('UI-Fehler', error, info.componentStack);
+    log.error('UI error', error, info.componentStack);
     this.setState({ info });
   }
 

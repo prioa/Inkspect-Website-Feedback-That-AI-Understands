@@ -1,7 +1,7 @@
 /**
- * Korrektur-Markierungen pro Device-Frame. Koordinaten liegen im
- * *Dokumentraum* des Frames (CSS-Pixel inkl. Scroll-Offset zum Zeitpunkt des
- * Zeichnens) — so bleiben die Markierungen beim Scrollen am Inhalt kleben.
+ * Correction markings, per device frame. Coordinates live in the frame's
+ * *document space* (CSS pixels including the scroll offset at the time of
+ * drawing) — that way the markings stay stuck to the content while scrolling.
  */
 
 export type Tool =
@@ -15,7 +15,7 @@ export type Tool =
   | 'vline'
   | 'text';
 
-/** Die Palette kennt zusaetzlich den Interaktionsmodus (kein Zeichnen). */
+/** The palette additionally knows the interaction mode (no drawing). */
 export type PaletteTool = Tool | 'interact';
 
 export interface Point {
@@ -24,49 +24,68 @@ export interface Point {
 }
 
 /**
- * DOM-Bezug einer Markierung: CSS-Pfad (Shadow-Segmente mit ' >>> ' verbunden)
- * und Kurz-Label des Elements unter bzw. hinter der Markierung. Macht Exporte
- * (Text-Export) im Quellcode verortbar.
+ * One click on the way to a hidden element (burger, accordion header, "Next"
+ * in a form). Several steps make up the path that unfolded the element.
+ */
+export interface RevealStep {
+  /** Shadow path of the opener, joined by ' >>> ' — like `anchor`/`selector`. */
+  sel: string;
+  /** Short label for the panel and the export (`button#menuBtn`). */
+  label?: string;
+}
+
+/**
+ * A marking's DOM reference: CSS path (shadow segments joined by ' >>> ') and
+ * short label of the element under or behind the marking. Makes exports
+ * locatable in the source.
  */
 export interface ElementRef {
   anchor?: string;
   anchorLabel?: string;
-  /** Alle gekreuzten Elemente (Freihand), Selektoren in Relevanz-Reihenfolge. */
+  /** Every element crossed (freehand), selectors in order of relevance. */
   anchors?: string[];
   /**
-   * Doc-Koordinaten der linken oberen Ecke des Anker-Elements zum Zeichen-
-   * Zeitpunkt. Nach einem Reload wird der Anker neu aufgeloest; die Differenz
-   * zu dieser Ur-Position verschiebt die Markierung, sodass sie am Element
-   * klebt statt an einer absoluten Stelle (Accordion auf/zu, Menue offen).
-   * Fehlt bei Alt-Daten — dann bleibt die Markierung an ihrer Position.
+   * Document coordinates of the anchor element's top-left corner at drawing
+   * time. After a reload the anchor is resolved again; the difference from
+   * this original position moves the marking, so that it sticks to the element
+   * rather than to an absolute spot (accordion open/closed, menu open).
+   * Missing in old data — the marking then stays where it is.
    */
   anchorX?: number;
   anchorY?: number;
+  /**
+   * The click path that made the anchor element visible (burger → submenu),
+   * oldest step first. It is only replayed when the element is invisible at
+   * fly-to or capture time — for a visible element not a single step runs.
+   * That is precisely why the path may be recorded unfiltered. Missing in old
+   * data and for anything that was visible without an interaction.
+   */
+  reveal?: RevealStep[];
 }
 
-/** Eine vom Element-Picker vorgeschlagene Stil-Aenderung (Sollwert fuers Feedback). */
+/** A style change proposed by the element picker (target value for the feedback). */
 export interface StyleChange {
-  /** CSS-Eigenschaft, z. B. `padding-top` oder Kurzform `margin`. */
+  /** CSS property, e.g. `padding-top` or the shorthand `margin`. */
   prop: string;
-  /** Ausgangswert (`8px`). */
+  /** Starting value (`8px`). */
   from: string;
-  /** Zielwert (`12px`). */
+  /** Target value (`12px`). */
   to: string;
 }
 
 /**
- * Im Element-Picker geaenderter Text des markierten Elements (Sollwert fuers
- * Feedback). Betrifft nur den direkten Textknoten — Kind-Elemente bleiben
- * unangetastet.
+ * Text of the marked element as changed in the element picker (target value
+ * for the feedback). Only affects the direct text node — child elements are
+ * left untouched.
  */
 export interface TextChange {
-  /** Ausgangstext auf der Seite. */
+  /** Original text on the page. */
   from: string;
-  /** Vorgeschlagener Text. */
+  /** Proposed text. */
   to: string;
 }
 
-/** Vier Seiten einer Box (top/right/bottom/left) — Werte in CSS-Pixeln. */
+/** The four sides of a box (top/right/bottom/left) — values in CSS pixels. */
 export interface BoxEdges<T = number> {
   t: T;
   r: T;
@@ -74,7 +93,7 @@ export interface BoxEdges<T = number> {
   l: T;
 }
 
-/** Bounding-Box, Label, CSS-Pfad und Box-Model des Elements unterm Cursor (Dokumentraum). */
+/** Bounding box, label, CSS path and box model of the element under the cursor (document space). */
 export interface ElementTarget {
   x: number;
   y: number;
@@ -87,35 +106,35 @@ export interface ElementTarget {
 }
 
 /**
- * Fixiertes Element des Pickers: wie `ElementTarget`, zusaetzlich der lebende
- * DOM-Bezug (fuer Live-Edits per `element.style`) und der Font-Zustand. Font
- * wird nur bearbeitbar, wenn das Element direkten Text enthaelt.
+ * The picker's pinned element: like `ElementTarget`, plus the live DOM
+ * reference (for live edits via `element.style`) and the font state. Font only
+ * becomes editable when the element contains direct text.
  */
 export interface SelectedTarget extends ElementTarget {
   el: HTMLElement;
-  /** Tag-Name in Kleinschreibung (`h1`, `p`, `span`) — steht am Textfeld. */
+  /** Tag name in lower case (`h1`, `p`, `span`) — shown next to the text field. */
   tag: string;
   /**
-   * Seiten, deren Margin im CSS `auto` ist. Die Messung liefert dort nur den
-   * *berechneten* Wert (bei `margin: 0 auto` die halbe Restbreite) — wer den
-   * als Zahl zurueckschreibt, ersetzt die Zentrierung durch einen festen Wert.
+   * Sides whose margin is `auto` in the CSS. Measuring only yields the
+   * *computed* value there (with `margin: 0 auto`, half the remaining width) —
+   * writing that back as a number replaces the centring with a fixed value.
    */
   autoMargin: BoxEdges<boolean>;
-  /** Geltendes `max-width` in px — null, wenn keines gilt oder es keine px sind. */
+  /** The `max-width` in effect, in px — null when there is none or it is not px. */
   maxWidth: number | null;
-  /** Roher `max-width`-Wert (`80%`, `60ch`) — null ohne Begrenzung. */
+  /** Raw `max-width` value (`80%`, `60ch`) — null when unconstrained. */
   maxWidthRaw: string | null;
   fontWeight: number;
   fontSize: number;
-  /** Direktes Text-Kind vorhanden — dann sind Font-Regler und Textfeld sinnvoll. */
+  /** Has a direct text child — then font sliders and the text field make sense. */
   hasText: boolean;
-  /** Aktueller Text des Elements (getrimmt) — im Popup bearbeitbar. */
+  /** The element's current text (trimmed) — editable in the popup. */
   text: string;
 }
 
 /**
- * Per Element-Picker markiertes DOM-Element: Bounding-Box zum Zeitpunkt des
- * Klicks plus lesbares Label (`button#menuBtn`) fuers Panel.
+ * A DOM element marked via the element picker: its bounding box at the time of
+ * the click, plus a readable label (`button#menuBtn`) for the panel.
  */
 export interface ElementShape {
   id: string;
@@ -126,20 +145,33 @@ export interface ElementShape {
   w: number;
   h: number;
   label: string;
-  /** CSS-Pfad des markierten Elements (fehlt bei Alt-Daten). */
+  /** CSS path of the marked element (missing in old data). */
   selector?: string;
-  /** Optionaler Freitext zum Marker. */
+  /**
+   * Like `ElementRef.reveal` — repeated here because `ElementShape`
+   * deliberately does not inherit from `ElementRef`: an element marker carries
+   * `selector`, not `anchor`, and with both the export would have to guess
+   * which one applies.
+   */
+  reveal?: RevealStep[];
+  /** Optional free text for the marker. */
   note?: string;
-  /** Im Picker vorgenommene Stil-Aenderungen — im Feedback als Sollwerte gelistet. */
+  /** Style changes made in the picker — listed as target values in the feedback. */
   styleChanges?: StyleChange[];
-  /** Im Picker geaenderter Text des Elements — ebenfalls Sollwert fuers Feedback. */
+  /** Text of the element as changed in the picker — also a target value. */
   textChange?: TextChange;
-  /** Worauf sich die Aenderungen beziehen: Klassen-Selektor (`.card`) oder das Element. */
+  /** What the changes refer to: a class selector (`.card`) or the element. */
   styleTarget?: string;
   styleScope?: 'class' | 'element';
   /**
-   * Gemeinsame Id der auf alle Devices replizierten Element-Marker — Notiz-
-   * Aenderungen laufen ueber sie auf alle Kopien.
+   * Scope of the *text* change. Kept separate from `styleScope`, because old
+   * data has none — and its text always affected this one element only. When
+   * the value is missing, that is what it stays.
+   */
+  textScope?: 'class' | 'element';
+  /**
+   * Shared id of the element markers replicated across all devices — note
+   * changes travel through it to every copy.
    */
   syncId?: string;
 }
@@ -154,16 +186,16 @@ export interface PinShape extends ElementRef {
 }
 
 /**
- * Freihand-Korrektur. Mehrere Zuege, die sich kreuzen oder ueberlappen,
- * verschmelzen zu einer Shape — ein Durchstreichen aus drei Strichen ist
- * *eine* Korrektur, nicht drei.
+ * Freehand correction. Several strokes that cross or overlap merge into one
+ * shape — a strike-through made of three strokes is *one* correction, not
+ * three.
  */
 export interface PenShape extends ElementRef {
   id: string;
   tool: 'pen';
   color: string;
   strokes: Point[][];
-  /** Optionaler Freitext zum Marker. */
+  /** Optional free text for the marker. */
   note?: string;
 }
 
@@ -175,19 +207,18 @@ export interface BoxShape extends ElementRef {
   y1: number;
   x2: number;
   y2: number;
-  /** Optionaler Freitext zum Marker. */
+  /** Optional free text for the marker. */
   note?: string;
 }
 
 /**
- * Hilfslinie ueber die gesamte Breite (`hline`, waagerecht bei `y`) bzw.
- * Hoehe (`vline`, senkrecht bei `x`) des Frames. Nur die relevante Achse
- * traegt Information, die andere wird beim Rendern bis ueber den Rand
- * hinaus verlaengert.
+ * A guide line across the frame's entire width (`hline`, horizontal at `y`) or
+ * height (`vline`, vertical at `x`). Only the relevant axis carries
+ * information; the other is extended past the edge when rendering.
  *
- * Zieht man nach dem Klick weiter, entsteht eine *zweite* Linie bei `to`
- * (y-Wert bei `hline`, x-Wert bei `vline`) — das Paar misst den Abstand
- * dazwischen, etwa fuer Abstaende zwischen zwei Kanten.
+ * Dragging on after the click produces a *second* line at `to` (a y value for
+ * `hline`, an x value for `vline`) — the pair measures the distance between
+ * them, for gaps between two edges, say.
  */
 export interface LineShape extends ElementRef {
   id: string;
@@ -195,22 +226,22 @@ export interface LineShape extends ElementRef {
   color: string;
   x: number;
   y: number;
-  /** Zweite Linie auf der relevanten Achse — fehlt bei einer einzelnen Linie. */
+  /** Second line on the relevant axis — missing for a single line. */
   to?: number;
-  /** Optionaler Freitext zum Marker. */
+  /** Optional free text for the marker. */
   note?: string;
 }
 
-/** Abstand zwischen den beiden Linien eines Paars (Dokument-Pixel), sonst null. */
+/** Distance between the two lines of a pair (document pixels), otherwise null. */
 export function lineGap(shape: LineShape): number | null {
   if (shape.to == null) return null;
   return Math.abs(shape.to - (shape.tool === 'hline' ? shape.y : shape.x));
 }
 
 /**
- * Masse einer Markierung als Kurztext fuers Panel (`320 × 48 px`, `24 px`) —
- * dieselbe Zahl, die das Overlay am Marker zeigt. Punktfoermige Markierungen
- * (Pin, Text, Freihand) haben keine Angabe.
+ * A marking's dimensions as short text for the panel (`320 × 48 px`, `24 px`)
+ * — the same number the overlay shows at the marker. Point-like markings (pin,
+ * text, freehand) have no dimensions.
  */
 export function shapeSize(shape: Shape): string | null {
   switch (shape.tool) {
@@ -234,9 +265,9 @@ export function shapeSize(shape: Shape): string | null {
 }
 
 /**
- * Halbe Laenge, mit der Hilfslinien ueber ihren Ankerpunkt hinaus gezeichnet
- * werden — gross genug, dass sie jeden Frame in jeder Scroll-Position
- * ueberspannen; der SVG-Viewport schneidet den Ueberstand ab.
+ * Half the length by which guide lines are drawn past their anchor point —
+ * large enough to span any frame at any scroll position; the SVG viewport
+ * clips the overhang.
  */
 export const LINE_REACH = 100000;
 
@@ -252,8 +283,8 @@ export interface TextShape extends ElementRef {
 export type Shape = ElementShape | PinShape | PenShape | BoxShape | LineShape | TextShape;
 
 /**
- * Reihenfolge der Werkzeuge in Leiste und Palette — zugleich die Belegung
- * der Zifferntasten. Alle Werkzeuge stehen jedem zur Verfuegung.
+ * Order of the tools in the bar and the palette — and at the same time the
+ * assignment of the number keys. Every tool is available to everyone.
  */
 export const DEFAULT_TOOL_ORDER: Tool[] = [
   'element',
@@ -268,15 +299,14 @@ export const DEFAULT_TOOL_ORDER: Tool[] = [
 ];
 
 /**
- * Standardfarbe ist ein gedaempftes Blaustift-Blau, nicht Signalrot: die
- * Markierungen sollen wie eine Anmerkung auf einem Ausdruck wirken und die
- * Seite nicht ueberschreien. Bewusst mittelhell — so hebt es sich sowohl auf
- * hellen als auch auf dunklen Seiten ab. Die uebrigen Farben bleiben zum
- * Einsortieren.
+ * The default colour is a muted pencil blue, not a warning red: the markings
+ * should read like a note on a printout rather than shouting the page down.
+ * Deliberately mid-brightness — so it stands out on light and dark pages
+ * alike. The remaining colours are there for sorting things into groups.
  */
 export const ANNOTATION_COLORS = ['#6d8cc0', '#ffb340', '#3ecf6e', '#5b8cff'] as const;
 
-/** Fruehere Standardfarbe (Signalrot) — Bestandsmarkierungen ziehen nach. */
+/** The former default colour (warning red) — existing markings follow along. */
 export const LEGACY_DEFAULT_COLOR = '#ff5d5d';
 
 export const TOOL_LABELS: Record<Tool, string> = {
@@ -292,9 +322,8 @@ export const TOOL_LABELS: Record<Tool, string> = {
 };
 
 /**
- * Gelten zwei Freihand-Zuege als eine Korrektur? Ja, wenn sich Segmente
- * kreuzen oder die Zuege naeher als `threshold` Dokument-Pixel beieinander
- * verlaufen.
+ * Do two freehand strokes count as one correction? Yes, when segments cross or
+ * the strokes run closer than `threshold` document pixels to each other.
  */
 export function penOverlaps(a: Point[][], b: Point[][], threshold = 12): boolean {
   for (const strokeA of a) {
@@ -343,7 +372,7 @@ function segmentsIntersect(p1: Point, p2: Point, p3: Point, p4: Point): boolean 
   return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 }
 
-/** Kurzes, lesbares Label eines DOM-Elements: tag#id bzw. tag.klasse. */
+/** Short, readable label of a DOM element: tag#id or tag.class. */
 export function elementLabel(el: Element): string {
   const tag = el.tagName.toLowerCase();
   if (el.id) return `${tag}#${el.id}`;
@@ -351,7 +380,7 @@ export function elementLabel(el: Element): string {
   return classes ? `${tag}.${classes}` : tag;
 }
 
-/** Laufende Nummern der Pins eines Frames, in Zeichen-Reihenfolge. */
+/** Sequence numbers of a frame's pins, in drawing order. */
 export function pinNumbers(shapes: Shape[]): Map<string, number> {
   const map = new Map<string, number>();
   let n = 0;
@@ -361,7 +390,22 @@ export function pinNumbers(shapes: Shape[]): Map<string, number> {
   return map;
 }
 
-/** Punkt, den man ansteuern sollte, um die Markierung zu sehen (Dokumentraum). */
+/**
+ * Shadow path of the element the marking hangs on. Element markers carry it as
+ * `selector`, every other tool as `anchor` — the distinction belongs in *one*
+ * place, not in every caller.
+ */
+export function shapeSelector(shape: Shape): string | undefined {
+  return shape.tool === 'element' ? shape.selector : shape.anchor;
+}
+
+/** The marking's unfold path, independent of the tool. */
+export function shapeReveal(shape: Shape): RevealStep[] | undefined {
+  const steps = shape.reveal;
+  return steps && steps.length > 0 ? steps : undefined;
+}
+
+/** The point to head for in order to see the marking (document space). */
 export function shapeFocusPoint(shape: Shape): Point {
   switch (shape.tool) {
     case 'element':
@@ -383,7 +427,7 @@ export function shapeFocusPoint(shape: Shape): Point {
   }
 }
 
-/** Umgebendes Rechteck einer Markierung im Dokumentraum (Hover/Flash). */
+/** Bounding rectangle of a marking in document space (hover/flash). */
 export function shapeBounds(
   shape: Shape,
 ): { x: number; y: number; w: number; h: number } | null {
@@ -401,8 +445,8 @@ export function shapeBounds(
         w: Math.abs(shape.x2 - shape.x1),
         h: Math.abs(shape.y2 - shape.y1),
       };
-    // Schmales Band entlang der Linie — Hover/Doppelklick treffen sie auf
-    // ihrer ganzen Laenge.
+    // A narrow band along the line — hover and double-click hit it along its
+    // whole length.
     case 'hline': {
       const top = Math.min(shape.y, shape.to ?? shape.y);
       const bottom = Math.max(shape.y, shape.to ?? shape.y);
@@ -414,7 +458,7 @@ export function shapeBounds(
       return { x: left - 5, y: shape.y - LINE_REACH, w: right - left + 10, h: LINE_REACH * 2 };
     }
     case 'text':
-      // Textbreite grob geschaetzt — reicht fuer Hover-Treffer und Flash.
+      // Text width roughly estimated — enough for hover hits and the flash.
       return { x: shape.x - 4, y: shape.y - 4, w: Math.max(60, shape.text.length * 9), h: 30 };
     case 'pen': {
       const points = (shape.strokes ?? []).flat();
@@ -435,9 +479,9 @@ export function shapeBounds(
 }
 
 /**
- * Markierung um (dx, dy) im Dokumentraum verschieben. Der DOM-Anker bleibt
- * unveraendert — er beschreibt die Ur-Position des Ankerelements, nicht die
- * der Markierung.
+ * Move a marking by (dx, dy) in document space. The DOM anchor is left
+ * unchanged — it describes the original position of the anchor element, not
+ * that of the marking.
  */
 export function translateShape<T extends Shape>(shape: T, dx: number, dy: number): T {
   const moved = { ...shape } as Shape;
@@ -452,7 +496,7 @@ export function translateShape<T extends Shape>(shape: T, dx: number, dy: number
     case 'vline':
       moved.x += dx;
       moved.y += dy;
-      // Die zweite Linie eines Paars laeuft auf ihrer Achse mit.
+      // The second line of a pair travels along on its axis.
       if (moved.to != null) moved.to += moved.tool === 'hline' ? dy : dx;
       break;
     case 'rect':
@@ -473,18 +517,18 @@ export function translateShape<T extends Shape>(shape: T, dx: number, dy: number
 }
 
 /**
- * Laesst sich die Markierung verschieben? Element-Marker nicht: ihre Box ist
- * die gemessene Bounding-Box des markierten DOM-Elements — verschoben wuerde
- * sie etwas anderes umranden, als das Label und der Selektor behaupten.
+ * Can the marking be moved? Element markers cannot: their box is the measured
+ * bounding box of the marked DOM element — moved, it would outline something
+ * other than what the label and the selector claim.
  */
 export function isMovableShape(shape: Shape): boolean {
   return shape.tool !== 'element';
 }
 
 /**
- * Liegt der Punkt auf der Markierung (Dokumentraum)? Getroffen wird die
- * *Kontur*, nicht die Flaeche — sonst liesse sich in einem Rahmen nichts
- * Neues mehr zeichnen, ohne ihn zu verschieben.
+ * Is the point on the marking (document space)? What is hit is the *outline*,
+ * not the area — otherwise nothing new could be drawn inside a frame without
+ * moving it.
  */
 export function hitsShape(shape: Shape, p: Point, tol = 8): boolean {
   switch (shape.tool) {
@@ -499,7 +543,7 @@ export function hitsShape(shape: Shape, p: Point, tol = 8): boolean {
       const rx = b.w / 2;
       const ry = b.h / 2;
       if (rx < 1 || ry < 1) return withinBounds(shape, p, tol);
-      // Normierter Abstand zur Ellipsenkontur — grob, aber fuer den Griff genug.
+      // Normalised distance to the ellipse outline — rough, but enough to grab it.
       const nx = (p.x - (b.x + rx)) / rx;
       const ny = (p.y - (b.y + ry)) / ry;
       const d = Math.abs(Math.hypot(nx, ny) - 1) * Math.min(rx, ry);
@@ -533,7 +577,7 @@ function withinBounds(shape: Shape, p: Point, tol: number): boolean {
   );
 }
 
-/** Punkt nahe am Rahmen (nicht in der Flaeche) einer Box? */
+/** Point near the frame of a box (not in its area)? */
 function onRectOutline(
   b: { x: number; y: number; w: number; h: number },
   p: Point,
@@ -548,7 +592,7 @@ function onRectOutline(
 }
 
 let shapeCounter = 0;
-/** Global eindeutig — die Ids landen persistent im Feedback-Store. */
+/** Globally unique — the ids end up persisted in the feedback store. */
 export function shapeId(): string {
   shapeCounter += 1;
   return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}-${shapeCounter}`;

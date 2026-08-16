@@ -1,15 +1,15 @@
 import type { DevicePreset } from './devices';
 import type { FeedbackItem } from './feedbackStore';
 import type { Shape } from './annotations';
-import { lineGap, shapeFocusPoint, TOOL_LABELS } from './annotations';
+import { lineGap, shapeFocusPoint, shapeReveal, shapeSelector, TOOL_LABELS } from './annotations';
 
-/** Freitext/Notiz eines Markers, sonst null. */
+/** A marker's free text or note, otherwise null. */
 function noteOf(shape: Shape): string | null {
   if (shape.tool === 'pin' || shape.tool === 'text') return shape.text || null;
   return shape.note ?? null;
 }
 
-/** Eine Zeile pro Eintrag: Notiz (oder Werkzeug), beim Element der Selektor. */
+/** One line per entry: the note (or the tool), and for elements the selector. */
 function lineOf(shape: Shape): string {
   const note = noteOf(shape);
   if (shape.tool === 'element') {
@@ -20,22 +20,34 @@ function lineOf(shape: Shape): string {
 }
 
 /**
- * Verortung eines Markers im Quellcode: CSS-Pfad des markierten bzw. des
- * darunterliegenden Elements. Shadow-DOM-Grenzen stehen als ' >>> ' im Pfad.
- * Freihand kreuzt oft mehrere Elemente — die kommen als Zusatzzeile mit.
+ * Where a marker sits in the source: the CSS path of the marked element, or
+ * of the one beneath it. Shadow DOM boundaries appear as ' >>> ' in the path.
+ * Freehand often crosses several elements — those come along on an extra line.
  */
 function refLinesOf(shape: Shape): string[] {
   const out: string[] = [];
-  const selector = shape.tool === 'element' ? shape.selector : shape.anchor;
+  const selector = shapeSelector(shape);
   if (selector) out.push(`  - selector: \`${selector}\``);
 
-  // Im Element-Picker geaenderter Text — der Sollwert steht als Zitat da.
-  if (shape.tool === 'element' && shape.textChange) {
-    const { from, to } = shape.textChange;
-    out.push(`  - text: "${from}" → "${to}"`);
+  // Directly below the selector: on its own it does not find the element when
+  // that sits behind an interaction (slideout, accordion, form step). This is
+  // exactly the detail an agent would otherwise be missing.
+  const reveal = shapeReveal(shape);
+  if (reveal) {
+    out.push(`  - reveal: click ${reveal.map((s) => `\`${s.label ?? s.sel}\``).join(' → ')}`);
   }
 
-  // Vom Element-Picker vorgeschlagene Stil-Aenderungen als Sollwerte.
+  // Text changed in the element picker — the target value stands there as a
+  // quote. Under class scope it affects every element of the selector; without
+  // that addition an agent would read it as a one-off.
+  if (shape.tool === 'element' && shape.textChange) {
+    const { from, to } = shape.textChange;
+    const scope =
+      shape.textScope === 'class' && shape.styleTarget ? ` on \`${shape.styleTarget}\`` : '';
+    out.push(`  - text${scope}: "${from}" → "${to}"`);
+  }
+
+  // Style changes proposed by the element picker, as target values.
   if (shape.tool === 'element' && shape.styleChanges && shape.styleChanges.length > 0) {
     const scope = shape.styleTarget ? ` on \`${shape.styleTarget}\`` : '';
     for (const c of shape.styleChanges) {
@@ -49,14 +61,14 @@ function refLinesOf(shape: Shape): string[] {
     out.push(`  - also crosses: ${extra.map((sel) => `\`${sel}\``).join(', ')}`);
   }
 
-  // Linienpaare messen einen Abstand — der ist die eigentliche Aussage.
+  // A pair of lines measures a gap — that gap is the actual statement.
   if (shape.tool === 'hline' || shape.tool === 'vline') {
     const gap = lineGap(shape);
     if (gap != null) out.push(`  - spacing: ${Math.round(gap)} px`);
   }
 
-  // Position immer mitgeben: ohne aufloesbaren Selektor ist sie der einzige
-  // Anhaltspunkt, wo auf der Seite die Markierung sitzt.
+  // Always include the position: without a resolvable selector it is the only
+  // clue as to where on the page the marking sits.
   const p = shapeFocusPoint(shape);
   out.push(`  - position: ${Math.round(p.x)}, ${Math.round(p.y)} (document px)`);
   return out;
@@ -80,21 +92,21 @@ function hostOf(url: string): string {
 }
 
 /**
- * Baut aus den Feedback-Eintraegen einer Domain eine Markdown-Liste: nach
- * Seite gruppiert, darin nach Device (mit Viewport-Groesse), jeder Eintrag
- * als GFM-Checkbox (abgehakt = erledigt) samt CSS-Pfad und Position. Damit
- * laesst sich das Feedback in ein Ticket-Tool kippen — oder einer KI
- * vorlegen, die die Stelle im Quellcode finden soll.
+ * Turns the feedback entries of one domain into a Markdown list: grouped by
+ * page, then by device (with viewport size), every entry a GFM checkbox
+ * (ticked = done) along with its CSS path and position. That makes the
+ * feedback easy to tip into a ticket tool — or to hand to an AI that is meant
+ * to find the spot in the source.
  */
 export function feedbackToMarkdown(
   items: FeedbackItem[],
   presets: readonly DevicePreset[],
   /**
-   * Fertiges Share-Fragment (`#ink-feedback=…`, deflate-raw + base64url).
-   * Haengt als zusammenklappbarer Block ans Ende: an eine Seiten-URL
-   * gehaengt stellt es exakt diesen Stand wieder her — der Text darueber ist
-   * fuer Menschen und KI, dieser Block fuer die Extension. Kommt fertig vom
-   * Aufrufer, damit dieses Modul nicht am Store haengt.
+   * The finished share fragment (`#ink-feedback=…`, deflate-raw + base64url).
+   * Appended as a collapsible block at the end: attached to a page URL it
+   * restores exactly this state — the text above is for humans and AI, this
+   * block is for the extension. It arrives ready-made from the caller so this
+   * module does not depend on the store.
    */
   shareHash?: string,
 ): string {

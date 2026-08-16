@@ -2,16 +2,16 @@ import { browser } from 'wxt/browser';
 import { reportContextError } from './extensionContext';
 
 /**
- * Zugriff auf `browser.storage.local` mit Prüfung.
+ * Access to `browser.storage.local`, with a guard.
  *
- * Nach einem Extension-Update/-Reload läuft auf offenen Tabs noch das alte
- * Content-Script, dessen `browser.*`-APIs Chrome dann abräumt: `browser` ist
- * noch da, `browser.storage` aber `undefined`. Ohne diese Hürde platzt der
- * erste Zugriff als „Cannot read properties of undefined (reading 'local')"
- * — ein TypeError, den niemand als das erkennt, was er ist.
+ * After an extension update or reload, open tabs still run the old content
+ * script, whose `browser.*` APIs Chrome then tears down: `browser` is still
+ * there, but `browser.storage` is `undefined`. Without this guard the first
+ * access blows up as "Cannot read properties of undefined (reading 'local')"
+ * — a TypeError nobody recognises for what it actually is.
  *
- * Deshalb wird daraus derselbe Fehler wie beim normalen Invalidierungs-Pfad:
- * die UI zeigt ihren Reload-Hinweis, Lader fallen auf ihre Defaults zurück.
+ * So it is turned into the same error as the regular invalidation path: the
+ * UI shows its reload notice, loaders fall back to their defaults.
  */
 export function storageLocal(): NonNullable<typeof browser.storage>['local'] {
   const area = browser?.storage?.local;

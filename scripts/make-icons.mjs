@@ -1,7 +1,7 @@
 /**
- * Rendert die Icon-SVGs in die PNG-Groessen des Manifests (public/icon/).
- * 16/32 px bekommen das vereinfachte Glyph (icon-small.svg) — die detaillierte
- * Variante ist in der Browser-Leiste nicht mehr erkennbar.
+ * Renders the icon SVGs into the PNG sizes the manifest asks for
+ * (public/icon/). At 16 and 32 px the simplified glyph (icon-small.svg) is
+ * used — the detailed variant is no longer legible in the browser bar.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import puppeteer from 'puppeteer-core';
